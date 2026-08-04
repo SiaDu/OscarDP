@@ -41,6 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     one.add_argument("--dry-run", action="store_true")
     one.add_argument("--save-all-boundary-frames", action="store_true")
     one.add_argument("--save-raw-predictions", action="store_true")
+    one.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="disable stage and frame progress output on stderr",
+    )
 
     validate = subparsers.add_parser("validate", help="validate published movie outputs")
     validate.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
@@ -73,6 +78,7 @@ def handle_process_one(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         save_all_boundary_frames=args.save_all_boundary_frames,
         save_raw_predictions=args.save_raw_predictions,
+        progress=not args.no_progress,
     )
     print(json_dumps(process_one(args.video, options), pretty=True))
     return 0

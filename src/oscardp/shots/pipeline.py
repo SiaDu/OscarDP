@@ -18,6 +18,7 @@ from .media import (
     probe_video,
     scan_timeline,
 )
+from .progress import ProgressReporter
 from .qc import build_contact_sheet, build_qc_summary, select_qc_boundaries
 from .schema import (
     FrameTimeline,
@@ -50,6 +51,7 @@ class ProcessOptions:
     dry_run: bool = False
     save_all_boundary_frames: bool = False
     save_raw_predictions: bool = False
+    progress: bool = True
 
 
 def _write_text_atomic(path: Path, text: str) -> None:
@@ -212,6 +214,7 @@ def _load_or_run_inference(
     work_dir: Path,
     model_sha256: str,
     logger: logging.Logger,
+    progress: ProgressReporter,
 ) -> tuple[VideoMetadata, FrameTimeline, list[float]]:
     resume_dir = work_dir / ".resume"
     metadata_cache = resume_dir / "metadata.json"
@@ -221,17 +224,36 @@ def _load_or_run_inference(
         import numpy as np
 
         logger.info("Resuming cached metadata, timeline, and predictions")
+        progress.stage("[1/5] Resume inference cache")
         metadata = VideoMetadata(**_read_json(metadata_cache))
         timeline = _timeline_from_json(_read_json(timeline_cache))
         predictions = [float(value) for value in np.load(predictions_cache, allow_pickle=False)]
+        progress.finish(f"{len(predictions):,} frames cached")
         return metadata, timeline, predictions
 
+    progress.stage("[1/5] Probe video metadata")
     metadata, _ = probe_video(movie.source_path, movie.source_video_relpath)
+    progress.finish(
+        f"{metadata.width}x{metadata.height} @ {metadata.fps:.3f} fps"
+    )
     logger.info("Scanning decoded frame timestamps")
-    timeline = scan_timeline(movie.source_path, metadata.fps)
+    estimated_count = metadata.frame_count
+    estimated = False
+    if estimated_count is None and metadata.duration_sec > 0:
+        estimated_count = round(metadata.duration_sec * metadata.fps)
+        estimated = True
+    progress.stage("[2/5] Scan decoded timestamps", estimated_count, estimated=estimated)
+    timeline = scan_timeline(movie.source_path, metadata.fps, progress.update)
+    progress.finish(f"{timeline.frame_count:,} decoded frames")
     logger.info("Loading TransNetV2 model sha256=%s", model_sha256)
+    progress.stage("[3/5] Load TransNetV2 model")
     runner = TransNetRunner.load(options.weights, options.device)
-    predictions = infer_stream(decode_transnet_frames(movie.source_path), runner)
+    progress.finish(f"device={runner.device}")
+    progress.stage("[4/5] TransNetV2 inference", timeline.frame_count)
+    predictions = infer_stream(
+        decode_transnet_frames(movie.source_path), runner, progress.update
+    )
+    progress.finish(f"{len(predictions):,} predictions")
     if len(predictions) != timeline.frame_count:
         raise RuntimeError(
             f"PTS count ({timeline.frame_count}) differs from inference decode count ({len(predictions)})"
@@ -259,6 +281,7 @@ def _materialize_frames(
     shots: list[ShotRecord],
     boundaries: list[Boundary],
     selected_qc: list[Boundary],
+    progress: ProgressReporter,
 ) -> list[tuple[Path, Path, str]]:
     keyframes_dir = work_dir / "keyframes"
     boundaries_dir = work_dir / "qc" / "boundaries"
@@ -268,7 +291,9 @@ def _materialize_frames(
     for boundary in selected_qc:
         needed.extend([boundary.frame - 1, boundary.frame])
     extracted_dir = work_dir / ".selected_frames"
-    outputs = extract_selected_frames(movie.source_path, needed, extracted_dir)
+    outputs = extract_selected_frames(
+        movie.source_path, needed, extracted_dir, progress=progress.update
+    )
     frame_map = dict(zip(sorted(set(needed)), outputs))
     for shot in shots:
         shutil.copy2(frame_map[shot.keyframe_frame], work_dir / shot.keyframe_relpath)
@@ -287,6 +312,7 @@ def _materialize_frames(
 
 
 def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
+    progress = ProgressReporter(enabled=options.progress)
     root = options.input_root.resolve()
     video = video_path.resolve()
     relative = video.relative_to(root)
@@ -304,6 +330,7 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
     if options.overwrite and options.resume:
         options = dataclasses.replace(options, resume=False)
     if final_dir.is_dir() and not options.overwrite:
+        progress.stage("[1/1] Validate existing output")
         existing = validate_movie(final_dir)
         if existing.passed:
             row = {
@@ -318,6 +345,7 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
             }
             index_row = {key: value for key, value in row.items() if key != "resumed"}
             _update_index(options.output_root.resolve(), index_row)
+            progress.finish(f"{existing.shot_count:,} shots; already complete")
             return row
         raise RuntimeError("Existing output is incomplete or invalid; use --overwrite")
 
@@ -332,7 +360,7 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
     try:
         logger.info("Processing %s", movie.source_video_relpath)
         metadata, timeline, predictions = _load_or_run_inference(
-            movie, options, work_dir, model_sha256, logger
+            movie, options, work_dir, model_sha256, logger, progress
         )
         boundaries = predictions_to_boundaries(predictions, options.threshold)
         shots = build_shot_records(movie, metadata, timeline, boundaries, options.threshold)
@@ -344,7 +372,17 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
             threshold=options.threshold,
             save_all=options.save_all_boundary_frames,
         )
-        pairs = _materialize_frames(movie, work_dir, shots, boundaries, selected_qc)
+        needed_count = len({shot.keyframe_frame for shot in shots} | {
+            frame
+            for boundary in selected_qc
+            for frame in (boundary.frame - 1, boundary.frame)
+        })
+        progress.stage("[5/5] Extract keyframes and QC", needed_count)
+        pairs = _materialize_frames(
+            movie, work_dir, shots, boundaries, selected_qc, progress
+        )
+        progress.update(needed_count)
+        progress.finish(f"{len(shots):,} shots; validating and publishing")
         build_contact_sheet(pairs, work_dir / "qc" / "boundary_contact_sheet.jpg")
         if options.save_raw_predictions:
             import numpy as np
@@ -398,8 +436,11 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
             if backup is not None and backup.exists():
                 backup.replace(final_dir)
             raise
+        progress.stage("Complete")
+        progress.finish(f"{len(shots):,} shots published to {final_dir}")
         return row
     except Exception as exc:
+        progress.fail(str(exc))
         if logger.handlers:
             logger.exception("Processing failed")
             _close_logger(logger)

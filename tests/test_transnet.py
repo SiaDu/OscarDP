@@ -23,12 +23,14 @@ class FakePredictor:
 def test_streaming_windows_match_length_and_padding() -> None:
     predictor = FakePredictor()
     frames = [bytes([index]) for index in range(74)]
-    predictions = infer_stream(frames, predictor)
+    progress: list[int] = []
+    predictions = infer_stream(frames, predictor, progress.append)
     assert len(predictions) == 74
     assert predictions == [float(index) for index in range(74)]
     assert len(predictor.windows) == 2
     assert predictor.windows[0][:25] == [bytes([0])] * 25
     assert predictor.windows[-1][-1] == bytes([73])
+    assert progress == list(range(1, 75))
 
 
 def test_transition_runs_become_apex_boundaries() -> None:

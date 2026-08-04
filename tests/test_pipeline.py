@@ -49,7 +49,12 @@ def test_process_one_publishes_and_resumes(tmp_path: Path, monkeypatch: pytest.M
     def fake_inference(*args, **kwargs):
         return metadata, timeline, [0.1, 0.1, 0.1, 0.1, 0.1, 0.9, 0.1, 0.1, 0.1, 0.1]
 
-    def fake_extract(video_path: Path, indices: list[int], target_dir: Path) -> list[Path]:
+    def fake_extract(
+        video_path: Path,
+        indices: list[int],
+        target_dir: Path,
+        progress=None,
+    ) -> list[Path]:
         target_dir.mkdir(parents=True, exist_ok=True)
         outputs = []
         for ordinal, _ in enumerate(sorted(set(indices)), 1):

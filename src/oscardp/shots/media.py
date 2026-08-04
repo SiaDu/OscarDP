@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from itertools import pairwise
 from pathlib import Path
 from statistics import median
@@ -73,7 +73,10 @@ def probe_video(video_path: Path, source_video_relpath: str) -> tuple[VideoMetad
     return metadata, stream
 
 
-def iter_frame_timestamps(video_path: Path) -> Iterator[tuple[float, float | None]]:
+def iter_frame_timestamps(
+    video_path: Path,
+    progress: Callable[[int], None] | None = None,
+) -> Iterator[tuple[float, float | None]]:
     require_media_tools()
     command = [
         "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames",
@@ -82,6 +85,7 @@ def iter_frame_timestamps(video_path: Path) -> Iterator[tuple[float, float | Non
     ]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     assert process.stdout is not None
+    frame_count = 0
     for line in process.stdout:
         fields: dict[str, str] = {}
         for item in line.strip().split("|"):
@@ -93,6 +97,9 @@ def iter_frame_timestamps(video_path: Path) -> Iterator[tuple[float, float | Non
             continue
         raw_duration = fields.get("pkt_duration_time")
         duration = None if raw_duration in (None, "N/A") else float(raw_duration)
+        frame_count += 1
+        if progress is not None:
+            progress(frame_count)
         yield float(raw_pts), duration
     stderr = process.stderr.read() if process.stderr else ""
     return_code = process.wait()
@@ -121,8 +128,12 @@ def build_timeline(
     return FrameTimeline(pts, durations, is_vfr, nominal_fps, exclusive_end)
 
 
-def scan_timeline(video_path: Path, nominal_fps: float) -> FrameTimeline:
-    return build_timeline(list(iter_frame_timestamps(video_path)), nominal_fps)
+def scan_timeline(
+    video_path: Path,
+    nominal_fps: float,
+    progress: Callable[[int], None] | None = None,
+) -> FrameTimeline:
+    return build_timeline(list(iter_frame_timestamps(video_path, progress)), nominal_fps)
 
 
 def decode_transnet_frames(video_path: Path) -> Iterator[bytes]:
@@ -154,7 +165,12 @@ def _select_expression(frame_indices: list[int]) -> str:
     return "+".join(f"eq(n\\,{index})" for index in frame_indices)
 
 
-def extract_selected_frames(video_path: Path, frame_indices: list[int], target_dir: Path) -> list[Path]:
+def extract_selected_frames(
+    video_path: Path,
+    frame_indices: list[int],
+    target_dir: Path,
+    progress: Callable[[int], None] | None = None,
+) -> list[Path]:
     require_media_tools()
     unique_indices = sorted(set(frame_indices))
     if target_dir.exists():
@@ -162,13 +178,24 @@ def extract_selected_frames(video_path: Path, frame_indices: list[int], target_d
     target_dir.mkdir(parents=True, exist_ok=True)
     output_pattern = target_dir / "frame_%08d.jpg"
     command = [
-        "ffmpeg", "-y", "-v", "error", "-i", str(video_path), "-map", "0:v:0",
+        "ffmpeg", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
+        "-i", str(video_path), "-map", "0:v:0",
         "-vf", f"select={_select_expression(unique_indices)}", "-vsync", "0",
         "-q:v", "2", str(output_pattern),
     ]
-    process = subprocess.run(command, text=True, capture_output=True, check=False)
-    if process.returncode:
-        raise ExternalToolError(process.stderr.strip() or "FFmpeg selected-frame extraction failed")
+    process = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert process.stdout is not None
+    for line in process.stdout:
+        key, separator, value = line.strip().partition("=")
+        if progress is not None and separator and key == "frame":
+            try:
+                progress(int(value))
+            except ValueError:
+                pass
+    stderr = process.stderr.read() if process.stderr else ""
+    return_code = process.wait()
+    if return_code:
+        raise ExternalToolError(stderr.strip() or "FFmpeg selected-frame extraction failed")
     outputs = sorted(target_dir.glob("frame_*.jpg"))
     if len(outputs) != len(unique_indices):
         raise ExternalToolError(

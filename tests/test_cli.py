@@ -11,3 +11,9 @@ def test_cli_defaults_and_overwrite_exclusion() -> None:
     assert process.output_root == DEFAULT_OUTPUT_ROOT
     assert process.overwrite is True
     assert process.resume is True
+    assert process.no_progress is False
+    quiet = parser.parse_args([
+        "process-one", "--video", "/tmp/movie.mp4", "--weights", "/tmp/model.pth",
+        "--no-progress",
+    ])
+    assert quiet.no_progress is True

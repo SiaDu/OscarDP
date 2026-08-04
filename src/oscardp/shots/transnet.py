@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -67,7 +67,11 @@ class TransNetRunner:
         return [float(value) for value in predictions]
 
 
-def infer_stream(frames: Iterable[bytes], predictor: WindowPredictor) -> list[float]:
+def infer_stream(
+    frames: Iterable[bytes],
+    predictor: WindowPredictor,
+    progress: Callable[[int], None] | None = None,
+) -> list[float]:
     iterator = iter(frames)
     try:
         first = next(iterator)
@@ -75,6 +79,8 @@ def infer_stream(frames: Iterable[bytes], predictor: WindowPredictor) -> list[fl
         raise ValueError("Cannot run TransNetV2 on an empty video") from exc
 
     frame_count = 1
+    if progress is not None:
+        progress(frame_count)
     buffer = [first] * 25 + [first]
     predictions: list[float] = []
     last = first
@@ -82,6 +88,8 @@ def infer_stream(frames: Iterable[bytes], predictor: WindowPredictor) -> list[fl
         buffer.append(frame)
         last = frame
         frame_count += 1
+        if progress is not None:
+            progress(frame_count)
         if len(buffer) == 100:
             predictions.extend(predictor.predict_window(buffer))
             del buffer[:50]
