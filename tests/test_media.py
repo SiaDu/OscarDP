@@ -1,7 +1,12 @@
 import pytest
 
 from oscardp.shots import media
-from oscardp.shots.media import build_timeline, parse_fraction, probe_video
+from oscardp.shots.media import (
+    ExternalToolError,
+    build_timeline,
+    parse_fraction,
+    probe_video,
+)
 
 
 def test_parse_fraction() -> None:
@@ -40,3 +45,10 @@ def test_probe_video_parses_stream(monkeypatch: pytest.MonkeyPatch, tmp_path) ->
     assert metadata.codec_name == "hevc"
     assert metadata.frame_count == 120
     assert metadata.fps == pytest.approx(24000 / 1001)
+
+
+def test_probe_unreadable_video_fails(tmp_path) -> None:
+    video = tmp_path / "broken.mp4"
+    video.write_bytes(b"not a video")
+    with pytest.raises(ExternalToolError):
+        probe_video(video, "broken.mp4")

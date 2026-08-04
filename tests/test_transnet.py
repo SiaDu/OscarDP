@@ -1,6 +1,13 @@
+from pathlib import Path
+
+import pytest
 import torch
 
-from oscardp.shots.transnet import infer_stream, predictions_to_boundaries
+from oscardp.shots.transnet import (
+    TransNetRunner,
+    infer_stream,
+    predictions_to_boundaries,
+)
 from oscardp.vendor.transnetv2_pytorch import TransNetV2
 
 
@@ -42,3 +49,8 @@ def test_vendored_model_accepts_official_input_shape() -> None:
         logits, extra = model(frames)
     assert tuple(logits.shape) == (1, 100, 1)
     assert tuple(extra["many_hot"].shape) == (1, 100, 1)
+
+
+def test_missing_weights_fail_before_model_load(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="weights not found"):
+        TransNetRunner.load(tmp_path / "missing.pth", "cpu")

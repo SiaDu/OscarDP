@@ -5,3 +5,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .coverage
+*.pth
+*.log
+*.tmp
+data/smoke_test/input/
+data/smoke_test/output/

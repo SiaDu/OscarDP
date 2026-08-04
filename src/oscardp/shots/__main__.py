@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from .discovery import discover_movies
+from .export import export_shots_csv
 from .pipeline import ProcessOptions, process_one
 from .schema import json_dumps
 from .validation import validate_output_root
@@ -44,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate", help="validate published movie outputs")
     validate.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     validate.add_argument("--movie-key")
+
+    export_csv = subparsers.add_parser(
+        "export-csv", help="export an existing shots.jsonl on demand"
+    )
+    export_csv.add_argument("--movie-dir", type=Path, required=True)
+    export_csv.add_argument("--output", type=Path)
     return parser
 
 
@@ -83,6 +90,12 @@ def handle_validate(args: argparse.Namespace) -> int:
     return 0 if passed else 1
 
 
+def handle_export_csv(args: argparse.Namespace) -> int:
+    output = export_shots_csv(args.movie_dir, args.output)
+    print(output)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -93,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
             return handle_process_one(args)
         if args.command == "validate":
             return handle_validate(args)
+        if args.command == "export-csv":
+            return handle_export_csv(args)
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

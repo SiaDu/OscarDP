@@ -77,3 +77,12 @@ published atomically. `--overwrite` moves prior output into
 ```
 
 Failed rows use `status="failed"`, `output_relpath=null`, and a non-null error.
+
+## CSV export
+
+`shots.jsonl` remains the only primary shot dataset. When interoperability or
+an acceptance check requires CSV, `python -m oscardp.shots export-csv
+--movie-dir PATH` creates `shots.csv` on demand from the existing JSONL. The
+export has the same record count and top-level fields; the nested `model`
+object is encoded as compact JSON in its CSV cell. Normal processing does not
+create or maintain CSV.
