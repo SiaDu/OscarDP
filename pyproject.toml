@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oscardp"
+version = "0.1.0"
+description = "Shot-boundary detection and QC pipeline for OscarDP"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=1.26,<3",
+  "Pillow>=10,<12",
+  "torch>=2.2,<3",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+exclude = ["src/oscardp/vendor/transnetv2_pytorch.py"]
