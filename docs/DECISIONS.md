@@ -30,6 +30,28 @@ A maximal run above the threshold becomes one boundary at the run's
 highest-confidence frame. This differs intentionally from the upstream
 inclusive scene helper so OscarDP can preserve gap-free, end-exclusive ranges.
 
+Weights are intentionally loaded into host memory with
+`torch.load(..., map_location="cpu")`, then strictly applied before the model is
+moved to its selected device. This limits transient GPU memory use and does not
+imply CPU inference. `auto` selects `cuda:0` when CUDA is available; explicit
+`cuda` fails rather than falling back when CUDA is unavailable. Model execution
+uses `torch.inference_mode()`.
+
+The process log records the Python and PyTorch runtime, requested and selected
+devices, actual model and first-input devices, GPU identity/capability, model
+load time, model-only inference time, inference-stage time including frame
+decode, CUDA peak allocated memory, and total pipeline time. CUDA timings are
+bounded by synchronization calls. These operational metrics do not change any
+dataset JSON/JSONL schema.
+
+## CUDA dependency
+
+The project pins PyTorch 2.13.0 in `pyproject.toml`. WSL CUDA installations use
+`requirements-cu126.txt`, which points only the PyTorch installation at the
+official CUDA 12.6 wheel index. The project does not use uv yet, so it does not
+carry `tool.uv.sources` or a synthetic `uv.lock`; those will be added together
+only if uv becomes the project's verified dependency workflow.
+
 ## Time and frame semantics
 
 Frame PTS values come from an ffprobe decoded-frame scan and are normalized so

@@ -3,10 +3,12 @@ from pathlib import Path
 import pytest
 import torch
 
+from oscardp import vendor
 from oscardp.shots.transnet import (
     TransNetRunner,
     infer_stream,
     predictions_to_boundaries,
+    select_device,
 )
 from oscardp.vendor.transnetv2_pytorch import TransNetV2
 
@@ -56,3 +58,52 @@ def test_vendored_model_accepts_official_input_shape() -> None:
 def test_missing_weights_fail_before_model_load(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="weights not found"):
         TransNetRunner.load(tmp_path / "missing.pth", "cpu")
+
+
+def test_device_selection(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert str(select_device("auto")) == "cpu"
+    with pytest.raises(RuntimeError, match="CUDA was requested"):
+        select_device("cuda")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    assert str(select_device("auto")) == "cuda:0"
+    assert str(select_device("cuda")) == "cuda:0"
+
+
+class TinyTransNet(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.scale = torch.nn.Parameter(torch.ones(()))
+        self.used_inference_mode = False
+
+    def forward(self, frames: torch.Tensor):
+        self.used_inference_mode = torch.is_inference_mode_enabled()
+        logits = torch.zeros((1, 100, 1), device=frames.device) * self.scale
+        return logits, {"many_hot": logits}
+
+
+def test_load_keeps_cpu_map_location_and_inference_devices_match(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    weights = tmp_path / "weights.pth"
+    weights.write_bytes(b"weights")
+    expected_state = TinyTransNet().state_dict()
+    observed: dict[str, object] = {}
+
+    def fake_load(path, *, map_location, weights_only):
+        observed["map_location"] = map_location
+        observed["weights_only"] = weights_only
+        return expected_state
+
+    monkeypatch.setattr(vendor.transnetv2_pytorch, "TransNetV2", TinyTransNet)
+    monkeypatch.setattr(torch, "load", fake_load)
+    runner = TransNetRunner.load(weights, "cpu", model_sha256="known-sha")
+    runner.reset_inference_metrics()
+    frame = bytes(27 * 48 * 3)
+    predictions = runner.predict_window([frame] * 100)
+
+    assert observed == {"map_location": "cpu", "weights_only": True}
+    assert runner.model_device == "cpu"
+    assert runner.input_device == "cpu"
+    assert runner.model.used_inference_mode is True
+    assert predictions == [0.5] * 50

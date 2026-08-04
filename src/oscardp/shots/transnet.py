@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,25 +26,54 @@ def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
     return digest.hexdigest()
 
 
+def select_device(device_name: str) -> Any:
+    import torch
+
+    if device_name not in {"auto", "cpu", "cuda"}:
+        raise ValueError(f"Unsupported device: {device_name}")
+    if device_name == "auto":
+        return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    if device_name == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA was requested but torch.cuda.is_available() is false")
+        return torch.device("cuda:0")
+    return torch.device("cpu")
+
+
 class TransNetRunner:
-    def __init__(self, model: Any, device: Any, model_sha256: str):
+    def __init__(
+        self,
+        model: Any,
+        device: Any,
+        model_sha256: str,
+        *,
+        requested_device: str,
+        model_load_sec: float,
+    ):
         self.model = model
         self.device = device
         self.model_sha256 = model_sha256
+        self.requested_device = requested_device
+        self.model_load_sec = model_load_sec
+        self.model_device = str(next(model.parameters()).device)
+        self.input_device: str | None = None
+        self.model_inference_sec = 0.0
 
     @classmethod
-    def load(cls, weights_path: Path, device_name: str = "auto") -> TransNetRunner:
+    def load(
+        cls,
+        weights_path: Path,
+        device_name: str = "auto",
+        model_sha256: str | None = None,
+    ) -> TransNetRunner:
         if not weights_path.is_file():
             raise FileNotFoundError(f"TransNetV2 weights not found: {weights_path}")
         import torch
 
         from oscardp.vendor.transnetv2_pytorch import TransNetV2
 
-        if device_name == "auto":
-            device_name = "cuda" if torch.cuda.is_available() else "cpu"
-        if device_name == "cuda" and not torch.cuda.is_available():
-            raise RuntimeError("CUDA was requested but torch.cuda.is_available() is false")
-        device = torch.device(device_name)
+        device = select_device(device_name)
+        load_started = time.perf_counter()
         model = TransNetV2()
         try:
             state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
@@ -51,7 +81,33 @@ class TransNetRunner:
             state_dict = torch.load(weights_path, map_location="cpu")
         model.load_state_dict(state_dict, strict=True)
         model.eval().to(device)
-        return cls(model, device, sha256_file(weights_path))
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        model_load_sec = time.perf_counter() - load_started
+        return cls(
+            model,
+            device,
+            model_sha256 or sha256_file(weights_path),
+            requested_device=device_name,
+            model_load_sec=model_load_sec,
+        )
+
+    def reset_inference_metrics(self) -> None:
+        import torch
+
+        self.input_device = None
+        self.model_inference_sec = 0.0
+        if self.device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(self.device)
+            torch.cuda.synchronize(self.device)
+
+    def peak_memory_allocated(self) -> int:
+        if self.device.type != "cuda":
+            return 0
+        import torch
+
+        torch.cuda.synchronize(self.device)
+        return int(torch.cuda.max_memory_allocated(self.device))
 
     def predict_window(self, frames: list[bytes]) -> list[float]:
         if len(frames) != 100:
@@ -60,10 +116,24 @@ class TransNetRunner:
         import torch
 
         array = np.frombuffer(b"".join(frames), dtype=np.uint8).reshape(1, 100, 27, 48, 3).copy()
+        if self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)
+        inference_started = time.perf_counter()
         tensor = torch.from_numpy(array).to(self.device)
-        with torch.no_grad():
+        actual_input_device = str(tensor.device)
+        if actual_input_device != self.model_device:
+            raise RuntimeError(
+                f"TransNetV2 model is on {self.model_device}, input tensor is on "
+                f"{actual_input_device}"
+            )
+        if self.input_device is None:
+            self.input_device = actual_input_device
+        with torch.inference_mode():
             logits, _ = self.model(tensor)
             predictions = torch.sigmoid(logits)[0, 25:75, 0].detach().cpu().tolist()
+        if self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)
+        self.model_inference_sec += time.perf_counter() - inference_started
         return [float(value) for value in predictions]
 
 

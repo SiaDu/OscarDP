@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import shutil
+import sys
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from itertools import pairwise
@@ -247,11 +249,48 @@ def _load_or_run_inference(
     progress.finish(f"{timeline.frame_count:,} decoded frames")
     logger.info("Loading TransNetV2 model sha256=%s", model_sha256)
     progress.stage("[3/5] Load TransNetV2 model")
-    runner = TransNetRunner.load(options.weights, options.device)
+    runner = TransNetRunner.load(options.weights, options.device, model_sha256)
     progress.finish(f"device={runner.device}")
+    import torch
+
+    gpu_name = None
+    gpu_capability = None
+    if runner.device.type == "cuda":
+        gpu_name = torch.cuda.get_device_name(runner.device)
+        gpu_capability = torch.cuda.get_device_capability(runner.device)
+    logger.info(
+        "Runtime python=%s torch=%s cuda_runtime=%s requested_device=%s "
+        "selected_device=%s gpu_name=%s gpu_capability=%s",
+        sys.executable,
+        torch.__version__,
+        torch.version.cuda,
+        options.device,
+        runner.device,
+        gpu_name,
+        gpu_capability,
+    )
+    logger.info(
+        "Model weights=%s sha256=%s model_device=%s model_load_sec=%.6f",
+        options.weights.resolve(),
+        runner.model_sha256,
+        runner.model_device,
+        runner.model_load_sec,
+    )
     progress.stage("[4/5] TransNetV2 inference", timeline.frame_count)
+    runner.reset_inference_metrics()
+    inference_stage_started = time.perf_counter()
     predictions = infer_stream(
         decode_transnet_frames(movie.source_path), runner, progress.update
+    )
+    inference_stage_sec = time.perf_counter() - inference_stage_started
+    peak_memory_bytes = runner.peak_memory_allocated()
+    logger.info(
+        "Inference input_device=%s model_inference_sec=%.6f "
+        "inference_stage_sec=%.6f peak_memory_allocated_bytes=%d",
+        runner.input_device,
+        runner.model_inference_sec,
+        inference_stage_sec,
+        peak_memory_bytes,
     )
     progress.finish(f"{len(predictions):,} predictions")
     if len(predictions) != timeline.frame_count:
@@ -312,6 +351,7 @@ def _materialize_frames(
 
 
 def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
+    pipeline_started = time.perf_counter()
     progress = ProgressReporter(enabled=options.progress)
     root = options.input_root.resolve()
     video = video_path.resolve()
@@ -364,6 +404,12 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
         )
         boundaries = predictions_to_boundaries(predictions, options.threshold)
         shots = build_shot_records(movie, metadata, timeline, boundaries, options.threshold)
+        logger.info(
+            "Detection transitions=%d shots=%d threshold=%.6f",
+            len(boundaries),
+            len(shots),
+            options.threshold,
+        )
         _write_json(work_dir / "video_metadata.json", metadata)
         _write_shots(work_dir / "shots.jsonl", shots)
         selected_qc = select_qc_boundaries(
@@ -436,10 +482,15 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
             if backup is not None and backup.exists():
                 backup.replace(final_dir)
             raise
+        total_sec = time.perf_counter() - pipeline_started
+        published_logger = _make_logger(final_dir / "logs" / "process.log")
+        published_logger.info("Pipeline total_sec=%.6f", total_sec)
+        _close_logger(published_logger)
         progress.stage("Complete")
         progress.finish(f"{len(shots):,} shots published to {final_dir}")
         return row
     except Exception as exc:
+        logger.info("Pipeline failed total_sec=%.6f", time.perf_counter() - pipeline_started)
         progress.fail(str(exc))
         if logger.handlers:
             logger.exception("Processing failed")
