@@ -184,8 +184,12 @@ def build_composite_audit(
     _write_jsonl(output_path, audit)
     summary = {
         "schema_version": "1.0", "total_flagged": len(audit),
-        "multi_request_count": sum("multi_request" in row["reason_flags"] for row in audit),
-        "one_block_underselection_count": sum("one_block_with_two_adjacent_overlaps" in row["reason_flags"] or "automatic_mapping_has_more_blocks" in row["reason_flags"] for row in audit),
+        "multi_request_count": len({row["request_id"] for row in audit if "multi_request" in row["reason_flags"]}),
+        "one_block_underselection_count": sum(
+            len(row["openai_selected_blocks"]) == 1
+            and ("one_block_with_two_adjacent_overlaps" in row["reason_flags"] or "automatic_mapping_has_more_blocks" in row["reason_flags"])
+            for row in audit
+        ),
         "uncertain_count": sum("uncertain" in row["reason_flags"] for row in audit),
         "low_confidence_count": sum("low_confidence" in row["reason_flags"] for row in audit),
     }

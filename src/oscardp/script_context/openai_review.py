@@ -197,7 +197,8 @@ def validate_resolution(response: dict[str, Any], request: dict[str, Any]) -> li
     if actual != requested:
         errors.append("subtitle resolutions must exactly match request order")
     candidate_order = {item["block_id"]: index for index, item in enumerate(request.get("dialogue_candidates", []))}
-    last_order = -1
+    previous_start: int | None = None
+    previous_end: int | None = None
     for item in resolutions:
         if not isinstance(item, dict):
             errors.append("resolution must be an object"); continue
@@ -222,10 +223,11 @@ def validate_resolution(response: dict[str, Any], request: dict[str, Any]) -> li
         scenes = {next(candidate["scene_id"] for candidate in request["dialogue_candidates"] if candidate["block_id"] == block_id) for block_id in block_ids}
         if len(scenes) > 1:
             errors.append(f"selected blocks cross scenes for {item.get('subtitle_id')}")
-        if orders and orders[0] < last_order:
-            errors.append("non-monotonic block selection")
         if orders:
-            last_order = orders[-1]
+            current_start, current_end = orders[0], orders[-1]
+            if previous_start is not None and previous_end is not None and (current_start < previous_start or current_end < previous_end):
+                errors.append("non-monotonic block selection")
+            previous_start, previous_end = current_start, current_end
     return errors
 
 

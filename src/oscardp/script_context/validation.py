@@ -55,7 +55,7 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
         scene_id = row.get("scene_id")
         if scene_id is not None and scene_id not in known_scenes:
             errors.append(f"unknown alignment scene_id: {scene_id}")
-        if scene_id is not None and row.get("alignment", {}).get("status") in {"auto_aligned", "llm_aligned"}:
+        if scene_id is not None and row.get("alignment", {}).get("reliable_anchor") is True:
             current = scene_order[scene_id]
             if current < last_scene_index:
                 errors.append(f"alignment sequence retreats at {row.get('subtitle_id')}")

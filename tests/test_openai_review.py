@@ -24,6 +24,8 @@ from oscardp.script_context.openai_review import (
 )
 from oscardp.script_context.openai_schema import alignment_response_schema
 from oscardp.script_context.pilot import prepare_pilot
+from oscardp.script_context.shot_mapping import map_shots
+from oscardp.script_context.validation import validate_data
 from oscardp.shots.schema import json_dumps
 
 
@@ -97,6 +99,44 @@ def test_non_monotonic_block_selection_is_rejected() -> None:
     req = request(1, "multi", 1)
     req["dialogue_candidates"].append({"scene_id": "scene_001", "block_id": "scene_001_dialogue_002", "screenplay_order": 2, "speaker": "HART", "text": "two"})
     response = valid_response(req); response["resolutions"][0]["block_ids"] = ["scene_001_dialogue_002"]; response["resolutions"][1]["block_ids"] = ["scene_001_dialogue_001"]
+    assert "non-monotonic block selection" in validate_resolution(response, req)
+
+
+def interval_request(spans: list[list[int]]) -> tuple[dict, dict]:
+    req = request(1, "easy", 1)
+    req["subtitle_ids"] = [f"subtitle_{index + 1:06d}" for index in range(len(spans))]
+    req["dialogue_candidates"] = [
+        {"scene_id": "scene_001", "block_id": f"block_{index}", "screenplay_order": index, "speaker": "HART", "text": f"candidate {index}"}
+        for index in range(6)
+    ]
+    response = {
+        "request_id": req["request_id"],
+        "resolutions": [{
+            "subtitle_id": subtitle_id, "decision": "match",
+            "block_ids": [f"block_{index}" for index in span],
+            "confidence": .9, "decision_basis": "substring_or_minor_edit",
+        } for subtitle_id, span in zip(req["subtitle_ids"], spans)],
+    }
+    return req, response
+
+
+@pytest.mark.parametrize("spans", [
+    [[1], [1]],
+    [[1, 2], [1, 2]],
+    [[0, 1], [1, 2]],
+    [[0, 1], [2, 3], [2, 3]],
+])
+def test_interval_monotonicity_allows_reuse_and_forward_overlap(spans: list[list[int]]) -> None:
+    req, response = interval_request(spans)
+    assert "non-monotonic block selection" not in validate_resolution(response, req)
+
+
+@pytest.mark.parametrize("spans", [
+    [[2, 3], [1, 2]],
+    [[0, 1, 2], [1]],
+])
+def test_interval_monotonicity_rejects_start_or_end_regression(spans: list[list[int]]) -> None:
+    req, response = interval_request(spans)
     assert "non-monotonic block selection" in validate_resolution(response, req)
 
 
@@ -206,6 +246,21 @@ def test_reviewed_status_counts_total_all_blue_moon_rows() -> None:
     assert diagnostics["status_total"] == 1839
     assert sum(diagnostics["status_counts"].values()) == 1839
     assert diagnostics["llm_aligned"] == 90 and diagnostics["llm_no_match"] == 10
+
+
+def test_global_validation_advances_only_reliable_anchors() -> None:
+    context = tiny_context()
+    rows = [baseline_row(index) for index in range(1, 4)]
+    rows[0]["alignment"].update(status="auto_aligned", needs_review=False, reliable_anchor=True, script_order_start=1, script_order_end=1)
+    rows[0]["script_matches"] = [{"block_id": "scene_001_dialogue_002", "speaker": "HART", "matched_text": "dialogue 2", "combined_score": .9}]
+    rows[1]["alignment"].update(status="llm_aligned", needs_review=False, reliable_anchor=False, script_order_start=0, script_order_end=0)
+    rows[1]["script_matches"] = [{"block_id": "scene_001_dialogue_001", "speaker": "HART", "matched_text": "dialogue 1", "combined_score": .9}]
+    rows[2]["alignment"].update(status="auto_aligned", needs_review=False, reliable_anchor=True, script_order_start=2, script_order_end=2)
+    rows[2]["script_matches"] = [{"block_id": "scene_001_dialogue_003", "speaker": "HART", "matched_text": "dialogue 3", "combined_score": .9}]
+    shots = [shot(index) for index in range(1, 4)]
+    mapped = map_shots(shots, rows, context, "tt1")
+    result = validate_data(context, rows, mapped, shots)
+    assert result.passed, result.errors
 
 
 def test_evaluate_pilot_reports_complete_metrics(tmp_path: Path) -> None:

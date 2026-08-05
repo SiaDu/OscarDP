@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from oscardp.script_context.stage23 import merge_validated_responses, prepare_remaining_requests
+from oscardp.script_context.stage23 import build_composite_audit, merge_validated_responses, prepare_remaining_requests
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -87,3 +87,21 @@ def test_merge_rejects_duplicate_missing_and_foreign_requests(tmp_path: Path, ki
     write_jsonl(pilot, pilot_rows); write_jsonl(remaining, remaining_rows)
     with pytest.raises(ValueError):
         merge_validated_responses(full, pilot, remaining, tmp_path / "out.jsonl", tmp_path / "report.json")
+
+
+def test_composite_summary_counts_unique_multi_requests_and_true_one_block_underselection(tmp_path: Path) -> None:
+    item = request(1)
+    item["subtitle_ids"] = ["subtitle_000001", "subtitle_000002"]
+    item["subtitles"] = [{"subtitle_id": subtitle_id, "text": "candidate zero candidate one", "time": {"start_sec": index, "end_sec": index + .5}} for index, subtitle_id in enumerate(item["subtitle_ids"])]
+    item["dialogue_candidates"] = [
+        {"scene_id": "scene_001", "block_id": f"block_{index}", "screenplay_order": index, "speaker": "HART", "text": f"candidate {'zero' if index == 0 else 'one'}"}
+        for index in range(2)
+    ]
+    item["automatic_candidate_mappings"] = [{"subtitle_id": subtitle_id, "matches": [{"block_id": "block_0"}, {"block_id": "block_1"}], "alignment": {"method": "rapidfuzz_multi_block", "status": "needs_review"}} for subtitle_id in item["subtitle_ids"]]
+    result = {"request_id": item["request_id"], "resolutions": [{"subtitle_id": subtitle_id, "decision": "match", "block_ids": ["block_0"], "confidence": .9, "decision_basis": "substring_or_minor_edit"} for subtitle_id in item["subtitle_ids"]]}
+    requests, responses = tmp_path / "requests.jsonl", tmp_path / "responses.jsonl"
+    write_jsonl(requests, [item]); write_jsonl(responses, [result])
+    summary = build_composite_audit(requests, responses, tmp_path / "audit.jsonl", tmp_path / "summary.json")
+    assert summary["total_flagged"] == 2
+    assert summary["multi_request_count"] == 1
+    assert summary["one_block_underselection_count"] == 2
