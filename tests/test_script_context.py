@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import fitz
@@ -120,11 +121,47 @@ def test_subtitle_crosses_shots_and_same_scene_interpolation() -> None:
     assert rows[2]["scene"]["scene_id"] == "scene_001"
 
 
+def interpolated_fixture() -> tuple[dict, list[dict], list[dict], list[dict]]:
+    context = _context([("A", "hello there my friend"), ("A", "we meet once again")])
+    alignments = align_subtitles([_sub(1, "hello there my friend", .1, .5), _sub(2, "we meet once again", 2.5, 2.9)], context, "tt1234567")
+    shots = [_shot(1, 0, 1), _shot(2, 1, 2), _shot(3, 2, 3)]
+    return context, alignments, shots, map_shots(shots, alignments, context, "tt1234567", 10)
+
+
+def test_interpolated_shot_has_no_direct_scene_evidence_and_inherits_confidence() -> None:
+    context, alignments, shots, rows = interpolated_fixture()
+    interpolated = rows[1]
+    assert interpolated["scene"]["method"] == "same_scene_interpolation"
+    assert interpolated["scene"]["scene_id"] == "scene_001"
+    assert interpolated["scene"]["confidence"] == min(rows[0]["scene"]["confidence"], rows[2]["scene"]["confidence"])
+    assert interpolated["scene_candidates"] == [] and interpolated["scene_transition"] is False
+    assert interpolated["subtitles"] == [] and interpolated["script_matches"] == []
+    assert interpolated["alignment"] == {"status": "interpolated", "needs_review": False}
+    assert validate_data(context, alignments, rows, shots).passed
+
+
+@pytest.mark.parametrize("mutation", ["candidate", "transition", "subtitles", "matches"])
+def test_validator_rejects_interpolated_direct_evidence_or_transition(mutation: str) -> None:
+    context, alignments, shots, rows = interpolated_fixture()
+    invalid = deepcopy(rows)
+    row = invalid[1]
+    if mutation == "candidate":
+        row["scene_candidates"] = [{"scene_id": "scene_001", "screenplay_scene_id": "1", "overlap_sec": 0., "confidence": 1.}]
+    elif mutation == "transition":
+        row["scene_transition"] = True
+    elif mutation == "subtitles":
+        row["subtitles"] = [{"subtitle_id": "subtitle_000001"}]
+    else:
+        row["script_matches"] = [{"block_id": "scene_001_dialogue_001"}]
+    assert not validate_data(context, alignments, invalid, shots).passed
+
+
 def test_no_cross_scene_interpolation() -> None:
     context = _context([("A", "hello"), ("B", "goodbye")], second_scene=True)
     alignments = align_subtitles([_sub(1, "hello", 0, 0.5), _sub(2, "goodbye", 2.5, 3)], context, "tt1234567")
     rows = map_shots([_shot(1, 0, 1), _shot(2, 1, 2), _shot(3, 2, 3)], alignments, context, "tt1234567", 10)
     assert rows[1]["scene"] is None
+    assert rows[1]["scene_candidates"] == [] and rows[1]["scene_transition"] is False
 
 
 BLUE_MOON_TRANSITION_PATTERNS = [
@@ -158,6 +195,15 @@ def test_blue_moon_scene_transition_patterns_use_global_order_and_primary_local_
     local_ids = [block_id for values in row["local_script_context"].values() for block_id in values]
     assert all(block_id.startswith(primary_scene + "_") for block_id in local_ids)
     assert validate_data(context, alignments, mapped, [shot_row]).passed
+
+
+def test_direct_single_scene_shot_has_one_positive_evidence_candidate() -> None:
+    context = _context([("A", "hello")])
+    alignments = [{"subtitle_id": "subtitle_000001", "alignment_group_id": "a1", "time": {"start_sec": 0., "end_sec": .8}, "text": "hello", "scene_id": "scene_001", "script_matches": [{"block_id": "scene_001_dialogue_001", "speaker": "A", "combined_score": .9}], "alignment": {"status": "llm_aligned", "needs_review": False, "reliable_anchor": False, "script_order_start": 0, "script_order_end": 0}}]
+    row = map_shots([_shot(1, 0, 1)], alignments, context, "tt1234567")[0]
+    assert row["scene"]["method"] == "subtitle_script_alignment"
+    assert row["scene_transition"] is False and len(row["scene_candidates"]) == 1
+    assert row["scene_candidates"][0]["overlap_sec"] > 0 and row["scene_candidates"][0]["confidence"] == 1.0
 
 
 def test_shot_validation_rejects_cross_scene_action_and_bad_transition_metadata() -> None:

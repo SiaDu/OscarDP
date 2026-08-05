@@ -28,8 +28,16 @@ def test_non_anchor_audit_attributes_regressions_to_llm_rows(tmp_path: Path) -> 
     ])
     summary = build_non_anchor_sequence_audit(alignment, tmp_path / "audit.jsonl", tmp_path / "summary.json")
     assert summary["record_count"] == 2
-    assert summary["subtitle_ids"] == ["subtitle_000862", "subtitle_001715"]
+    assert summary["schema_version"] == "2.0"
+    assert summary["review_target_subtitle_ids"] == ["subtitle_000862", "subtitle_001715"]
+    assert summary["regression_trigger_subtitle_ids"] == ["subtitle_000863", "subtitle_001715"]
     assert summary["start_regression_count"] == 1 and summary["end_regression_count"] == 1
+    rows = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text().splitlines()]
+    assert rows[0]["review_target_role"] == "previous" and rows[1]["review_target_role"] == "current"
+    assert rows[0]["sequence_previous"]["subtitle_id"] == "subtitle_000862"
+    assert rows[0]["sequence_current"]["subtitle_id"] == "subtitle_000863"
+    ambiguous = {"previous_subtitle_id", "previous_text", "previous_span", "subtitle_id", "subtitle_text", "subtitle_time", "sequence_current_subtitle_id", "current_span", "scene_id", "block_ids", "status", "reliable_anchor"}
+    assert not (ambiguous & set(rows[0]))
 
 
 def test_human_audit_v2_is_self_contained_and_has_null_labels(tmp_path: Path) -> None:

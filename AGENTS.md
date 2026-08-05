@@ -429,6 +429,18 @@ Do not run the full dataset until one test movie passes manual inspection.
 
 ## 16. Later stages
 
+### Stage 2 reviewed-shot QC
+
+In reviewed shot context, `scene_candidates` contains direct subtitle/script
+overlap evidence only. A shot assigned with `same_scene_interpolation` must keep
+its inherited confidence in `scene.confidence` and use
+`scene_candidates: []`; do not manufacture zero-overlap candidates.
+
+Non-anchor sequence audit schema 2.0 distinguishes
+`review_target_subtitle_id` from `regression_trigger_subtitle_id`. Preserve both
+roles when building human-review packages and never change model decisions as a
+side effect of the audit.
+
 ### Shot scale
 
 Target labels:

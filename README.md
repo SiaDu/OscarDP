@@ -126,9 +126,16 @@ Reviewed shot context uses global screenplay block order. Every row includes
 legacy `scene` field remains the primary scene, the alignment is explicitly
 marked `scene_transition`, and `local_script_context` contains actions from the
 primary scene only; actions from multiple scenes are never mixed in that field.
+`scene_candidates` represents direct subtitle/script overlap evidence only.
+Shots assigned by same-scene interpolation therefore use an empty
+`scene_candidates` array; their inherited confidence remains in
+`scene.confidence` and is not presented as synthetic overlap evidence.
 
 Non-anchor span regressions are exported for human review rather than rejected
 globally. `build-openai-human-audit-v2` creates a self-contained provisional
 audit package with null human-label fields. After those fields are completed,
 `apply-human-corrections` validates every edit against the original request
 candidates and writes only a new explicitly tagged alignment and shot context.
+Non-anchor audit schema 2.0 separately names the human `review_target` and the
+sequence `regression_trigger`, so a previous LLM mapping selected for review is
+never confused with the current subtitle that exposes the regression.

@@ -28,29 +28,32 @@ def build_non_anchor_sequence_audit(alignment_path: Path, output_path: Path, sum
             reasons.append("end_regression")
         if not reasons:
             continue
-        subject = current if current.get("alignment", {}).get("llm_resolution") else previous if previous.get("alignment", {}).get("llm_resolution") else current
+        previous_has_llm = bool(previous.get("alignment", {}).get("llm_resolution"))
+        current_has_llm = bool(current.get("alignment", {}).get("llm_resolution"))
+        subject, target_role = (current, "current") if current_has_llm or not previous_has_llm else (previous, "previous")
+        def sequence_row(row: dict[str, Any], start: int, end: int) -> dict[str, Any]:
+            return {
+                "subtitle_id": row["subtitle_id"], "text": row["text"], "time": row["time"],
+                "span": {"start": start, "end": end}, "scene_id": row.get("scene_id"),
+                "block_ids": [match["block_id"] for match in row["script_matches"]],
+                "status": row["alignment"]["status"], "reliable_anchor": row["alignment"].get("reliable_anchor"),
+            }
         audit.append({
-            "previous_subtitle_id": previous["subtitle_id"], "previous_text": previous["text"],
-            "previous_span": {"start": previous_start, "end": previous_end},
-            "previous_scene_id": previous.get("scene_id"),
-            "previous_block_ids": [match["block_id"] for match in previous["script_matches"]],
-            "previous_status": previous["alignment"]["status"],
-            "previous_reliable_anchor": previous["alignment"].get("reliable_anchor"),
-            "subtitle_id": subject["subtitle_id"], "subtitle_text": subject["text"], "subtitle_time": subject["time"],
-            "sequence_current_subtitle_id": current["subtitle_id"],
-            "current_span": {"start": current_start, "end": current_end},
-            "scene_id": current.get("scene_id"),
-            "block_ids": [match["block_id"] for match in current["script_matches"]],
-            "status": current["alignment"]["status"],
-            "reliable_anchor": current["alignment"].get("reliable_anchor"),
+            "schema_version": "2.0",
+            "review_target_subtitle_id": subject["subtitle_id"], "review_target_text": subject["text"],
+            "review_target_time": subject["time"], "review_target_role": target_role,
+            "regression_trigger_subtitle_id": current["subtitle_id"],
+            "sequence_previous": sequence_row(previous, previous_start, previous_end),
+            "sequence_current": sequence_row(current, current_start, current_end),
             "reason_flags": reasons,
         })
     _write_jsonl(output_path, audit)
     summary = {
-        "schema_version": "1.0", "record_count": len(audit),
+        "schema_version": "2.0", "record_count": len(audit),
         "start_regression_count": sum("start_regression" in row["reason_flags"] for row in audit),
         "end_regression_count": sum("end_regression" in row["reason_flags"] for row in audit),
-        "subtitle_ids": [row["subtitle_id"] for row in audit],
+        "review_target_subtitle_ids": [row["review_target_subtitle_id"] for row in audit],
+        "regression_trigger_subtitle_ids": [row["regression_trigger_subtitle_id"] for row in audit],
         "source_alignment_sha256": hashlib.sha256(alignment_path.read_bytes()).hexdigest(),
     }
     _write_json(summary_path, summary)
@@ -81,7 +84,7 @@ def build_human_audit_v2(
     response_by_id = {response["request_id"]: response for response in responses}
     alignment_index = {row["subtitle_id"]: index for index, row in enumerate(alignments)}
     composite_by_key = {(row["request_id"], row["subtitle_id"]): row for row in composite}
-    regression_ids = {row["subtitle_id"] for row in regressions}
+    regression_ids = {row["review_target_subtitle_id"] for row in regressions}
     prior_sample_reasons = {
         (row["request_id"], row["subtitle_id"]): [reason for reason in row.get("inclusion_reasons", []) if reason.startswith("deterministic_sample_")]
         for row in prior
@@ -137,7 +140,7 @@ def build_human_audit_v2(
         "matched_shots", "inclusion_reasons", "human_decision", "human_block_ids", "reviewer_notes", "review_status",
     ]
     manifest = {
-        "schema_version": "2.0", "provisional": True, "human_labels_present": False,
+        "schema_version": "3.0", "provisional": True, "human_labels_present": False,
         "record_count": len(selected), "pending_count": len(selected), "required_fields": required_fields,
         "inclusion_reason_counts": dict(sorted(reason_counts.items())),
         "existing_stratified_sample_count": sum(any(reason.startswith("deterministic_sample_") for reason in row["inclusion_reasons"]) for row in selected),

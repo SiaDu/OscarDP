@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,8 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
         scene = mapped.get("scene")
         if scene and scene.get("scene_id") not in known_scenes:
             errors.append(f"unknown shot scene in {original.get('shot_id')}")
+        if scene and scene.get("scene_id") in scene_by_id and scene.get("screenplay_scene_id") != scene_by_id[scene["scene_id"]].get("screenplay_scene_id"):
+            errors.append(f"shot screenplay scene ID mismatch in {original.get('shot_id')}")
         match_scenes: set[str] = set()
         for match in mapped.get("script_matches", []):
             if match.get("block_id") not in known_blocks:
@@ -128,11 +131,6 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
             if not isinstance(transition, bool):
                 errors.append(f"invalid scene_transition in {original.get('shot_id')}")
                 transition = False
-            expected_transition = len(match_scenes) > 1
-            if transition != expected_transition:
-                errors.append(f"scene transition flag mismatch in {original.get('shot_id')}")
-            if expected_transition and (mapped.get("alignment", {}).get("status") != "scene_transition" or mapped.get("alignment", {}).get("needs_review") is not True):
-                errors.append(f"multi-scene shot is not marked for review: {original.get('shot_id')}")
             candidates = mapped.get("scene_candidates")
             if not isinstance(candidates, list):
                 errors.append(f"invalid scene_candidates in {original.get('shot_id')}")
@@ -142,8 +140,6 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
                 errors.append(f"invalid scene candidate IDs in {original.get('shot_id')}")
             if candidate_ids != sorted(candidate_ids, key=lambda scene_id: scene_order.get(scene_id, len(scene_order))):
                 errors.append(f"scene candidates are not in screenplay order: {original.get('shot_id')}")
-            if not match_scenes.issubset(set(candidate_ids)):
-                errors.append(f"scene candidates omit matched scenes in {original.get('shot_id')}")
             for candidate in candidates:
                 if not isinstance(candidate, dict):
                     continue
@@ -151,12 +147,41 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
                 if candidate_scene and candidate.get("screenplay_scene_id") != candidate_scene.get("screenplay_scene_id"):
                     errors.append(f"scene candidate screenplay ID mismatch in {original.get('shot_id')}")
                 overlap, confidence = candidate.get("overlap_sec"), candidate.get("confidence")
-                if not isinstance(overlap, (int, float)) or isinstance(overlap, bool) or overlap < 0:
+                if not isinstance(overlap, (int, float)) or isinstance(overlap, bool) or not math.isfinite(overlap) or overlap < 0:
                     errors.append(f"invalid scene candidate overlap in {original.get('shot_id')}")
-                if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
+                if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
                     errors.append(f"invalid scene candidate confidence in {original.get('shot_id')}")
-            if candidates and abs(sum(float(candidate.get("confidence", 0)) for candidate in candidates if isinstance(candidate, dict)) - 1.0) > 1e-5:
-                errors.append(f"scene candidate confidence is not normalized in {original.get('shot_id')}")
+            method = scene.get("method") if scene else None
+            if scene is None:
+                if candidates != [] or transition is not False:
+                    errors.append(f"unaligned shot has scene evidence in {original.get('shot_id')}")
+            elif method == "same_scene_interpolation":
+                if candidates != []:
+                    errors.append(f"interpolated shot has scene candidates in {original.get('shot_id')}")
+                if transition is not False:
+                    errors.append(f"interpolated shot is marked scene transition in {original.get('shot_id')}")
+                if mapped.get("subtitles") != [] or mapped.get("script_matches") != []:
+                    errors.append(f"interpolated shot has direct alignment evidence in {original.get('shot_id')}")
+                if mapped.get("alignment") != {"status": "interpolated", "needs_review": False}:
+                    errors.append(f"invalid interpolated alignment metadata in {original.get('shot_id')}")
+            elif method == "subtitle_script_alignment":
+                if not candidates:
+                    errors.append(f"direct shot has no scene candidates in {original.get('shot_id')}")
+                if not match_scenes.issubset(set(candidate_ids)):
+                    errors.append(f"scene candidates omit matched scenes in {original.get('shot_id')}")
+                if scene.get("scene_id") not in candidate_ids:
+                    errors.append(f"scene candidates omit primary scene in {original.get('shot_id')}")
+                if any(not isinstance(candidate, dict) or not isinstance(candidate.get("overlap_sec"), (int, float)) or isinstance(candidate.get("overlap_sec"), bool) or not math.isfinite(candidate["overlap_sec"]) or candidate["overlap_sec"] <= 0 for candidate in candidates):
+                    errors.append(f"direct scene candidate lacks positive overlap in {original.get('shot_id')}")
+                if candidates and abs(sum(float(candidate.get("confidence", 0)) for candidate in candidates if isinstance(candidate, dict)) - 1.0) > 1e-5:
+                    errors.append(f"scene candidate confidence is not normalized in {original.get('shot_id')}")
+                expected_transition = len(match_scenes) > 1 if match_scenes else len(candidate_ids) > 1
+                if transition != expected_transition:
+                    errors.append(f"scene transition flag mismatch in {original.get('shot_id')}")
+                if expected_transition and (mapped.get("alignment", {}).get("status") != "scene_transition" or mapped.get("alignment", {}).get("needs_review") is not True):
+                    errors.append(f"multi-scene shot is not marked for review: {original.get('shot_id')}")
+            else:
+                errors.append(f"unknown shot scene method in {original.get('shot_id')}: {method}")
     return ContextValidationResult(not errors, errors, len(scenes), len(alignments), len(shot_context))
 
 

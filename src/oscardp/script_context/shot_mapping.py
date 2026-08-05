@@ -129,5 +129,5 @@ def _interpolate_scenes(rows: list[dict[str, Any]], scenes: dict[str, dict[str, 
             if rows[index]["scene"] is None and not rows[index]["subtitles"]:
                 rows[index]["scene"] = {"scene_id": scene_id, "screenplay_scene_id": scene["screenplay_scene_id"], "method": "same_scene_interpolation", "confidence": round(confidence, 6)}
                 rows[index]["scene_transition"] = False
-                rows[index]["scene_candidates"] = [{"scene_id": scene_id, "screenplay_scene_id": scene["screenplay_scene_id"], "overlap_sec": 0.0, "confidence": 1.0}]
+                rows[index]["scene_candidates"] = []
                 rows[index]["alignment"] = {"status": "interpolated", "needs_review": False}
