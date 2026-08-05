@@ -105,7 +105,42 @@ def submit_batch(batch_input: Path, job_file: Path, *, confirm_submit: bool) -> 
 def check_batch(job_file: Path) -> dict[str, Any]:
     metadata = json.loads(job_file.read_text(encoding="utf-8"))
     batch = _client().batches.retrieve(metadata["batch_id"])
-    return {"batch_id": batch.id, "status": batch.status, "output_file_id": batch.output_file_id, "error_file_id": batch.error_file_id, "request_counts": getattr(batch, "request_counts", None)}
+    request_counts = getattr(batch, "request_counts", None)
+    if request_counts is not None:
+        model_dump = getattr(request_counts, "model_dump", None)
+        if not callable(model_dump):
+            raise TypeError("SDK batch request_counts does not support model_dump()")
+        request_counts = model_dump()
+        if not isinstance(request_counts, dict):
+            raise TypeError("SDK batch request_counts.model_dump() must return a dictionary")
+    return {"batch_id": batch.id, "status": batch.status, "output_file_id": batch.output_file_id, "error_file_id": batch.error_file_id, "request_counts": request_counts}
+
+
+def _download_text(response: Any) -> str:
+    text_method = getattr(response, "text", None)
+    if callable(text_method):
+        content = text_method()
+    else:
+        read_method = getattr(response, "read", None)
+        if not callable(read_method):
+            raise TypeError("SDK file content response supports neither text() nor read()")
+        content = read_method()
+    if isinstance(content, bytes):
+        return content.decode("utf-8")
+    if not isinstance(content, str):
+        raise TypeError("SDK file content response must return str or bytes")
+    return content
+
+
+def _add_reviewed_status_counts(diagnostics: dict[str, Any], alignments: list[dict[str, Any]]) -> dict[str, Any]:
+    status_counts = dict(sorted(Counter(row["alignment"]["status"] for row in alignments).items()))
+    return {
+        **diagnostics,
+        "status_counts": status_counts,
+        "llm_aligned": status_counts.get("llm_aligned", 0),
+        "llm_no_match": status_counts.get("llm_no_match", 0),
+        "status_total": sum(status_counts.values()),
+    }
 
 
 def fetch_batch(job_file: Path, output_dir: Path) -> dict[str, Any]:
@@ -115,10 +150,10 @@ def fetch_batch(job_file: Path, output_dir: Path) -> dict[str, Any]:
         raise RuntimeError(f"Batch is not completed: {batch.status}")
     output_dir.mkdir(parents=True, exist_ok=True)
     if batch.output_file_id:
-        content = client.files.content(batch.output_file_id).text
+        content = _download_text(client.files.content(batch.output_file_id))
         _write_atomic(output_dir / "raw_batch_output.jsonl", content)
     if batch.error_file_id:
-        errors = client.files.content(batch.error_file_id).text
+        errors = _download_text(client.files.content(batch.error_file_id))
         _write_atomic(output_dir / "raw_batch_errors.jsonl", errors)
     result = {"batch_id": batch.id, "status": batch.status, "output_file_id": batch.output_file_id, "error_file_id": batch.error_file_id, "fetched_at": datetime.now(UTC).isoformat()}
     _write_json(output_dir / "fetch_metadata.json", result)
@@ -260,7 +295,7 @@ def apply_validated_responses(
         raise RuntimeError("Reviewed output validation failed: " + "; ".join(validation.errors[:20]))
     alignment_output = output_dir / "subtitle_script_alignment.llm_reviewed.jsonl"; shot_output = output_dir / "shot_script_context.llm_reviewed.jsonl"
     _write_jsonl(alignment_output, reviewed); _write_jsonl(shot_output, reviewed_shots)
-    diagnostics = build_alignment_diagnostics(context, reviewed, requests)
+    diagnostics = _add_reviewed_status_counts(build_alignment_diagnostics(context, reviewed, requests), reviewed)
     openai_dir = output_dir / "review" / "openai"; _write_json(openai_dir / "reviewed_alignment_diagnostics.json", diagnostics)
     unchanged = all(hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest for path, digest in baseline_hashes.items())
     report = {"schema_version": "1.0", "changed_subtitle_count": len(changed), "alignment_rows": len(reviewed), "shot_rows": len(reviewed_shots), "validation_passed": validation.passed, "baseline_files_unchanged": unchanged, "alignment_output": alignment_output.as_posix(), "shot_output": shot_output.as_posix()}
@@ -280,10 +315,48 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
         for expected in row["resolutions"]:
             actual = predicted.get((row["request_id"], expected["subtitle_id"]))
             records.append({"request_id": row["request_id"], "expected": expected, "actual": actual, **strata[row["request_id"]]})
-    decision_correct = sum(record["actual"] and record["actual"]["decision"] == record["expected"]["decision"] for record in records)
-    block_correct = sum(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"]) for record in records)
+    decision_correct = sum(bool(record["actual"] and record["actual"]["decision"] == record["expected"]["decision"]) for record in records)
+    block_correct = sum(bool(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"])) for record in records)
     def accuracy(field: str, value: str) -> float | None:
         subset = [record for record in records if record[field] == value]
-        return None if not subset else sum(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"]) for record in subset) / len(subset)
-    result = {"schema_version": "1.0", "subtitle_count": len(records), "exact_decision_accuracy": decision_correct / len(records), "block_set_exact_match": block_correct / len(records), "accuracy_by_stratum": {name: accuracy("stratum", name) for name in ("easy", "fuzzy", "multi", "difficult")}, "accuracy_by_region": {name: accuracy("timeline_region", name) for name in ("early", "middle", "late")}, "uncertain_rate": sum(record["actual"] and record["actual"]["decision"] == "uncertain" for record in records) / len(records), "recommended_acceptance": {"invalid_or_window_violations": 0, "structural_failures": 0, "easy_block_accuracy_min": 0.95, "overall_block_accuracy_min": 0.90}}
+        return None if not subset else sum(bool(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"])) for record in subset) / len(subset)
+    decisions = ("match", "no_match", "uncertain")
+    confusion = {expected: {actual: 0 for actual in (*decisions, "missing")} for expected in decisions}
+    for record in records:
+        expected = record["expected"]["decision"]
+        actual = "missing" if record["actual"] is None else record["actual"]["decision"]
+        confusion[expected][actual] += 1
+    missing_count = sum(record["actual"] is None for record in records)
+    validation_report_path = validated_path.with_name("response_validation_report.json")
+    validation_report = json.loads(validation_report_path.read_text(encoding="utf-8")) if validation_report_path.is_file() else {}
+    invalid_count = int(validation_report.get("invalid_count", 0))
+    multi = [record for record in records if len(record["expected"]["block_ids"]) > 1]
+    multi_accuracy = None if not multi else sum(bool(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"])) for record in multi) / len(multi)
+    predicted_no_match = sum(bool(record["actual"] and record["actual"]["decision"] == "no_match") for record in records)
+    expected_no_match = sum(record["expected"]["decision"] == "no_match" for record in records)
+    true_no_match = sum(bool(record["actual"] and record["actual"]["decision"] == "no_match" and record["expected"]["decision"] == "no_match") for record in records)
+    no_match_precision = None if not predicted_no_match else true_no_match / predicted_no_match
+    no_match_recall = None if not expected_no_match else true_no_match / expected_no_match
+    total = len(records)
+    overall_accuracy = block_correct / total if total else 0.0
+    easy_accuracy = accuracy("stratum", "easy")
+    criteria = {
+        "zero_invalid_responses": invalid_count == 0,
+        "zero_missing_predictions": missing_count == 0,
+        "easy_block_set_accuracy_at_least_0_95": easy_accuracy is not None and easy_accuracy >= 0.95,
+        "overall_block_set_accuracy_at_least_0_90": overall_accuracy >= 0.90,
+    }
+    result = {
+        "schema_version": "1.0", "subtitle_count": total,
+        "exact_decision_accuracy": decision_correct / total if total else 0.0,
+        "decision_confusion_matrix": confusion,
+        "block_set_exact_match": overall_accuracy,
+        "multi_block_block_set_accuracy": multi_accuracy,
+        "accuracy_by_stratum": {name: accuracy("stratum", name) for name in ("easy", "fuzzy", "multi", "difficult")},
+        "accuracy_by_region": {name: accuracy("timeline_region", name) for name in ("early", "middle", "late")},
+        "invalid_response_count": invalid_count, "missing_prediction_count": missing_count,
+        "no_match_precision": no_match_precision, "no_match_recall": no_match_recall,
+        "uncertain_rate": sum(bool(record["actual"] and record["actual"]["decision"] == "uncertain") for record in records) / total if total else 0.0,
+        "acceptance_criteria": {"checks": criteria, "passed": all(criteria.values())},
+    }
     _write_json(output_path, result); return result

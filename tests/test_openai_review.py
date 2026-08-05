@@ -3,12 +3,19 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, call
 
 import pytest
 
 from oscardp.script_context.openai_review import (
+    _add_reviewed_status_counts,
+    _download_text,
     apply_validated_responses,
     batch_line,
+    check_batch,
+    evaluate_pilot,
+    fetch_batch,
     prepare_batch,
     submit_batch,
     validate_batch_lines,
@@ -17,6 +24,7 @@ from oscardp.script_context.openai_review import (
 )
 from oscardp.script_context.openai_schema import alignment_response_schema
 from oscardp.script_context.pilot import prepare_pilot
+from oscardp.shots.schema import json_dumps
 
 
 def request(ordinal: int, kind: str, subtitle_ordinal: int) -> dict:
@@ -131,6 +139,9 @@ def test_mocked_validate_and_safe_apply_preserves_baselines(tmp_path: Path) -> N
     assert reviewed[1]["script_matches"]==[] and reviewed[1]["alignment"]["status"]=="llm_no_match"
     assert reviewed[2]["alignment"]["status"]=="needs_review" and reviewed[2]["alignment"]["needs_review"] is True
     assert len((tmp_path/"shot_script_context.llm_reviewed.jsonl").read_text().splitlines())==1141
+    diagnostics = json.loads((tmp_path/"review/openai/reviewed_alignment_diagnostics.json").read_text())
+    assert diagnostics["status_counts"] == {"llm_aligned": 1, "llm_no_match": 1, "needs_review": 1}
+    assert diagnostics["status_total"] == 3
 
 
 def test_submit_refuses_without_confirmation_or_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,3 +149,78 @@ def test_submit_refuses_without_confirmation_or_key(tmp_path: Path, monkeypatch:
     with pytest.raises(RuntimeError,match="confirm-submit"): submit_batch(batch,tmp_path/"job.json",confirm_submit=False)
     monkeypatch.delenv("OPENAI_API_KEY",raising=False)
     with pytest.raises(RuntimeError,match="OPENAI_API_KEY"): submit_batch(batch,tmp_path/"job.json",confirm_submit=True)
+
+
+def test_sdk_shaped_submit_check_and_fetch_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    req = request(1, "easy", 1); batch_input = tmp_path / "batch.jsonl"; job_file = tmp_path / "job.json"
+    write_jsonl(batch_input, [batch_line(req, "test-model")])
+    output_response, error_response = Mock(), SimpleNamespace(read=Mock(return_value=b'{"error":"fixture"}\n'))
+    output_response.text.return_value = '{"custom_id":"alignment_review_000001"}\n'
+    files = SimpleNamespace(
+        create=Mock(return_value=SimpleNamespace(id="file_input")),
+        content=Mock(side_effect=lambda file_id: output_response if file_id == "file_output" else error_response),
+    )
+    counts = Mock(); counts.model_dump.return_value = {"total": 1, "completed": 1, "failed": 0}
+    submitted = SimpleNamespace(id="batch_123", status="validating")
+    completed = SimpleNamespace(id="batch_123", status="completed", output_file_id="file_output", error_file_id="file_error", request_counts=counts)
+    batches = SimpleNamespace(create=Mock(return_value=submitted), retrieve=Mock(return_value=completed))
+    monkeypatch.setattr("oscardp.script_context.openai_review._client", lambda: SimpleNamespace(files=files, batches=batches))
+
+    submitted_result = submit_batch(batch_input, job_file, confirm_submit=True)
+    assert submitted_result["input_file_id"] == "file_input" and submitted_result["batch_id"] == "batch_123"
+    files.create.assert_called_once(); batches.create.assert_called_once_with(input_file_id="file_input", endpoint="/v1/responses", completion_window="24h")
+    checked = check_batch(job_file)
+    assert checked["request_counts"] == {"total": 1, "completed": 1, "failed": 0}
+    assert isinstance(json_dumps(checked), str); counts.model_dump.assert_called_once_with()
+
+    replacements = []
+    original_replace = Path.replace
+    def tracked_replace(source: Path, target: Path) -> Path:
+        replacements.append(Path(target))
+        return original_replace(source, target)
+    monkeypatch.setattr(Path, "replace", tracked_replace)
+    fetched = fetch_batch(job_file, tmp_path / "downloads")
+    assert fetched["status"] == "completed"
+    assert (tmp_path / "downloads/raw_batch_output.jsonl").read_text() == '{"custom_id":"alignment_review_000001"}\n'
+    assert (tmp_path / "downloads/raw_batch_errors.jsonl").read_text() == '{"error":"fixture"}\n'
+    output_response.text.assert_called_once_with(); error_response.read.assert_called_once_with()
+    assert not list((tmp_path / "downloads").glob(".*.tmp"))
+    assert tmp_path / "downloads/raw_batch_output.jsonl" in replacements
+    assert tmp_path / "downloads/raw_batch_errors.jsonl" in replacements
+    assert files.content.call_args_list == [call("file_output"), call("file_error")]
+
+
+def test_download_text_rejects_non_text_sdk_content() -> None:
+    assert _download_text(SimpleNamespace(text=lambda: b"utf-8 bytes")) == "utf-8 bytes"
+    with pytest.raises(TypeError, match="str or bytes"):
+        _download_text(SimpleNamespace(text=lambda: 123))
+
+
+def test_reviewed_status_counts_total_all_blue_moon_rows() -> None:
+    statuses = ["auto_aligned"] * 1500 + ["needs_review"] * 200 + ["no_match"] * 39 + ["llm_aligned"] * 90 + ["llm_no_match"] * 10
+    diagnostics = _add_reviewed_status_counts({}, [{"alignment": {"status": status}} for status in statuses])
+    assert diagnostics["status_total"] == 1839
+    assert sum(diagnostics["status_counts"].values()) == 1839
+    assert diagnostics["llm_aligned"] == 90 and diagnostics["llm_no_match"] == 10
+
+
+def test_evaluate_pilot_reports_complete_metrics(tmp_path: Path) -> None:
+    gold = tmp_path / "gold.jsonl"; validated = tmp_path / "validated_responses.jsonl"; manifest = tmp_path / "manifest.json"; output = tmp_path / "evaluation.json"
+    gold_rows = [{"request_id": "r1", "resolutions": [
+        {"subtitle_id": "s1", "decision": "match", "block_ids": ["b1", "b2"]},
+        {"subtitle_id": "s2", "decision": "no_match", "block_ids": []},
+        {"subtitle_id": "s3", "decision": "uncertain", "block_ids": []},
+    ]}]
+    predictions = [{"request_id": "r1", "resolutions": [
+        {"subtitle_id": "s1", "decision": "match", "block_ids": ["b1", "b2"]},
+        {"subtitle_id": "s2", "decision": "no_match", "block_ids": []},
+    ]}]
+    write_jsonl(gold, gold_rows); write_jsonl(validated, predictions)
+    (tmp_path / "response_validation_report.json").write_text(json.dumps({"invalid_count": 2}))
+    manifest.write_text(json.dumps({"requests": [{"request_id": "r1", "stratum": "easy", "timeline_region": "early"}]}))
+    result = evaluate_pilot(gold, validated, manifest, output)
+    assert result["decision_confusion_matrix"]["uncertain"]["missing"] == 1
+    assert result["invalid_response_count"] == 2 and result["missing_prediction_count"] == 1
+    assert result["multi_block_block_set_accuracy"] == 1.0
+    assert result["no_match_precision"] == 1.0 and result["no_match_recall"] == 1.0
+    assert result["uncertain_rate"] == 0.0 and result["acceptance_criteria"]["passed"] is False
