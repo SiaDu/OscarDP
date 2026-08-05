@@ -76,3 +76,45 @@ shot and adds timestamp-overlapping subtitle/script references.
 LLMs are never used to rewrite the screenplay or dialogue. `--llm-mode export`
 only emits constrained requests for broken pages and low-confidence local
 alignment choices; `apply` accepts only existing subtitle, scene, and block IDs.
+
+### Stage 2.1 deterministic repair
+
+Stage 2.1 uses monotonic anchors and token spans so consecutive subtitle
+fragments can reference the same long screenplay block. It also exports grouped,
+locally constrained review requests and `review/alignment_diagnostics.json`.
+
+### Stage 2.2 optional OpenAI review
+
+OpenAI review is an optional, separate workflow. Normal `process-one` never
+imports the SDK or makes a paid request. Install support with:
+
+```bash
+.venv/bin/python -m pip install -e ".[context,openai,test]"
+export OPENAI_API_KEY='...'
+export OPENAI_MODEL='your-explicit-model-id'
+```
+
+Prepare a deterministic pilot and locally validated Responses Batch file:
+
+```bash
+python -m oscardp.script_context prepare-openai-pilot \
+  --requests /path/to/review/alignment_requests.jsonl \
+  --alignment /path/to/subtitle_script_alignment.jsonl \
+  --output-dir /path/to/review/openai --count 30
+
+python -m oscardp.script_context prepare-openai-batch \
+  --requests /path/to/review/openai/pilot_requests.jsonl \
+  --output /path/to/review/openai/pilot_batch_input.jsonl \
+  --model "$OPENAI_MODEL"
+```
+
+The remaining lifecycle commands are `submit-openai-batch`,
+`check-openai-batch`, `fetch-openai-batch`, `validate-openai-responses`,
+`apply-openai-responses`, and `evaluate-openai-pilot`. Submission is the only
+paid operation and refuses to run without `--confirm-submit` and
+`OPENAI_API_KEY`.
+
+Reviewed outputs use `.llm_reviewed.jsonl` names and never replace deterministic
+alignment or shot-context files. Model output is constrained to request-local
+IDs, structurally validated, and still requires human pilot evaluation before
+any promotion.

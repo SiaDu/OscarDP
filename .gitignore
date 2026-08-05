@@ -10,3 +10,9 @@ __pycache__/
 *.tmp
 data/smoke_test/input/
 data/smoke_test/output/
+# OpenAI Batch lifecycle artifacts may contain account IDs or model output.
+**/review/openai/batch_job.json
+**/review/openai/raw_batch_output.jsonl
+**/review/openai/raw_batch_errors.jsonl
+**/review/openai/fetch_metadata.json
+.env

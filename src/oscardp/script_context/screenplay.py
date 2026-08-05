@@ -15,6 +15,8 @@ TIME_WORDS = {
 }
 CUE_SUFFIX_RE = re.compile(r"\s*\((?:CONT['’]?D|CONTINUED|V\.?O\.?|O\.?S\.?|OFF)\)\s*$", re.I)
 PAGE_NOISE_RE = re.compile(r"^(?:CONTINUED:?|\"?BLUE MOON\"?\s+CONFORMED SCRIPT.*|\d+[A-Z]?)$", re.I)
+MORE_MARKER_RE = re.compile(r"^\(?\s*MORE\s*\)?$", re.I)
+SECTION_MARKER_RE = re.compile(r"^(?:PT|PART)\s+\d+\s*:$", re.I)
 
 
 def stable_scene_id(raw: str) -> str:
@@ -44,9 +46,9 @@ def _split_slugline(slugline: str) -> tuple[str, str, str | None]:
     prefix = re.match(r"^(INT\.?/EXT\.?|INT\.?|EXT\.?|I/E\.?|EST\.?)\s*", clean, re.I)
     int_ext = prefix.group(1).upper().replace(".", "") if prefix else ""
     rest = clean[prefix.end():].strip() if prefix else clean
-    location, sep, ending = rest.rpartition(" - ")
-    if sep and ending.upper() in TIME_WORDS:
-        return int_ext, location.strip(), ending.upper()
+    ending_match = re.search(r"\s*-\s*([^-]+?)\s*$", rest)
+    if ending_match and ending_match.group(1).upper() in TIME_WORDS:
+        return int_ext, rest[:ending_match.start()].strip(), ending_match.group(1).upper()
     return int_ext, rest, None
 
 
@@ -82,6 +84,12 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
         for entry in entries:
             text = re.sub(r"\s+", " ", str(entry.get("text", "")).strip())
             if not text or PAGE_NOISE_RE.fullmatch(text):
+                continue
+            if MORE_MARKER_RE.fullmatch(text):
+                continue
+            if SECTION_MARKER_RE.fullmatch(text):
+                current_cue = None
+                pending_parenthetical = None
                 continue
             heading = SCENE_RE.match(text)
             if heading:
@@ -166,6 +174,7 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
 
     return {
         "schema_version": "1.0",
+        "parser_version": "2.2.1",
         "movie": {"movie_id": movie_key, "title": title},
         "source_files": source_files,
         "summary": {

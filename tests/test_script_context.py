@@ -58,6 +58,31 @@ def test_broken_fragment_page_detection() -> None:
     assert not is_broken_page(["This is a normal screenplay line", "Another complete sentence"])
 
 
+def test_more_marker_is_ignored_but_dialogue_with_more_is_preserved() -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "1 INT. ROOM - NIGHT 1", "x0": 50, "y0": 10},
+        {"text": "HART", "x0": 250, "y0": 30},
+        {"text": "I need more time.", "x0": 180, "y0": 50},
+        {"text": "(MORE)", "x0": 250, "y0": 70},
+    ]}]
+    result = parse_layout_pages(pages, "tt1", "Test", {})
+    blocks = result["script_scenes"][0]["script_blocks"]
+    assert [block["text"] for block in blocks] == ["I need more time."]
+
+
+def test_part_markers_are_omitted_and_attached_continuous_is_parsed() -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "4H INT. SARDI'S - MORTY'S STATION - MAIN BAR AREA -CONTINUOUS 4H", "x0": 50, "y0": 10},
+        {"text": "PT 1:", "x0": 108, "y0": 30},
+        {"text": "PART 2:", "x0": 108, "y0": 50},
+        {"text": "Part of the crowd moves closer.", "x0": 108, "y0": 70},
+    ]}]
+    scene = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"][0]
+    assert scene["time_of_day"] == "CONTINUOUS"
+    assert scene["slugline"] == "INT. SARDI'S - MORTY'S STATION - MAIN BAR AREA -CONTINUOUS"
+    assert [block["text"] for block in scene["script_blocks"]] == ["Part of the crowd moves closer."]
+
+
 def test_bilingual_subtitle_cleaning_and_no_blind_merge(tmp_path: Path) -> None:
     path = tmp_path / "test.srt"
     path.write_text("1\n00:00:01,000 --> 00:00:02,000\n<i>Hello there</i> ♪\n\n2\n00:00:01,000 --> 00:00:02,000\n你好\n\n3\n00:00:01,000 --> 00:00:02,000\nDifferent English line\n", encoding="utf-8")

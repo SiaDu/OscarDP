@@ -27,6 +27,14 @@ An LLM may only repair flagged page structure, select existing IDs for local
 low-confidence alignments, or add optional scene annotations. It must never
 rewrite the original screenplay, action, or dialogue text.
 
+OpenAI integration is optional. Normal `process-one` must never make a paid API
+call. API keys and account/batch identifiers must never enter Git or logs.
+Responses may select only subtitle and block IDs supplied by the exact original
+review request. Deterministic baseline JSON/JSONL files are immutable during
+review application; reviewed files use separate `.llm_reviewed.jsonl` names.
+Full-dataset OpenAI or Stage 2 processing is out of scope unless explicitly
+authorized.
+
 ---
 
 ## 2. Paths

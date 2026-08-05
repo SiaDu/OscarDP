@@ -21,6 +21,7 @@ context = [
   "rapidfuzz>=3.9,<4",
 ]
 semantic = ["sentence-transformers>=3,<6"]
+openai = ["openai>=2,<3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

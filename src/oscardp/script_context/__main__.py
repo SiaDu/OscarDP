@@ -48,6 +48,24 @@ def build_parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate")
     validate.add_argument("--movie-key", required=True); validate.add_argument("--screenplay-context", type=Path, required=True)
     validate.add_argument("--alignment", type=Path, required=True); validate.add_argument("--shot-context", type=Path, required=True); validate.add_argument("--shots", type=Path, required=True)
+    pilot = commands.add_parser("prepare-openai-pilot")
+    pilot.add_argument("--requests", type=Path, required=True); pilot.add_argument("--alignment", type=Path, required=True)
+    pilot.add_argument("--output-dir", type=Path, required=True); pilot.add_argument("--count", type=int, default=30)
+    prepare_batch = commands.add_parser("prepare-openai-batch")
+    prepare_batch.add_argument("--requests", type=Path, required=True); prepare_batch.add_argument("--output", type=Path, required=True); prepare_batch.add_argument("--model")
+    submit = commands.add_parser("submit-openai-batch")
+    submit.add_argument("--batch-input", type=Path, required=True); submit.add_argument("--job-file", type=Path, required=True); submit.add_argument("--confirm-submit", action="store_true")
+    check = commands.add_parser("check-openai-batch"); check.add_argument("--job-file", type=Path, required=True)
+    fetch = commands.add_parser("fetch-openai-batch"); fetch.add_argument("--job-file", type=Path, required=True); fetch.add_argument("--output-dir", type=Path, required=True)
+    validate_openai = commands.add_parser("validate-openai-responses")
+    validate_openai.add_argument("--raw-output", type=Path, required=True); validate_openai.add_argument("--requests", type=Path, required=True); validate_openai.add_argument("--output-dir", type=Path, required=True)
+    apply_openai = commands.add_parser("apply-openai-responses")
+    apply_openai.add_argument("--alignment", type=Path, required=True); apply_openai.add_argument("--requests", type=Path, required=True)
+    apply_openai.add_argument("--validated-responses", type=Path, required=True); apply_openai.add_argument("--screenplay-context", type=Path, required=True)
+    apply_openai.add_argument("--shots", type=Path, required=True); apply_openai.add_argument("--output-dir", type=Path, required=True)
+    evaluate = commands.add_parser("evaluate-openai-pilot")
+    evaluate.add_argument("--gold", type=Path, required=True); evaluate.add_argument("--validated-responses", type=Path, required=True)
+    evaluate.add_argument("--manifest", type=Path, required=True); evaluate.add_argument("--output", type=Path, required=True)
     return parser
 
 
@@ -74,6 +92,31 @@ def main(argv: list[str] | None = None) -> int:
             import json
             context = json.loads(args.screenplay_context.read_text(encoding="utf-8"))
             _write_jsonl(args.output, map_shots(read_jsonl(args.shots), read_jsonl(args.alignment), context, args.movie_key, args.scene_interpolation_max_gap)); return 0
+        if args.command == "prepare-openai-pilot":
+            from .pilot import prepare_pilot
+            print(json_dumps(prepare_pilot(args.requests, args.alignment, args.output_dir, args.count), pretty=True)); return 0
+        if args.command == "prepare-openai-batch":
+            from .openai_review import prepare_batch
+            print(json_dumps(prepare_batch(args.requests, args.output, args.model), pretty=True)); return 0
+        if args.command == "submit-openai-batch":
+            from .openai_review import submit_batch
+            print(json_dumps(submit_batch(args.batch_input, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
+        if args.command == "check-openai-batch":
+            from .openai_review import check_batch
+            print(json_dumps(check_batch(args.job_file), pretty=True)); return 0
+        if args.command == "fetch-openai-batch":
+            from .openai_review import fetch_batch
+            print(json_dumps(fetch_batch(args.job_file, args.output_dir), pretty=True)); return 0
+        if args.command == "validate-openai-responses":
+            from .openai_review import validate_responses
+            report = validate_responses(args.raw_output, args.requests, args.output_dir)
+            print(json_dumps(report, pretty=True)); return 0 if report["passed"] else 1
+        if args.command == "apply-openai-responses":
+            from .openai_review import apply_validated_responses
+            print(json_dumps(apply_validated_responses(args.alignment, args.requests, args.validated_responses, args.screenplay_context, args.shots, args.output_dir), pretty=True)); return 0
+        if args.command == "evaluate-openai-pilot":
+            from .openai_review import evaluate_pilot
+            print(json_dumps(evaluate_pilot(args.gold, args.validated_responses, args.manifest, args.output), pretty=True)); return 0
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr); return 2
     return 2

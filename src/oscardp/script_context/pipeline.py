@@ -45,7 +45,7 @@ def _input_fingerprint(options: ContextOptions) -> dict[str, Any]:
         return {"path": path.resolve().as_posix(), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
     return {
         "schema_version": "1.0", "movie_key": options.movie_key,
-        "alignment_version": "2.1",
+        "alignment_version": "2.1", "parser_version": "2.2.1",
         "screenplay": describe(options.screenplay), "subtitle": describe(options.subtitle), "shots": describe(options.shots),
         "subtitle_language": options.subtitle_language, "alignment_threshold": options.alignment_threshold,
         "review_threshold": options.review_threshold,
@@ -113,7 +113,7 @@ def process_one(options: ContextOptions) -> dict[str, Any]:
         context = None
         if outputs["context"].is_file():
             existing_context = json.loads(outputs["context"].read_text(encoding="utf-8"))
-            if existing_context.get("movie", {}).get("movie_id") == options.movie_key and existing_context.get("source_files", {}).get("screenplay") == source_files["screenplay"]:
+            if existing_context.get("parser_version") == "2.2.1" and existing_context.get("movie", {}).get("movie_id") == options.movie_key and existing_context.get("source_files", {}).get("screenplay") == source_files["screenplay"]:
                 context = existing_context
                 logger.info("Reusing existing movie_script_context.json")
         if context is None:
