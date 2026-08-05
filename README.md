@@ -118,3 +118,17 @@ Reviewed outputs use `.llm_reviewed.jsonl` names and never replace deterministic
 alignment or shot-context files. Model output is constrained to request-local
 IDs, structurally validated, and still requires human pilot evaluation before
 any promotion.
+
+### Stage 2.3.1 reviewed-output QC
+
+Reviewed shot context uses global screenplay block order. Every row includes
+`scene_transition` and ordered `scene_candidates`. For a transition shot the
+legacy `scene` field remains the primary scene, the alignment is explicitly
+marked `scene_transition`, and `local_script_context` contains actions from the
+primary scene only; actions from multiple scenes are never mixed in that field.
+
+Non-anchor span regressions are exported for human review rather than rejected
+globally. `build-openai-human-audit-v2` creates a self-contained provisional
+audit package with null human-label fields. After those fields are completed,
+`apply-human-corrections` validates every edit against the original request
+candidates and writes only a new explicitly tagged alignment and shot context.

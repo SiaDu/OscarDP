@@ -12,7 +12,12 @@ def map_shots(
     movie_key: str, interpolation_max_gap: float = 10.0,
 ) -> list[dict[str, Any]]:
     scene_by_id = {scene["scene_id"]: scene for scene in context["script_scenes"]}
+    scene_order = {scene["scene_id"]: index for index, scene in enumerate(context["script_scenes"])}
     block_by_id = {block["block_id"]: (scene, block) for scene in context["script_scenes"] for block in scene["script_blocks"]}
+    global_block_order = {
+        block["block_id"]: index
+        for index, block in enumerate(block for scene in context["script_scenes"] for block in scene["script_blocks"])
+    }
     rows: list[dict[str, Any]] = []
     subtitle_cursor = 0
     for shot in shots:
@@ -28,10 +33,20 @@ def map_shots(
                 overlaps.append((alignment, amount))
             probe += 1
         scene_scores: dict[str, float] = {}
+        fallback_scene_scores: dict[str, float] = {}
         for alignment, amount in overlaps:
-            if alignment.get("scene_id"):
-                scene_scores[alignment["scene_id"]] = scene_scores.get(alignment["scene_id"], 0.0) + amount
-        chosen_scene = max(scene_scores, key=lambda key: (scene_scores[key], key)) if scene_scores else None
+            represented_scenes = {
+                block_by_id[match["block_id"]][0]["scene_id"]
+                for match in alignment.get("script_matches", [])
+                if match.get("block_id") in block_by_id
+            }
+            for scene_id in represented_scenes:
+                scene_scores[scene_id] = scene_scores.get(scene_id, 0.0) + amount
+            if not represented_scenes and alignment.get("scene_id"):
+                scene_id = alignment["scene_id"]
+                fallback_scene_scores[scene_id] = fallback_scene_scores.get(scene_id, 0.0) + amount
+        primary_scores = scene_scores or fallback_scene_scores
+        chosen_scene = max(primary_scores, key=lambda key: (primary_scores[key], -scene_order[key])) if primary_scores else None
         subtitles = []
         match_map: dict[str, dict[str, Any]] = {}
         speakers: list[str] = []
@@ -52,30 +67,45 @@ def map_shots(
                 if match["speaker"] not in speakers:
                     speakers.append(match["speaker"])
         local = {"action_before": [], "action_during": [], "action_after": []}
-        if match_map:
-            ordered = sorted((block_by_id[block_id][1] for block_id in match_map), key=lambda b: b["source_order"])
-            scene = block_by_id[ordered[0]["block_id"]][0]
+        ordered_match_ids = sorted(match_map, key=global_block_order.__getitem__)
+        if ordered_match_ids and chosen_scene:
+            primary_blocks = [block_by_id[block_id][1] for block_id in ordered_match_ids if block_by_id[block_id][0]["scene_id"] == chosen_scene]
+            scene = scene_by_id[chosen_scene]
             actions = [b for b in scene["script_blocks"] if b["block_type"] == "action"]
-            before = [b for b in actions if b["source_order"] < ordered[0]["source_order"]]
-            after = [b for b in actions if b["source_order"] > ordered[-1]["source_order"]]
-            if before:
-                local["action_before"] = [before[-1]["block_id"]]
-            if after:
-                local["action_after"] = [after[0]["block_id"]]
+            if primary_blocks:
+                before = [b for b in actions if b["source_order"] < primary_blocks[0]["source_order"]]
+                after = [b for b in actions if b["source_order"] > primary_blocks[-1]["source_order"]]
+                if before:
+                    local["action_before"] = [before[-1]["block_id"]]
+                if after:
+                    local["action_after"] = [after[0]["block_id"]]
+        candidate_scores = scene_scores or fallback_scene_scores
+        score_total = sum(candidate_scores.values())
+        scene_candidates = [{
+            "scene_id": scene_id,
+            "screenplay_scene_id": scene_by_id[scene_id]["screenplay_scene_id"],
+            "overlap_sec": round(candidate_scores[scene_id], 6),
+            "confidence": round(candidate_scores[scene_id] / score_total, 6) if score_total > 0 else 0.0,
+        } for scene_id in sorted(candidate_scores, key=scene_order.__getitem__)]
+        scene_transition = len(scene_scores) > 1
         scene_value = None
         if chosen_scene:
             scene = scene_by_id[chosen_scene]
-            confidence = min(1.0, scene_scores[chosen_scene] / max(end - start, 1e-9))
+            confidence = min(1.0, primary_scores[chosen_scene] / max(end - start, 1e-9))
             scene_value = {"scene_id": chosen_scene, "screenplay_scene_id": scene["screenplay_scene_id"], "method": "subtitle_script_alignment", "confidence": round(confidence, 6)}
         rows.append({
             "movie_id": movie_key, "shot_id": shot["shot_id"],
             "frame_range": {"start_frame": shot["start_frame"], "end_frame": shot["end_frame"], "frame_count": shot["frame_count"]},
             "time": {"start": shot["start_time"], "end": shot["end_time"], "start_sec": shot["start_sec"], "end_sec": shot["end_sec"], "duration_sec": shot["duration_sec"]},
             "keyframe": {"frame": shot["keyframe_frame"], "time_sec": shot["keyframe_time_sec"], "path": shot["keyframe_relpath"]},
-            "scene": scene_value, "subtitles": subtitles, "script_matches": list(match_map.values()),
+            "scene": scene_value, "scene_transition": scene_transition, "scene_candidates": scene_candidates,
+            "subtitles": subtitles, "script_matches": [match_map[block_id] for block_id in ordered_match_ids],
             "local_script_context": local, "dialogue_speakers": speakers,
             "visible_characters": None, "shot_scale": None, "camera_movement": None,
-            "alignment": {"status": "needs_review" if review else ("aligned" if chosen_scene else "unaligned"), "needs_review": review},
+            "alignment": {
+                "status": "scene_transition" if scene_transition else ("needs_review" if review else ("aligned" if chosen_scene else "unaligned")),
+                "needs_review": True if scene_transition else review,
+            },
         })
     _interpolate_scenes(rows, scene_by_id, interpolation_max_gap)
     return rows
@@ -98,4 +128,6 @@ def _interpolate_scenes(rows: list[dict[str, Any]], scenes: dict[str, dict[str, 
         for index in range(left_index + 1, right_index):
             if rows[index]["scene"] is None and not rows[index]["subtitles"]:
                 rows[index]["scene"] = {"scene_id": scene_id, "screenplay_scene_id": scene["screenplay_scene_id"], "method": "same_scene_interpolation", "confidence": round(confidence, 6)}
+                rows[index]["scene_transition"] = False
+                rows[index]["scene_candidates"] = [{"scene_id": scene_id, "screenplay_scene_id": scene["screenplay_scene_id"], "overlap_sec": 0.0, "confidence": 1.0}]
                 rows[index]["alignment"] = {"status": "interpolated", "needs_review": False}

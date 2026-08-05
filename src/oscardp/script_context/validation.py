@@ -27,6 +27,9 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
     if len(block_ids) != len(set(block_ids)):
         errors.append("block_id values must be unique")
     known_scenes, known_blocks = set(scene_ids), set(block_ids)
+    scene_order = {scene_id: index for index, scene_id in enumerate(scene_ids)}
+    scene_by_id = {scene["scene_id"]: scene for scene in scenes}
+    block_lookup = {block["block_id"]: (scene["scene_id"], block) for scene in scenes for block in scene.get("script_blocks", [])}
     for scene in scenes:
         orders = [block.get("source_order") for block in scene.get("script_blocks", [])]
         if orders != list(range(1, len(orders) + 1)):
@@ -50,7 +53,6 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
         errors.append("alignments must be sorted by subtitle time")
     last_scene_index = -1
     last_script_order = -1
-    scene_order = {scene_id: index for index, scene_id in enumerate(scene_ids)}
     for row in alignments:
         scene_id = row.get("scene_id")
         if scene_id is not None and scene_id not in known_scenes:
@@ -81,6 +83,7 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
             errors.append(f"auto_aligned status mismatch in {row.get('subtitle_id')}")
     if len(shot_context) != len(shots):
         errors.append("shot context row count differs from shots.jsonl")
+    known_subtitle_ids = set(subtitle_ids)
     for index, (mapped, original) in enumerate(zip(shot_context, shots), 1):
         if mapped.get("shot_id") != original.get("shot_id"):
             errors.append(f"shot order differs at row {index}")
@@ -90,19 +93,70 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
         expected_time = {"start": original["start_time"], "end": original["end_time"], "start_sec": original["start_sec"], "end_sec": original["end_sec"], "duration_sec": original["duration_sec"]}
         if mapped.get("time") != expected_time:
             errors.append(f"timestamps changed for {original.get('shot_id')}")
+        expected_keyframe = {"frame": original["keyframe_frame"], "time_sec": original["keyframe_time_sec"], "path": original["keyframe_relpath"]}
+        if mapped.get("keyframe") != expected_keyframe:
+            errors.append(f"keyframe changed for {original.get('shot_id')}")
         if any(mapped.get(key) is not None for key in ("visible_characters", "shot_scale", "camera_movement")):
             errors.append(f"visual analysis fields must remain null for {original.get('shot_id')}")
         for sub in mapped.get("subtitles", []):
-            if sub.get("subtitle_id") not in set(subtitle_ids):
+            if sub.get("subtitle_id") not in known_subtitle_ids:
                 errors.append(f"unknown subtitle reference in {original.get('shot_id')}")
             if any(not 0 <= float(sub.get(key, -1)) <= 1 for key in ("shot_coverage", "subtitle_coverage")) or float(sub.get("overlap_sec", -1)) < 0:
                 errors.append(f"invalid overlap in {original.get('shot_id')}")
         scene = mapped.get("scene")
         if scene and scene.get("scene_id") not in known_scenes:
             errors.append(f"unknown shot scene in {original.get('shot_id')}")
+        match_scenes: set[str] = set()
         for match in mapped.get("script_matches", []):
             if match.get("block_id") not in known_blocks:
                 errors.append(f"unknown shot block in {original.get('shot_id')}")
+            else:
+                match_scenes.add(block_lookup[match["block_id"]][0])
+        local = mapped.get("local_script_context", {})
+        local_ids = [block_id for key in ("action_before", "action_during", "action_after") for block_id in local.get(key, [])]
+        for block_id in local_ids:
+            if block_id not in block_lookup:
+                errors.append(f"unknown local action block in {original.get('shot_id')}: {block_id}")
+                continue
+            action_scene, block = block_lookup[block_id]
+            if block.get("block_type") != "action":
+                errors.append(f"local context references non-action block in {original.get('shot_id')}: {block_id}")
+            if scene and action_scene != scene.get("scene_id"):
+                errors.append(f"local action crosses primary scene in {original.get('shot_id')}: {block_id}")
+        if "scene_transition" in mapped or "scene_candidates" in mapped:
+            transition = mapped.get("scene_transition")
+            if not isinstance(transition, bool):
+                errors.append(f"invalid scene_transition in {original.get('shot_id')}")
+                transition = False
+            expected_transition = len(match_scenes) > 1
+            if transition != expected_transition:
+                errors.append(f"scene transition flag mismatch in {original.get('shot_id')}")
+            if expected_transition and (mapped.get("alignment", {}).get("status") != "scene_transition" or mapped.get("alignment", {}).get("needs_review") is not True):
+                errors.append(f"multi-scene shot is not marked for review: {original.get('shot_id')}")
+            candidates = mapped.get("scene_candidates")
+            if not isinstance(candidates, list):
+                errors.append(f"invalid scene_candidates in {original.get('shot_id')}")
+                candidates = []
+            candidate_ids = [candidate.get("scene_id") for candidate in candidates if isinstance(candidate, dict)]
+            if len(candidate_ids) != len(set(candidate_ids)) or any(scene_id not in known_scenes for scene_id in candidate_ids):
+                errors.append(f"invalid scene candidate IDs in {original.get('shot_id')}")
+            if candidate_ids != sorted(candidate_ids, key=lambda scene_id: scene_order.get(scene_id, len(scene_order))):
+                errors.append(f"scene candidates are not in screenplay order: {original.get('shot_id')}")
+            if not match_scenes.issubset(set(candidate_ids)):
+                errors.append(f"scene candidates omit matched scenes in {original.get('shot_id')}")
+            for candidate in candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_scene = scene_by_id.get(candidate.get("scene_id"))
+                if candidate_scene and candidate.get("screenplay_scene_id") != candidate_scene.get("screenplay_scene_id"):
+                    errors.append(f"scene candidate screenplay ID mismatch in {original.get('shot_id')}")
+                overlap, confidence = candidate.get("overlap_sec"), candidate.get("confidence")
+                if not isinstance(overlap, (int, float)) or isinstance(overlap, bool) or overlap < 0:
+                    errors.append(f"invalid scene candidate overlap in {original.get('shot_id')}")
+                if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
+                    errors.append(f"invalid scene candidate confidence in {original.get('shot_id')}")
+            if candidates and abs(sum(float(candidate.get("confidence", 0)) for candidate in candidates if isinstance(candidate, dict)) - 1.0) > 1e-5:
+                errors.append(f"scene candidate confidence is not normalized in {original.get('shot_id')}")
     return ContextValidationResult(not errors, errors, len(scenes), len(alignments), len(shot_context))
 
 

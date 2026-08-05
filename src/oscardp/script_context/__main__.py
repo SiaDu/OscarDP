@@ -75,6 +75,18 @@ def build_parser() -> argparse.ArgumentParser:
     human = commands.add_parser("build-openai-human-audit")
     human.add_argument("--requests", type=Path, required=True); human.add_argument("--validated-responses", type=Path, required=True)
     human.add_argument("--composite-audit", type=Path, required=True); human.add_argument("--output", type=Path, required=True); human.add_argument("--manifest", type=Path, required=True)
+    sequence_audit = commands.add_parser("build-openai-non-anchor-audit")
+    sequence_audit.add_argument("--alignment", type=Path, required=True); sequence_audit.add_argument("--output", type=Path, required=True); sequence_audit.add_argument("--summary", type=Path, required=True)
+    human_v2 = commands.add_parser("build-openai-human-audit-v2")
+    human_v2.add_argument("--requests", type=Path, required=True); human_v2.add_argument("--validated-responses", type=Path, required=True)
+    human_v2.add_argument("--composite-audit", type=Path, required=True); human_v2.add_argument("--non-anchor-audit", type=Path, required=True)
+    human_v2.add_argument("--alignment", type=Path, required=True); human_v2.add_argument("--shot-context", type=Path, required=True)
+    human_v2.add_argument("--prior-audit", type=Path, required=True); human_v2.add_argument("--output", type=Path, required=True); human_v2.add_argument("--manifest", type=Path, required=True)
+    corrections = commands.add_parser("apply-human-corrections")
+    corrections.add_argument("--audit", type=Path, required=True); corrections.add_argument("--requests", type=Path, required=True)
+    corrections.add_argument("--openai-responses", type=Path, required=True); corrections.add_argument("--alignment", type=Path, required=True)
+    corrections.add_argument("--screenplay-context", type=Path, required=True); corrections.add_argument("--shots", type=Path, required=True)
+    corrections.add_argument("--output-dir", type=Path, required=True); corrections.add_argument("--output-tag", required=True)
     evaluate = commands.add_parser("evaluate-openai-pilot")
     evaluate.add_argument("--gold", type=Path, required=True); evaluate.add_argument("--validated-responses", type=Path, required=True)
     evaluate.add_argument("--manifest", type=Path, required=True); evaluate.add_argument("--output", type=Path, required=True)
@@ -138,6 +150,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "build-openai-human-audit":
             from .stage23 import build_human_audit_sample
             print(json_dumps(build_human_audit_sample(args.requests, args.validated_responses, args.composite_audit, args.output, args.manifest), pretty=True)); return 0
+        if args.command == "build-openai-non-anchor-audit":
+            from .stage231 import build_non_anchor_sequence_audit
+            print(json_dumps(build_non_anchor_sequence_audit(args.alignment, args.output, args.summary), pretty=True)); return 0
+        if args.command == "build-openai-human-audit-v2":
+            from .stage231 import build_human_audit_v2
+            print(json_dumps(build_human_audit_v2(args.requests, args.validated_responses, args.composite_audit, args.non_anchor_audit, args.alignment, args.shot_context, args.prior_audit, args.output, args.manifest), pretty=True)); return 0
+        if args.command == "apply-human-corrections":
+            from .stage231 import apply_human_corrections
+            print(json_dumps(apply_human_corrections(args.audit, args.requests, args.openai_responses, args.alignment, args.screenplay_context, args.shots, args.output_dir, args.output_tag), pretty=True)); return 0
         if args.command == "evaluate-openai-pilot":
             from .openai_review import evaluate_pilot
             print(json_dumps(evaluate_pilot(args.gold, args.validated_responses, args.manifest, args.output), pretty=True)); return 0

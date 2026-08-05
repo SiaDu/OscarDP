@@ -13,7 +13,7 @@ from oscardp.script_context.schema import AlignmentConfig, CleanSubtitle
 from oscardp.script_context.screenplay import is_broken_page, normalize_character_cue, parse_layout_pages, stable_scene_id
 from oscardp.script_context.shot_mapping import map_shots
 from oscardp.script_context.subtitles import load_clean_subtitles
-from oscardp.script_context.validation import validate_files
+from oscardp.script_context.validation import validate_data, validate_files
 
 
 def _context(dialogues: list[tuple[str, str]], *, second_scene: bool = False) -> dict:
@@ -125,6 +125,65 @@ def test_no_cross_scene_interpolation() -> None:
     alignments = align_subtitles([_sub(1, "hello", 0, 0.5), _sub(2, "goodbye", 2.5, 3)], context, "tt1234567")
     rows = map_shots([_shot(1, 0, 1), _shot(2, 1, 2), _shot(3, 2, 3)], alignments, context, "tt1234567", 10)
     assert rows[1]["scene"] is None
+
+
+BLUE_MOON_TRANSITION_PATTERNS = [
+    ("shot_000434", .8, .5, "scene_001"),
+    ("shot_000456", .4, .1, "scene_004A"),
+    ("shot_000703", .8, .5, "scene_001"),
+    ("shot_000796", .8, .5, "scene_001"),
+    ("shot_000831", .4, .1, "scene_004A"),
+    ("shot_000868", .8, .5, "scene_001"),
+    ("shot_001030", .8, .5, "scene_001"),
+]
+
+
+@pytest.mark.parametrize(("shot_id", "left_end", "right_start", "primary_scene"), BLUE_MOON_TRANSITION_PATTERNS)
+def test_blue_moon_scene_transition_patterns_use_global_order_and_primary_local_context(shot_id: str, left_end: float, right_start: float, primary_scene: str) -> None:
+    context = _context([("A", "left dialogue"), ("B", "right dialogue")], second_scene=True)
+    ordinal = int(shot_id.rsplit("_", 1)[1])
+    shot_row = _shot(ordinal, 0, 1)
+    alignments = [
+        {"movie_id": "tt1", "subtitle_id": "subtitle_000001", "alignment_group_id": "a1", "time": {"start_sec": 0., "end_sec": left_end}, "text": "left", "scene_id": "scene_001", "script_matches": [{"block_id": "scene_001_dialogue_001", "speaker": "A", "combined_score": .9}], "alignment": {"status": "llm_aligned", "needs_review": False, "reliable_anchor": False, "script_order_start": 0, "script_order_end": 0}},
+        {"movie_id": "tt1", "subtitle_id": "subtitle_000002", "alignment_group_id": "a2", "time": {"start_sec": right_start, "end_sec": 1.}, "text": "right", "scene_id": "scene_004A", "script_matches": [{"block_id": "scene_004A_dialogue_001", "speaker": "B", "combined_score": .9}], "alignment": {"status": "llm_aligned", "needs_review": False, "reliable_anchor": False, "script_order_start": 1, "script_order_end": 1}},
+    ]
+    mapped = map_shots([shot_row], alignments, context, "tt1")
+    row = mapped[0]
+    assert row["shot_id"] == shot_id and row["scene_transition"] is True
+    assert row["scene"]["scene_id"] == primary_scene
+    assert [candidate["scene_id"] for candidate in row["scene_candidates"]] == ["scene_001", "scene_004A"]
+    assert abs(sum(candidate["confidence"] for candidate in row["scene_candidates"]) - 1) < 1e-6
+    assert [match["block_id"] for match in row["script_matches"]] == ["scene_001_dialogue_001", "scene_004A_dialogue_001"]
+    assert row["alignment"] == {"status": "scene_transition", "needs_review": True}
+    local_ids = [block_id for values in row["local_script_context"].values() for block_id in values]
+    assert all(block_id.startswith(primary_scene + "_") for block_id in local_ids)
+    assert validate_data(context, alignments, mapped, [shot_row]).passed
+
+
+def test_shot_validation_rejects_cross_scene_action_and_bad_transition_metadata() -> None:
+    context = _context([("A", "left dialogue"), ("B", "right dialogue")], second_scene=True)
+    shot_row = _shot(1, 0, 1)
+    alignments = [
+        {"subtitle_id": "subtitle_000001", "alignment_group_id": "a1", "time": {"start_sec": 0., "end_sec": .7}, "text": "left", "scene_id": "scene_001", "script_matches": [{"block_id": "scene_001_dialogue_001", "speaker": "A", "combined_score": .9}], "alignment": {"status": "llm_aligned", "needs_review": False, "reliable_anchor": False, "script_order_start": 0, "script_order_end": 0}},
+        {"subtitle_id": "subtitle_000002", "alignment_group_id": "a2", "time": {"start_sec": .4, "end_sec": 1.}, "text": "right", "scene_id": "scene_004A", "script_matches": [{"block_id": "scene_004A_dialogue_001", "speaker": "B", "combined_score": .9}], "alignment": {"status": "llm_aligned", "needs_review": False, "reliable_anchor": False, "script_order_start": 1, "script_order_end": 1}},
+    ]
+    mapped = map_shots([shot_row], alignments, context, "tt1234567")
+    other_scene = "scene_004A" if mapped[0]["scene"]["scene_id"] == "scene_001" else "scene_001"
+    mapped[0]["local_script_context"]["action_before"] = [f"{other_scene}_action_001", "missing_action", f"{mapped[0]['scene']['scene_id']}_dialogue_001"]
+    mapped[0]["scene_transition"] = False
+    mapped[0]["scene_candidates"] = mapped[0]["scene_candidates"][:1]
+    mapped[0]["scene_candidates"][0]["overlap_sec"] = -1
+    mapped[0]["scene_candidates"][0]["confidence"] = 2
+    mapped[0]["keyframe"]["frame"] += 1
+    errors = validate_data(context, alignments, mapped, [shot_row]).errors
+    assert any("local action crosses primary scene" in error for error in errors)
+    assert any("unknown local action block" in error for error in errors)
+    assert any("local context references non-action block" in error for error in errors)
+    assert any("scene transition flag mismatch" in error for error in errors)
+    assert any("omit matched scenes" in error for error in errors)
+    assert any("invalid scene candidate overlap" in error for error in errors)
+    assert any("invalid scene candidate confidence" in error for error in errors)
+    assert any("keyframe changed" in error for error in errors)
 
 
 def test_invalid_llm_block_is_rejected() -> None:

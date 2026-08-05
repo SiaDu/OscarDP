@@ -281,7 +281,13 @@ def apply_validated_responses(
         for resolution in response["resolutions"]:
             subtitle_id = resolution["subtitle_id"]; row = row_by_subtitle[subtitle_id]; original = deepcopy(row)
             decision, block_ids = resolution["decision"], resolution["block_ids"]
-            audit = {"resolver": "openai_responses_batch", "model": response.get("model"), "request_id": response["request_id"], "response_id": response.get("response_id"), "confidence": resolution["confidence"], "decision": decision, "decision_basis": resolution["decision_basis"], "original_automatic": original}
+            audit = {
+                "resolver": "human_correction" if resolution.get("human_correction") else "openai_responses_batch",
+                "model": response.get("model"), "request_id": response["request_id"], "response_id": response.get("response_id"),
+                "confidence": resolution["confidence"], "decision": decision, "decision_basis": resolution["decision_basis"],
+                "original_openai_resolution": resolution.get("openai_resolution"),
+                "human_correction": resolution.get("human_correction"), "original_automatic": original,
+            }
             if decision == "match":
                 selected = [block_lookup[block_id] for block_id in block_ids]
                 row["scene_id"] = selected[0][1]["scene_id"]
