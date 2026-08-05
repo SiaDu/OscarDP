@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from oscardp.shots.schema import json_dumps
+
+from .alignment import align_subtitles
+from .pipeline import ContextOptions, _write_json, _write_jsonl, process_one
+from .schema import AlignmentConfig, read_jsonl
+from .screenplay import parse_screenplay
+from .shot_mapping import map_shots
+from .subtitles import load_clean_subtitles
+from .validation import validate_files
+
+
+def _common_paths(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--movie-key", required=True)
+    parser.add_argument("--screenplay", type=Path, required=True)
+    parser.add_argument("--subtitle", type=Path, required=True)
+    parser.add_argument("--shots", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m oscardp.script_context")
+    commands = parser.add_subparsers(dest="command", required=True)
+    parse = commands.add_parser("parse-script")
+    parse.add_argument("--movie-key", required=True); parse.add_argument("--screenplay", type=Path, required=True)
+    parse.add_argument("--subtitle", type=Path); parse.add_argument("--shots", type=Path); parse.add_argument("--output", type=Path, required=True)
+    align = commands.add_parser("align-subtitles")
+    align.add_argument("--movie-key", required=True); align.add_argument("--screenplay-context", type=Path, required=True)
+    align.add_argument("--subtitle", type=Path, required=True); align.add_argument("--output", type=Path, required=True)
+    align.add_argument("--subtitle-language", default="en"); align.add_argument("--alignment-threshold", type=float, default=0.82)
+    align.add_argument("--review-threshold", type=float, default=0.65); align.add_argument("--semantic-model"); align.add_argument("--disable-semantic", action="store_true")
+    mapping = commands.add_parser("map-shots")
+    mapping.add_argument("--movie-key", required=True); mapping.add_argument("--screenplay-context", type=Path, required=True)
+    mapping.add_argument("--alignment", type=Path, required=True); mapping.add_argument("--shots", type=Path, required=True); mapping.add_argument("--output", type=Path, required=True)
+    mapping.add_argument("--scene-interpolation-max-gap", type=float, default=10.0)
+    process = commands.add_parser("process-one"); _common_paths(process)
+    process.add_argument("--subtitle-language", default="en"); process.add_argument("--alignment-threshold", type=float, default=0.82)
+    process.add_argument("--review-threshold", type=float, default=0.65); process.add_argument("--semantic-model"); process.add_argument("--disable-semantic", action="store_true")
+    process.add_argument("--llm-mode", choices=("none", "export", "apply"), default="none"); process.add_argument("--llm-responses", type=Path)
+    process.add_argument("--scene-interpolation-max-gap", type=float, default=10.0)
+    behavior = process.add_mutually_exclusive_group(); behavior.add_argument("--resume", action="store_true", default=True); behavior.add_argument("--overwrite", action="store_true")
+    process.add_argument("--dry-run", action="store_true")
+    validate = commands.add_parser("validate")
+    validate.add_argument("--movie-key", required=True); validate.add_argument("--screenplay-context", type=Path, required=True)
+    validate.add_argument("--alignment", type=Path, required=True); validate.add_argument("--shot-context", type=Path, required=True); validate.add_argument("--shots", type=Path, required=True)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        if args.command == "process-one":
+            values = {key: value for key, value in vars(args).items() if key != "command"}
+            values["resume"] = args.resume and not args.overwrite
+            options = ContextOptions(**values)
+            print(json_dumps(process_one(options), pretty=True)); return 0
+        if args.command == "validate":
+            result = validate_files(args.screenplay_context, args.alignment, args.shot_context, args.shots)
+            print(json_dumps({"movie_key": args.movie_key, **vars(result)}, pretty=True)); return 0 if result.passed else 1
+        if args.command == "parse-script":
+            sources = {"screenplay": args.screenplay.resolve().as_posix(), "subtitle": None if args.subtitle is None else args.subtitle.resolve().as_posix(), "shots": None if args.shots is None else args.shots.resolve().as_posix()}
+            _write_json(args.output, parse_screenplay(args.screenplay, args.movie_key, args.screenplay.stem, sources)); return 0
+        if args.command == "align-subtitles":
+            import json
+            context = json.loads(args.screenplay_context.read_text(encoding="utf-8")); subtitles = load_clean_subtitles(args.subtitle, args.subtitle_language)
+            config = AlignmentConfig(args.alignment_threshold, args.review_threshold, semantic_model=None if args.disable_semantic else args.semantic_model)
+            _write_jsonl(args.output, align_subtitles(subtitles, context, args.movie_key, config)); return 0
+        if args.command == "map-shots":
+            import json
+            context = json.loads(args.screenplay_context.read_text(encoding="utf-8"))
+            _write_jsonl(args.output, map_shots(read_jsonl(args.shots), read_jsonl(args.alignment), context, args.movie_key, args.scene_interpolation_max_gap)); return 0
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr); return 2
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

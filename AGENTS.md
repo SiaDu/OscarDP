@@ -17,7 +17,15 @@ Current task:
 4. Extract one representative keyframe for each shot.
 5. Save QC images for checking suspicious or sampled boundaries.
 
-Do not add script alignment, face recognition, OpenFace, AU extraction, gaze, shot-scale classification, or camera-motion classification unless explicitly requested.
+Do not add face recognition, OpenFace, AU extraction, gaze, shot-scale classification, or camera-motion classification unless explicitly requested.
+
+Stage 2 under `oscardp.script_context` may parse screenplay PDFs, clean SRT
+subtitles, align subtitle dialogue to screenplay blocks, and map those results
+onto the existing shots. It must remain independent from TransNetV2 Stage 1.
+It must never modify `shots.jsonl`, source videos, keyframes, or Stage 1 QC.
+An LLM may only repair flagged page structure, select existing IDs for local
+low-confidence alignments, or add optional scene annotations. It must never
+rewrite the original screenplay, action, or dialogue text.
 
 ---
 
