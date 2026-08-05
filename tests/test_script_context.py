@@ -69,7 +69,7 @@ def test_exact_fuzzy_multiblock_and_no_match_alignment() -> None:
     context = _context([("A", "Exact words here"), ("B", "first half"), ("B", "second half"), ("C", "A screenplay line deleted")])
     subtitles = [_sub(1, "Exact words here"), _sub(2, "first half second half"), _sub(3, "This was improvised and unrelated xyz")]
     rows = align_subtitles(subtitles, context, "tt1234567", AlignmentConfig(0.75, 0.55, 0.01, 20))
-    assert rows[0]["alignment"]["method"] == "normalized_exact"
+    assert rows[0]["alignment"]["method"] == "anchor_normalized_exact"
     assert len(rows[1]["script_matches"]) == 2
     assert rows[2]["alignment"]["status"] == "no_match"
 
@@ -87,8 +87,8 @@ def _shot(ordinal: int, start: float, end: float) -> dict:
 
 
 def test_subtitle_crosses_shots_and_same_scene_interpolation() -> None:
-    context = _context([("A", "hello"), ("A", "again")])
-    alignments = align_subtitles([_sub(1, "hello", 0.5, 1.5), _sub(2, "again", 2.5, 3.0)], context, "tt1234567")
+    context = _context([("A", "hello there my friend"), ("A", "we meet once again")])
+    alignments = align_subtitles([_sub(1, "hello there my friend", 0.5, 1.5), _sub(2, "we meet once again", 2.5, 3.0)], context, "tt1234567")
     rows = map_shots([_shot(1, 0, 1), _shot(2, 1, 2), _shot(3, 2, 3)], alignments, context, "tt1234567", 10)
     assert rows[0]["subtitles"][0]["subtitle_coverage"] == 0.5
     assert rows[1]["subtitles"][0]["subtitle_coverage"] == 0.5

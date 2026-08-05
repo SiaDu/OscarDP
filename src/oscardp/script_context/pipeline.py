@@ -11,7 +11,12 @@ from typing import Any
 from oscardp.shots.schema import json_dumps
 
 from .alignment import align_subtitles
-from .llm_review import apply_alignment_responses, build_review_requests
+from .llm_review import (
+    apply_alignment_responses,
+    build_alignment_diagnostics,
+    build_review_requests,
+    validate_review_requests,
+)
 from .schema import AlignmentConfig, ContextOptions, read_jsonl
 from .screenplay import parse_screenplay
 from .shot_mapping import map_shots
@@ -40,6 +45,7 @@ def _input_fingerprint(options: ContextOptions) -> dict[str, Any]:
         return {"path": path.resolve().as_posix(), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
     return {
         "schema_version": "1.0", "movie_key": options.movie_key,
+        "alignment_version": "2.1",
         "screenplay": describe(options.screenplay), "subtitle": describe(options.subtitle), "shots": describe(options.shots),
         "subtitle_language": options.subtitle_language, "alignment_threshold": options.alignment_threshold,
         "review_threshold": options.review_threshold,
@@ -104,9 +110,16 @@ def process_one(options: ContextOptions) -> dict[str, Any]:
     logger = _logger(options.output_dir / "logs" / "script_context.log")
     try:
         source_files = {"screenplay": options.screenplay.resolve().as_posix(), "subtitle": options.subtitle.resolve().as_posix(), "shots": options.shots.resolve().as_posix()}
-        logger.info("Parsing screenplay %s", options.screenplay)
-        context = parse_screenplay(options.screenplay, options.movie_key, _title_from_path(options.screenplay), source_files)
-        _write_json(outputs["context"], context)
+        context = None
+        if outputs["context"].is_file():
+            existing_context = json.loads(outputs["context"].read_text(encoding="utf-8"))
+            if existing_context.get("movie", {}).get("movie_id") == options.movie_key and existing_context.get("source_files", {}).get("screenplay") == source_files["screenplay"]:
+                context = existing_context
+                logger.info("Reusing existing movie_script_context.json")
+        if context is None:
+            logger.info("Parsing screenplay %s", options.screenplay)
+            context = parse_screenplay(options.screenplay, options.movie_key, _title_from_path(options.screenplay), source_files)
+            _write_json(outputs["context"], context)
         subtitles = load_clean_subtitles(options.subtitle, options.subtitle_language)
         logger.info("Cleaned subtitles=%d", len(subtitles))
         config = AlignmentConfig(
@@ -118,9 +131,14 @@ def process_one(options: ContextOptions) -> dict[str, Any]:
             alignments = apply_alignment_responses(alignments, read_jsonl(options.llm_responses), context)  # type: ignore[arg-type]
         _write_jsonl(outputs["alignment"], alignments)
         requests = build_review_requests(context, alignments)
+        diagnostics = build_alignment_diagnostics(context, alignments, requests["alignment_requests"])
+        request_errors = validate_review_requests(requests["alignment_requests"], context)
+        if request_errors:
+            raise RuntimeError("Review candidate validation failed: " + "; ".join(request_errors[:20]))
         if options.llm_mode == "export":
             for name, rows in requests.items():
                 _write_jsonl(options.output_dir / "review" / f"{name}.jsonl", rows)
+            _write_json(options.output_dir / "review" / "alignment_diagnostics.json", diagnostics)
         shots = read_jsonl(options.shots)
         shot_rows = map_shots(shots, alignments, context, options.movie_key, options.scene_interpolation_max_gap)
         _write_jsonl(outputs["shots"], shot_rows)
@@ -138,6 +156,7 @@ def process_one(options: ContextOptions) -> dict[str, Any]:
             "no_match_count": sum(row["alignment"]["status"] == "no_match" for row in alignments),
             "shot_context_count": len(shot_rows),
             "review_request_counts": {name: len(rows) for name, rows in requests.items()},
+            "alignment_diagnostics": diagnostics,
         }
         _write_json(state_path, {"fingerprint": fingerprint, "phase": "complete", "statistics": statistics})
         logger.info("Validation passed statistics=%s", statistics)

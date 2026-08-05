@@ -49,6 +49,7 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
     if times != sorted(times):
         errors.append("alignments must be sorted by subtitle time")
     last_scene_index = -1
+    last_script_order = -1
     scene_order = {scene_id: index for index, scene_id in enumerate(scene_ids)}
     for row in alignments:
         scene_id = row.get("scene_id")
@@ -59,12 +60,20 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
             if current < last_scene_index:
                 errors.append(f"alignment sequence retreats at {row.get('subtitle_id')}")
             last_scene_index = max(last_scene_index, current)
+            script_order = row.get("alignment", {}).get("script_order_start")
+            if not isinstance(script_order, int) or script_order < last_script_order:
+                errors.append(f"alignment screenplay order retreats at {row.get('subtitle_id')}")
+            else:
+                last_script_order = script_order
         for match in row.get("script_matches", []):
             if match.get("block_id") not in known_blocks:
                 errors.append(f"unknown alignment block_id: {match.get('block_id')}")
             score = match.get("combined_score")
             if score is not None and (not isinstance(score, (int, float)) or not 0 <= score <= 1):
                 errors.append(f"invalid combined_score in {row.get('subtitle_id')}")
+            token_start, token_end = match.get("matched_script_token_start"), match.get("matched_script_token_end")
+            if token_start is not None and (not isinstance(token_start, int) or not isinstance(token_end, int) or token_start < 0 or token_end <= token_start):
+                errors.append(f"invalid script token span in {row.get('subtitle_id')}")
         status, review = row.get("alignment", {}).get("status"), row.get("alignment", {}).get("needs_review")
         if status == "needs_review" and review is not True:
             errors.append(f"needs_review status mismatch in {row.get('subtitle_id')}")
