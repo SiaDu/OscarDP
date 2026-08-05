@@ -142,6 +142,10 @@ def test_mocked_validate_and_safe_apply_preserves_baselines(tmp_path: Path) -> N
     diagnostics = json.loads((tmp_path/"review/openai/reviewed_alignment_diagnostics.json").read_text())
     assert diagnostics["status_counts"] == {"llm_aligned": 1, "llm_no_match": 1, "needs_review": 1}
     assert diagnostics["status_total"] == 3
+    tagged = apply_validated_responses(alignment, requests, tmp_path/"review/openai/validated_responses.jsonl", context, shots, tmp_path, "full")
+    assert tagged["alignment_output"].endswith("subtitle_script_alignment.llm_reviewed_full.jsonl")
+    assert (tmp_path/"review/openai/full_apply_report.json").is_file()
+    assert (tmp_path/"review/openai/full_reviewed_alignment_diagnostics.json").is_file()
 
 
 def test_submit_refuses_without_confirmation_or_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -53,6 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument("--output-dir", type=Path, required=True); pilot.add_argument("--count", type=int, default=30)
     prepare_batch = commands.add_parser("prepare-openai-batch")
     prepare_batch.add_argument("--requests", type=Path, required=True); prepare_batch.add_argument("--output", type=Path, required=True); prepare_batch.add_argument("--model")
+    remaining = commands.add_parser("prepare-openai-remaining")
+    remaining.add_argument("--full-requests", type=Path, required=True); remaining.add_argument("--pilot-requests", type=Path, required=True)
+    remaining.add_argument("--output", type=Path, required=True); remaining.add_argument("--manifest", type=Path, required=True); remaining.add_argument("--model", required=True)
     submit = commands.add_parser("submit-openai-batch")
     submit.add_argument("--batch-input", type=Path, required=True); submit.add_argument("--job-file", type=Path, required=True); submit.add_argument("--confirm-submit", action="store_true")
     check = commands.add_parser("check-openai-batch"); check.add_argument("--job-file", type=Path, required=True)
@@ -62,7 +65,16 @@ def build_parser() -> argparse.ArgumentParser:
     apply_openai = commands.add_parser("apply-openai-responses")
     apply_openai.add_argument("--alignment", type=Path, required=True); apply_openai.add_argument("--requests", type=Path, required=True)
     apply_openai.add_argument("--validated-responses", type=Path, required=True); apply_openai.add_argument("--screenplay-context", type=Path, required=True)
-    apply_openai.add_argument("--shots", type=Path, required=True); apply_openai.add_argument("--output-dir", type=Path, required=True)
+    apply_openai.add_argument("--shots", type=Path, required=True); apply_openai.add_argument("--output-dir", type=Path, required=True); apply_openai.add_argument("--output-tag")
+    merge = commands.add_parser("merge-openai-validated-responses")
+    merge.add_argument("--full-requests", type=Path, required=True); merge.add_argument("--pilot-responses", type=Path, required=True)
+    merge.add_argument("--remaining-responses", type=Path, required=True); merge.add_argument("--output", type=Path, required=True); merge.add_argument("--report", type=Path, required=True)
+    composite = commands.add_parser("build-openai-composite-audit")
+    composite.add_argument("--requests", type=Path, required=True); composite.add_argument("--validated-responses", type=Path, required=True)
+    composite.add_argument("--output", type=Path, required=True); composite.add_argument("--summary", type=Path, required=True)
+    human = commands.add_parser("build-openai-human-audit")
+    human.add_argument("--requests", type=Path, required=True); human.add_argument("--validated-responses", type=Path, required=True)
+    human.add_argument("--composite-audit", type=Path, required=True); human.add_argument("--output", type=Path, required=True); human.add_argument("--manifest", type=Path, required=True)
     evaluate = commands.add_parser("evaluate-openai-pilot")
     evaluate.add_argument("--gold", type=Path, required=True); evaluate.add_argument("--validated-responses", type=Path, required=True)
     evaluate.add_argument("--manifest", type=Path, required=True); evaluate.add_argument("--output", type=Path, required=True)
@@ -98,6 +110,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-openai-batch":
             from .openai_review import prepare_batch
             print(json_dumps(prepare_batch(args.requests, args.output, args.model), pretty=True)); return 0
+        if args.command == "prepare-openai-remaining":
+            from .stage23 import prepare_remaining_requests
+            print(json_dumps(prepare_remaining_requests(args.full_requests, args.pilot_requests, args.output, args.manifest, args.model), pretty=True)); return 0
         if args.command == "submit-openai-batch":
             from .openai_review import submit_batch
             print(json_dumps(submit_batch(args.batch_input, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
@@ -113,7 +128,16 @@ def main(argv: list[str] | None = None) -> int:
             print(json_dumps(report, pretty=True)); return 0 if report["passed"] else 1
         if args.command == "apply-openai-responses":
             from .openai_review import apply_validated_responses
-            print(json_dumps(apply_validated_responses(args.alignment, args.requests, args.validated_responses, args.screenplay_context, args.shots, args.output_dir), pretty=True)); return 0
+            print(json_dumps(apply_validated_responses(args.alignment, args.requests, args.validated_responses, args.screenplay_context, args.shots, args.output_dir, args.output_tag), pretty=True)); return 0
+        if args.command == "merge-openai-validated-responses":
+            from .stage23 import merge_validated_responses
+            print(json_dumps(merge_validated_responses(args.full_requests, args.pilot_responses, args.remaining_responses, args.output, args.report), pretty=True)); return 0
+        if args.command == "build-openai-composite-audit":
+            from .stage23 import build_composite_audit
+            print(json_dumps(build_composite_audit(args.requests, args.validated_responses, args.output, args.summary), pretty=True)); return 0
+        if args.command == "build-openai-human-audit":
+            from .stage23 import build_human_audit_sample
+            print(json_dumps(build_human_audit_sample(args.requests, args.validated_responses, args.composite_audit, args.output, args.manifest), pretty=True)); return 0
         if args.command == "evaluate-openai-pilot":
             from .openai_review import evaluate_pilot
             print(json_dumps(evaluate_pilot(args.gold, args.validated_responses, args.manifest, args.output), pretty=True)); return 0

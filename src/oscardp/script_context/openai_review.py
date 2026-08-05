@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections import Counter
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -257,8 +258,10 @@ def validate_responses(raw_path: Path, requests_path: Path, output_dir: Path) ->
 
 def apply_validated_responses(
     alignment_path: Path, requests_path: Path, validated_path: Path, context_path: Path,
-    shots_path: Path, output_dir: Path,
+    shots_path: Path, output_dir: Path, output_tag: str | None = None,
 ) -> dict[str, Any]:
+    if output_tag is not None and not re.fullmatch(r"[a-z0-9_]+", output_tag):
+        raise ValueError("output_tag must contain only lowercase letters, digits, and underscores")
     baseline_hashes = {path.as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in (alignment_path, requests_path, context_path, shots_path)}
     baseline, requests, responses = read_jsonl(alignment_path), read_jsonl(requests_path), read_jsonl(validated_path)
     context = json.loads(context_path.read_text(encoding="utf-8")); shots = read_jsonl(shots_path)
@@ -293,15 +296,17 @@ def apply_validated_responses(
     validation = validate_data(context, reviewed, reviewed_shots, shots)
     if not validation.passed:
         raise RuntimeError("Reviewed output validation failed: " + "; ".join(validation.errors[:20]))
-    alignment_output = output_dir / "subtitle_script_alignment.llm_reviewed.jsonl"; shot_output = output_dir / "shot_script_context.llm_reviewed.jsonl"
+    tag_suffix = "" if output_tag is None else f"_{output_tag}"
+    report_prefix = "" if output_tag is None else f"{output_tag}_"
+    alignment_output = output_dir / f"subtitle_script_alignment.llm_reviewed{tag_suffix}.jsonl"; shot_output = output_dir / f"shot_script_context.llm_reviewed{tag_suffix}.jsonl"
     _write_jsonl(alignment_output, reviewed); _write_jsonl(shot_output, reviewed_shots)
     diagnostics = _add_reviewed_status_counts(build_alignment_diagnostics(context, reviewed, requests), reviewed)
-    openai_dir = output_dir / "review" / "openai"; _write_json(openai_dir / "reviewed_alignment_diagnostics.json", diagnostics)
+    openai_dir = output_dir / "review" / "openai"; _write_json(openai_dir / f"{report_prefix}reviewed_alignment_diagnostics.json", diagnostics)
     unchanged = all(hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest for path, digest in baseline_hashes.items())
     report = {"schema_version": "1.0", "changed_subtitle_count": len(changed), "alignment_rows": len(reviewed), "shot_rows": len(reviewed_shots), "validation_passed": validation.passed, "baseline_files_unchanged": unchanged, "alignment_output": alignment_output.as_posix(), "shot_output": shot_output.as_posix()}
     if not unchanged:
         raise RuntimeError("Deterministic baseline changed during reviewed application")
-    _write_json(openai_dir / "apply_report.json", report)
+    _write_json(openai_dir / f"{report_prefix}apply_report.json", report)
     return report
 
 
