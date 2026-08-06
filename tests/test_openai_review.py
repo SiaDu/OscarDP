@@ -60,8 +60,10 @@ def test_deterministic_pilot_has_30_stratified_requests_and_null_gold(tmp_path: 
     write_jsonl(requests, rows); write_jsonl(alignment, [{"subtitle_id": f"subtitle_{i:06d}"} for i in range(1, 301)])
     first = prepare_pilot(requests, alignment, tmp_path / "one")
     second = prepare_pilot(requests, alignment, tmp_path / "two")
-    assert first["request_count"] == 30 and first["strata"] == {"easy": 10, "fuzzy": 10, "multi": 5, "difficult": 5}
+    assert first["request_count"] == 30 and sum(first["strata"].values()) == 30
+    assert all(first["strata"].values())
     assert all(first["timeline"].values())
+    assert first["source_pool_distribution"]["request_count"] == 40
     assert (tmp_path / "one/pilot_requests.jsonl").read_bytes() == (tmp_path / "two/pilot_requests.jsonl").read_bytes()
     gold = [json.loads(line) for line in (tmp_path / "one/pilot_gold_template.jsonl").read_text().splitlines()]
     assert all(value is None for row in gold for resolution in row["resolutions"] for value in (resolution["decision"], resolution["block_ids"], resolution["reviewer_notes"]))

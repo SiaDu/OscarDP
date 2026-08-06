@@ -97,6 +97,64 @@ def test_uppercase_dialogue_at_dialogue_indent_is_not_a_character_cue() -> None:
     assert all(block.get("speaker") == "THE MOTHER" for block in scene["script_blocks"])
 
 
+def test_formatting_label_is_not_a_cue_or_scene_character() -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. KITCHEN. DAY", "x0": 108, "y0": 10, "y1": 22, "source_block": 1},
+        {"text": "SEBASTIANA", "x0": 252, "y0": 34, "y1": 46, "source_block": 2},
+        {"text": "...IF that's the case, right?", "x0": 180, "y0": 58, "y1": 70, "source_block": 2},
+        {"text": "EMPHASIS)", "x0": 403, "y0": 82, "y1": 94, "source_block": 3},
+    ]}]
+    scene = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"][0]
+    assert "EMPHASIS)" not in scene["scene_characters"]
+    assert not any(block.get("speaker") == "EMPHASIS)" for block in scene["script_blocks"])
+
+
+@pytest.mark.parametrize("transition", ["FADE OUT ==>", "==> FADE IN", "CUT TO ==>", "==> CUT TO:"])
+def test_arrow_transition_terminates_dialogue_and_is_action(transition: str) -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. ROOM. NIGHT", "x0": 108, "y0": 10, "y1": 22, "source_block": 1},
+        {"text": "HART", "x0": 252, "y0": 34, "y1": 46, "source_block": 2},
+        {"text": "We should leave now", "x0": 180, "y0": 58, "y1": 70, "source_block": 2},
+        {"text": transition, "x0": 427, "y0": 82, "y1": 94, "source_block": 3},
+    ]}]
+    scene = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"][0]
+    assert scene["scene_characters"] == ["HART"]
+    assert scene["script_blocks"][-1]["block_type"] == "action"
+    assert scene["script_blocks"][-1]["text"] == transition
+
+
+def test_colon_period_and_wrapped_scene_times_are_metadata() -> None:
+    pages = [
+        {"page": 1, "width": 612, "lines": [
+            {"text": 'EXT. GREEN "RECIFE" SIGN: DAY', "x0": 108, "y0": 10, "y1": 22, "source_block": 1},
+            {"text": "A sign appears.", "x0": 108, "y0": 34, "y1": 46, "source_block": 2},
+            {"text": "EXT. ROAD. SUNRISE", "x0": 108, "y0": 58, "y1": 70, "source_block": 3},
+            {"text": "A car arrives.", "x0": 108, "y0": 82, "y1": 94, "source_block": 4},
+            {"text": "EXT. BRIDGE.", "x0": 108, "y0": 106, "y1": 118, "source_block": 5},
+            {"text": "DAY", "x0": 108, "y0": 118, "y1": 130, "source_block": 5},
+            {"text": "Traffic passes.", "x0": 108, "y0": 142, "y1": 154, "source_block": 6},
+        ]},
+    ]
+    scenes = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"]
+    assert [(scene["location"], scene["time_of_day"]) for scene in scenes] == [
+        ('GREEN "RECIFE" SIGN', "DAY"), ("ROAD", "SUNRISE"), ("BRIDGE", "DAY"),
+    ]
+    assert all(not any(block["text"] == "DAY" for block in scene["script_blocks"]) for scene in scenes)
+
+
+def test_short_left_displaced_line_continues_open_dialogue() -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. KITCHEN. DAY", "x0": 108, "y0": 10, "y1": 22, "source_block": 1},
+        {"text": "SEBASTIANA", "x0": 252, "y0": 34, "y1": 46, "source_block": 2},
+        {"text": "I'll hand it over soon... where was", "x0": 180, "y0": 58, "y1": 70, "source_block": 3},
+        {"text": "I?", "x0": 108, "y0": 82, "y1": 94, "source_block": 4},
+    ]}]
+    scene = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"][0]
+    assert [(block["block_type"], block["text"]) for block in scene["script_blocks"]] == [
+        ("dialogue", "I'll hand it over soon... where was I?"),
+    ]
+
+
 def test_broken_fragment_page_detection() -> None:
     assert is_broken_page(list("ABCDEFGHIJKLMNOPQRST"))
     assert not is_broken_page(["This is a normal screenplay line", "Another complete sentence"])

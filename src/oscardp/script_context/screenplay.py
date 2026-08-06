@@ -11,13 +11,19 @@ SCENE_RE = re.compile(
 )
 TIME_WORDS = {
     "DAY", "NIGHT", "MORNING", "EVENING", "AFTERNOON", "DAWN", "DUSK",
-    "LATER", "CONTINUOUS", "MOMENTS LATER", "SAME TIME",
+    "SUNRISE", "SUNSET", "LATER", "CONTINUOUS", "MOMENTS LATER", "SAME TIME",
 }
 CUE_SUFFIX_RE = re.compile(r"\s*\((?:CONT['’]?D|CONTINUED|V\.?O\.?|O\.?S\.?|OFF)\)\s*$", re.I)
 PAGE_NOISE_RE = re.compile(r"^(?:CONTINUED:?|\"?BLUE MOON\"?\s+CONFORMED SCRIPT.*|\d+[A-Z]?\.?)$", re.I)
 MORE_MARKER_RE = re.compile(r"^\(?\s*MORE\s*\)?$", re.I)
 SECTION_MARKER_RE = re.compile(r"^(?:PT|PART)\s+\d+\s*:$", re.I)
-TRANSITION_RE = re.compile(r"^(?:CUT TO(?:\s*:.*)?|FADE (?:IN|OUT)(?:\s*:.*)?|DISSOLVE TO(?:\s*:.*)?)$", re.I)
+TRANSITION_RE = re.compile(
+    r"^(?:==>\s*)?(?:CUT TO:?|FADE (?:IN|OUT):?|DISSOLVE(?: TO)?:?)(?:\s*==>)?$", re.I
+)
+CUE_FORMAT_LABELS = {
+    "EMPHASIS", "NOTE", "INSERT", "FLASHBACK", "TITLE", "CARD", "CONTINUED",
+    "FADE", "CUT", "DISSOLVE", "PAN", "ZOOM",
+}
 
 
 def stable_scene_id(raw: str) -> str:
@@ -47,7 +53,7 @@ def _split_slugline(slugline: str) -> tuple[str, str, str | None]:
     prefix = re.match(r"^(INT\.?/EXT\.?|INT\.?|EXT\.?|I/E\.?|EST\.?)\s*", clean, re.I)
     int_ext = prefix.group(1).upper().replace(".", "") if prefix else ""
     rest = clean[prefix.end():].strip() if prefix else clean
-    ending_match = re.search(r"(?:\s*-\s*|\.\s*)([^.-]+?)\s*$", rest)
+    ending_match = re.search(r"(?:\s*-\s*|[\.:]\s*)([^.:-]+?)\s*$", rest)
     if ending_match and (ending_match.group(1).upper() in TIME_WORDS or re.fullmatch(r"(?:19|20)\d{2}", ending_match.group(1))):
         return int_ext, rest[:ending_match.start()].strip(), ending_match.group(1).upper()
     return int_ext, rest, None
@@ -59,8 +65,34 @@ def _looks_like_cue(text: str, x0: float, width: float) -> bool:
         return False
     if SCENE_RE.match(stripped) or stripped.endswith(('.', '!', '?', ':')):
         return False
+    label_words = re.findall(r"[A-Z]+", stripped.upper())
+    if label_words and label_words[0] in CUE_FORMAT_LABELS:
+        return False
     letters = re.sub(r"[^A-Za-z]", "", stripped)
     return bool(letters) and stripped == stripped.upper() and x0 >= width * 0.36
+
+
+def _wrapped_dialogue_continuation(
+    text: str, entry: dict[str, Any], previous: dict[str, Any] | None,
+    current_cue: tuple[str, str] | None, width: float, page_no: int,
+) -> bool:
+    if previous is None or current_cue is None or previous.get("block_type") != "dialogue":
+        return False
+    if previous.get("speaker") != current_cue[0] or previous.get("_page") != page_no:
+        return False
+    source_block, previous_source = entry.get("source_block"), previous.get("_source_block")
+    if not isinstance(source_block, int) or not isinstance(previous_source, int) or source_block != previous_source + 1:
+        return False
+    x0, y0 = float(entry.get("x0", 0)), float(entry.get("y0", 0))
+    displacement = float(previous.get("_x0", x0)) - x0
+    vertical_gap = y0 - float(previous.get("_y1", y0))
+    words = text.split()
+    fragment_like = len(words) == 1 or (len(words) <= 3 and text[:1].islower())
+    previous_open = not previous.get("text", "").rstrip().endswith((".", "!", "?", ";", ":"))
+    return (
+        previous_open and fragment_like and 0 <= vertical_gap <= 30
+        and 0 <= displacement <= width * 0.14 and x0 >= width * 0.16
+    )
 
 
 def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, source_files: dict[str, str]) -> dict[str, Any]:
@@ -129,11 +161,22 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
             current["script_pages"]["end"] = page_no
             if broken:
                 current["parsing"] = {"status": "needs_review", "needs_review": True}
-            if TRANSITION_RE.fullmatch(text):
+            upper_text = text.rstrip(".").upper()
+            if (
+                upper_text in TIME_WORDS and not current["script_blocks"]
+                and current["script_pages"]["start"] == page_no
+            ):
+                current["slugline"] = current["slugline"].rstrip(".") + f". {upper_text}"
+                current["int_ext"], current["location"], current["time_of_day"] = _split_slugline(current["slugline"])
+                current_cue = None
+                pending_parenthetical = None
+                continue
+            is_transition = bool(TRANSITION_RE.fullmatch(text))
+            if is_transition:
                 current_cue = None
                 pending_parenthetical = None
             width = float(page.get("width", 612))
-            if _looks_like_cue(text, float(entry.get("x0", 0)), width):
+            if not is_transition and _looks_like_cue(text, float(entry.get("x0", 0)), width):
                 original = text
                 speaker = normalize_character_cue(text)
                 current_cue = (speaker, original)
@@ -150,6 +193,14 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
                 text = remainder.strip()
                 if not text:
                     continue
+            previous = current["script_blocks"][-1] if current["script_blocks"] else None
+            wrapped_continuation = _wrapped_dialogue_continuation(text, entry, previous, current_cue, width, page_no)
+            if wrapped_continuation:
+                previous["text"] += " " + text
+                previous["_source_block"] = entry.get("source_block")
+                previous["_x0"] = float(entry.get("x0", 0))
+                previous["_y1"] = float(entry.get("y1", entry.get("y0", 0)))
+                continue
             # Dialogue is indented relative to action. Keep the cue active for
             # wrapped lines; an action-indented line ends the dialogue block.
             if current_cue and float(entry.get("x0", 0)) < width * 0.22:
@@ -157,20 +208,22 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
                 pending_parenthetical = None
             block_type = "dialogue" if current_cue else "action"
             source_block = entry.get("source_block")
-            previous = current["script_blocks"][-1] if current["script_blocks"] else None
             if (
                 previous is not None and previous["block_type"] == block_type
                 and source_block is not None and previous.get("_source_block") == source_block
                 and (block_type == "action" or previous.get("speaker") == current_cue[0])
             ):
                 previous["text"] += " " + text
+                previous["_x0"] = float(entry.get("x0", previous.get("_x0", 0)))
+                previous["_y1"] = float(entry.get("y1", entry.get("y0", previous.get("_y1", 0))))
                 continue
             number = 1 + sum(block["block_type"] == block_type for block in current["script_blocks"])
             block = {
                 "block_id": f"{current['scene_id']}_{block_type}_{number:03d}",
                 "block_type": block_type, "script_page": page_no,
                 "source_order": len(current["script_blocks"]) + 1, "text": text,
-                "_source_block": source_block,
+                "_source_block": source_block, "_x0": float(entry.get("x0", 0)),
+                "_y1": float(entry.get("y1", entry.get("y0", 0))), "_page": page_no,
             }
             if current_cue:
                 block.update({"speaker": current_cue[0], "character_cue": current_cue[1], "parenthetical": pending_parenthetical})
@@ -179,11 +232,12 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
 
     for scene in scenes:
         for block in scene["script_blocks"]:
-            block.pop("_source_block", None)
+            for private in ("_source_block", "_x0", "_y1", "_page"):
+                block.pop(private, None)
 
     return {
         "schema_version": "1.0",
-        "parser_version": "2.2.3",
+        "parser_version": "2.4.0",
         "movie": {"movie_id": movie_key, "title": title},
         "source_files": source_files,
         "summary": {

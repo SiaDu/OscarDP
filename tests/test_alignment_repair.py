@@ -87,6 +87,52 @@ def test_no_anchor_review_is_insufficient_and_grouped() -> None:
     assert requests[0]["subtitle_ids"] == ["subtitle_000001", "subtitle_000002", "subtitle_000003"]
     assert requests[0]["insufficient_candidates"] is True
     assert requests[0]["dialogue_candidates"] == []
+    assert requests[0]["fallback_used"] is True
+    assert requests[0]["candidate_interval_reason"] == "fallback_timeline_estimate"
+
+
+def test_wide_anchor_fallback_retrieves_vehicle_exit_dialogue_in_global_order() -> None:
+    context = context_for([
+        ["Opening reliable anchor has enough distinct words"],
+        ["Unrelated dialogue in the second scene"],
+        ["More unrelated dialogue before the relevant exchange"],
+        [
+            "Could you get out of the vehicle, please?",
+            "Do you really need to come into my car, sir?",
+            "I do. Trust me.",
+        ],
+        ["Unrelated dialogue after the relevant exchange"],
+        ["Another unrelated scene with spoken words"],
+        ["Closing reliable anchor also has enough distinct words"],
+    ])
+    subtitle_texts = [
+        "Opening reliable anchor has enough distinct words",
+        "Could you step out of the car, sir?", "Why?", "I need to get inside the car.",
+        "You can trust me.", "Is it really necessary?", "Yes.", "Please step out.",
+        "Closing reliable anchor also has enough distinct words",
+    ]
+    rows = []
+    for index, text in enumerate(subtitle_texts):
+        reliable = index in {0, len(subtitle_texts) - 1}
+        order = 0 if index == 0 else 8 if reliable else None
+        rows.append({
+            "subtitle_id": f"subtitle_{index + 1:06d}", "alignment_group_id": f"align_{index + 1:06d}",
+            "time": {"start_sec": float(index), "end_sec": float(index) + .8}, "text": text,
+            "scene_id": "scene_001" if index == 0 else "scene_007" if reliable else None,
+            "script_matches": ([{"block_id": "scene_001_dialogue_001", "combined_score": 1.0}] if index == 0 else [{"block_id": "scene_007_dialogue_001", "combined_score": 1.0}] if reliable else []),
+            "alignment": {"method": "anchor_normalized_exact" if reliable else "no_match", "status": "auto_aligned" if reliable else "no_match", "needs_review": not reliable, "reliable_anchor": reliable, "script_order_start": order, "script_order_end": order, "candidate_margin": 0.0},
+        })
+    request = build_review_requests(context, rows)["alignment_requests"][0]
+    ids = [candidate["block_id"] for candidate in request["dialogue_candidates"]]
+    expected = {f"scene_004_dialogue_{index:03d}" for index in range(1, 4)}
+    assert expected <= set(ids)
+    assert request["fallback_used"] is True
+    assert request["candidate_interval_reason"] == "fallback_between_reliable_anchors"
+    assert request["insufficient_candidates"] is False
+    assert ids == list(dict.fromkeys(ids))
+    assert [candidate["screenplay_order"] for candidate in request["dialogue_candidates"]] == sorted(candidate["screenplay_order"] for candidate in request["dialogue_candidates"])
+    assert all(candidate["retrieval_methods"] for candidate in request["dialogue_candidates"])
+    assert validate_review_requests([request], context) == []
 
 
 def test_same_scene_anchor_window_stays_in_scene() -> None:

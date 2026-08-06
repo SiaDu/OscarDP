@@ -41,6 +41,9 @@ class ContextOptions:
     llm_mode: str = "none"
     llm_responses: Path | None = None
     scene_interpolation_max_gap: float = 10.0
+    review_local_window: int = 40
+    review_fallback_window: int = 240
+    review_candidate_limit: int = 36
     resume: bool = True
     overwrite: bool = False
     dry_run: bool = False

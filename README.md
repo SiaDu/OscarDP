@@ -83,6 +83,22 @@ Stage 2.1 uses monotonic anchors and token spans so consecutive subtitle
 fragments can reference the same long screenplay block. It also exports grouped,
 locally constrained review requests and `review/alignment_diagnostics.json`.
 
+### Stage 2.4 sparse-anchor candidate retrieval
+
+When reliable anchors are missing or span a wide screenplay interval, review
+export now uses deterministic lexical retrieval over a bounded fallback range.
+It keeps the strongest dialogue candidates and their adjacent dialogue blocks in
+global screenplay order; action blocks are never offered to the reviewer.
+Candidate generation records its interval, method, lexical score, and fallback
+status, but never approves an alignment. Optional local semantic retrieval may
+augment this candidate set only when `--semantic-model` is explicitly supplied.
+
+The fallback range and final request size are configurable with
+`--review-local-window`, `--review-fallback-window`, and
+`--review-candidate-limit`. `prepare-openai-pilot` records both the full request
+pool and selected-pilot distributions for normal, fallback, and insufficient
+candidate windows, together with any material representativeness warning.
+
 ### Stage 2.2 optional OpenAI review
 
 OpenAI review is an optional, separate workflow. Normal `process-one` never

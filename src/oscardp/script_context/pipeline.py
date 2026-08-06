@@ -45,13 +45,16 @@ def _input_fingerprint(options: ContextOptions) -> dict[str, Any]:
         return {"path": path.resolve().as_posix(), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
     return {
         "schema_version": "1.0", "movie_key": options.movie_key,
-        "alignment_version": "2.1", "parser_version": "2.2.3",
+        "alignment_version": "2.1", "parser_version": "2.4.0",
         "screenplay": describe(options.screenplay), "subtitle": describe(options.subtitle), "shots": describe(options.shots),
         "subtitle_language": options.subtitle_language, "alignment_threshold": options.alignment_threshold,
         "review_threshold": options.review_threshold,
         "semantic_model": None if options.disable_semantic else options.semantic_model,
         "llm_mode": options.llm_mode, "llm_responses": None if options.llm_responses is None else describe(options.llm_responses),
         "scene_interpolation_max_gap": options.scene_interpolation_max_gap,
+        "review_local_window": options.review_local_window,
+        "review_fallback_window": options.review_fallback_window,
+        "review_candidate_limit": options.review_candidate_limit,
     }
 
 
@@ -113,7 +116,7 @@ def process_one(options: ContextOptions) -> dict[str, Any]:
         context = None
         if not options.overwrite and outputs["context"].is_file():
             existing_context = json.loads(outputs["context"].read_text(encoding="utf-8"))
-            if existing_context.get("parser_version") == "2.2.3" and existing_context.get("movie", {}).get("movie_id") == options.movie_key and existing_context.get("source_files", {}).get("screenplay") == source_files["screenplay"]:
+            if existing_context.get("parser_version") == "2.4.0" and existing_context.get("movie", {}).get("movie_id") == options.movie_key and existing_context.get("source_files", {}).get("screenplay") == source_files["screenplay"]:
                 context = existing_context
                 logger.info("Reusing existing movie_script_context.json")
         if context is None:
@@ -130,7 +133,12 @@ def process_one(options: ContextOptions) -> dict[str, Any]:
         if options.llm_mode == "apply":
             alignments = apply_alignment_responses(alignments, read_jsonl(options.llm_responses), context)  # type: ignore[arg-type]
         _write_jsonl(outputs["alignment"], alignments)
-        requests = build_review_requests(context, alignments)
+        requests = build_review_requests(
+            context, alignments, local_window=options.review_local_window,
+            fallback_window=options.review_fallback_window,
+            candidate_limit=options.review_candidate_limit,
+            semantic_model=None if options.disable_semantic else options.semantic_model,
+        )
         diagnostics = build_alignment_diagnostics(context, alignments, requests["alignment_requests"])
         request_errors = validate_review_requests(requests["alignment_requests"], context)
         if request_errors:
