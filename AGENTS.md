@@ -35,6 +35,14 @@ review application; reviewed files use separate `.llm_reviewed.jsonl` names.
 Full-dataset OpenAI or Stage 2 processing is out of scope unless explicitly
 authorized.
 
+OpenAI Batch response schemas must be request-specific: allowed block IDs are
+exactly the current request's dialogue candidates. Normally preserve screenplay
+order. A bounded same-scene backward match may represent repeated or locally
+reordered final-film dialogue only when it uses the explicit
+`repeated_or_reordered_dialogue` basis; the default maximum backward distance is
+three dialogue blocks. Never permit a foreign ID, distant jump, or cross-scene
+backward jump. Candidate-recall failures use `uncertain`, not invented IDs.
+
 ---
 
 ## 2. Paths

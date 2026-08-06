@@ -19,6 +19,7 @@ from oscardp.script_context.openai_review import (
     prepare_batch,
     submit_batch,
     validate_batch_lines,
+    validate_pilot_gold,
     validate_resolution,
     validate_responses,
 )
@@ -121,7 +122,24 @@ def test_batch_uses_unique_custom_ids_and_strict_responses_schema(tmp_path: Path
     rows = [json.loads(line) for line in output.read_text().splitlines()]
     assert manifest["request_count"] == 2 and validate_batch_lines(rows) == []
     assert len({row["custom_id"] for row in rows}) == 2
-    assert rows[0]["body"]["text"]["format"]["schema"] == alignment_response_schema()
+    assert rows[0]["body"]["text"]["format"]["schema"] == alignment_response_schema(request(1, "easy", 1))
+
+
+def test_request_specific_schema_enums_exact_candidate_ids() -> None:
+    req = request(1, "easy", 1)
+    req["dialogue_candidates"] = [
+        {"scene_id": "scene_001", "block_id": block_id, "screenplay_order": index, "speaker": "HART", "text": "candidate"}
+        for index, block_id in enumerate(("dialogue_004", "dialogue_005", "dialogue_006"), 4)
+    ]
+    row = batch_line(req, "test-model")
+    schema = row["body"]["text"]["format"]["schema"]
+    enum = schema["properties"]["resolutions"]["items"]["properties"]["block_ids"]["items"]["enum"]
+    assert enum == ["dialogue_004", "dialogue_005", "dialogue_006"]
+    assert "dialogue_003" not in enum
+    assert schema["properties"]["request_id"]["enum"] == [req["request_id"]]
+    assert validate_batch_lines([row]) == []
+    row["body"]["text"]["format"]["schema"]["properties"]["resolutions"]["items"]["properties"]["block_ids"]["items"]["enum"].append("dialogue_003")
+    assert any("strict response schema" in error for error in validate_batch_lines([row]))
 
 
 def valid_response(req: dict) -> dict:
@@ -185,6 +203,54 @@ def test_interval_monotonicity_allows_reuse_and_forward_overlap(spans: list[list
 def test_interval_monotonicity_rejects_start_or_end_regression(spans: list[list[int]]) -> None:
     req, response = interval_request(spans)
     assert "non-monotonic block selection" in validate_resolution(response, req)
+
+
+@pytest.mark.parametrize("spans", [
+    [[0], [1], [2], [1], [2], [0]],
+    [[2], [0], [1]],
+    [[0], [1], [0]],
+    [[0], [1], [2], [0]],
+])
+def test_bounded_final_cut_repetition_or_reorder_with_explicit_basis(spans: list[list[int]]) -> None:
+    req, response = interval_request(spans)
+    previous = None
+    for resolution, span in zip(response["resolutions"], spans):
+        current = (span[0], span[-1])
+        if previous is not None and (current[0] < previous[0] or current[1] < previous[1]):
+            resolution["decision_basis"] = "repeated_or_reordered_dialogue"
+        previous = current
+    assert validate_resolution(response, req) == []
+
+
+def test_bounded_reorder_requires_explicit_basis() -> None:
+    req, response = interval_request([[0], [2], [1]])
+    assert "explicit repeated_or_reordered_dialogue basis required" in validate_resolution(response, req)
+
+
+def test_reordered_dialogue_rejects_cross_scene_and_excessive_distance() -> None:
+    req, response = interval_request([[4], [1]])
+    response["resolutions"][1]["decision_basis"] = "repeated_or_reordered_dialogue"
+    assert validate_resolution(response, req) == []
+    assert "backward mapping exceeds distance 2" in validate_resolution(response, req, max_backward_distance=2)
+    req["dialogue_candidates"][1]["scene_id"] = "scene_002"
+    assert "backward mapping crosses scenes" in validate_resolution(response, req)
+
+
+def test_pilot_gold_validator_classifies_bounded_reorder_without_rejecting_it(tmp_path: Path) -> None:
+    req, _response = interval_request([[0], [2], [1]])
+    req["request_id"] = "r1"
+    gold = [{"request_id": "r1", "resolutions": [
+        {"subtitle_id": req["subtitle_ids"][0], "decision": "match", "block_ids": ["block_0"]},
+        {"subtitle_id": req["subtitle_ids"][1], "decision": "match", "block_ids": ["block_2"]},
+        {"subtitle_id": req["subtitle_ids"][2], "decision": "match", "block_ids": ["block_1"]},
+    ]}]
+    requests = tmp_path / "requests.jsonl"; gold_path = tmp_path / "gold.jsonl"; output = tmp_path / "report.json"
+    write_jsonl(requests, [req]); write_jsonl(gold_path, gold)
+    report = validate_pilot_gold(gold_path, requests, output)
+    assert report["passed"] is True
+    assert report["malformed_gold_record_count"] == report["foreign_match_block_id_count"] == 0
+    assert report["bounded_repeated_or_reordered_resolution_count"] == 1
+    assert report["bounded_repeated_or_reordered_affected_request_count"] == 1
 
 
 def raw_batch_row(req: dict, response: dict) -> dict:
@@ -335,6 +401,36 @@ def test_evaluate_pilot_reports_complete_metrics(tmp_path: Path) -> None:
     assert result["uncertain_rate"] == 0.0 and result["acceptance_criteria"]["passed"] is False
     assert result["raw_diagnostic_accuracy"] == 2 / 3
     assert result["source_weighted_overall_accuracy"] == 2 / 3
+
+
+def test_evaluate_pilot_reports_stage25_diagnostics(tmp_path: Path) -> None:
+    gold = tmp_path / "gold.jsonl"; validated = tmp_path / "validated_responses.jsonl"
+    manifest = tmp_path / "manifest.json"; output = tmp_path / "evaluation.json"
+    write_jsonl(gold, [{"request_id": "r1", "resolutions": [
+        {"subtitle_id": "s1", "decision": "match", "block_ids": ["b1"]},
+        {"subtitle_id": "s2", "decision": "uncertain", "block_ids": []},
+    ]}])
+    write_jsonl(validated, [{
+        "request_id": "r1",
+        "validation_diagnostics": {"bounded_backward_mapping_count": 1},
+        "resolutions": [
+            {"subtitle_id": "s1", "decision": "match", "block_ids": ["b1"], "decision_basis": "repeated_or_reordered_dialogue"},
+            {"subtitle_id": "s2", "decision": "uncertain", "block_ids": [], "decision_basis": "insufficient_context"},
+        ],
+    }])
+    (tmp_path / "response_validation_report.json").write_text(json.dumps({
+        "invalid_count": 1,
+        "errors": [{"errors": ["block outside request candidates for s3"]}],
+    }))
+    manifest.write_text(json.dumps({
+        "requests": [{"request_id": "r1", "stratum": "difficult", "timeline_region": "late"}],
+        "source_pool_distribution": {"strata": {"difficult": 1}},
+    }))
+    result = evaluate_pilot(gold, validated, manifest, output)
+    assert result["repeated_or_reordered_prediction_count"] == 1
+    assert result["bounded_backward_mapping_count"] == 1
+    assert result["foreign_candidate_output_count"] == 1
+    assert result["candidate_recall_uncertain_count"] == 1
 
 
 def test_evaluate_pilot_rejects_equal_empty_blocks_when_decisions_differ(tmp_path: Path) -> None:

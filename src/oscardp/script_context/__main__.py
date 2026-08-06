@@ -65,6 +65,9 @@ def build_parser() -> argparse.ArgumentParser:
     fetch = commands.add_parser("fetch-openai-batch"); fetch.add_argument("--job-file", type=Path, required=True); fetch.add_argument("--output-dir", type=Path, required=True)
     validate_openai = commands.add_parser("validate-openai-responses")
     validate_openai.add_argument("--raw-output", type=Path, required=True); validate_openai.add_argument("--requests", type=Path, required=True); validate_openai.add_argument("--output-dir", type=Path, required=True)
+    validate_gold = commands.add_parser("validate-openai-pilot-gold")
+    validate_gold.add_argument("--gold", type=Path, required=True); validate_gold.add_argument("--requests", type=Path, required=True)
+    validate_gold.add_argument("--output", type=Path, required=True); validate_gold.add_argument("--max-backward-distance", type=int, default=3)
     apply_openai = commands.add_parser("apply-openai-responses")
     apply_openai.add_argument("--alignment", type=Path, required=True); apply_openai.add_argument("--requests", type=Path, required=True)
     apply_openai.add_argument("--validated-responses", type=Path, required=True); apply_openai.add_argument("--screenplay-context", type=Path, required=True)
@@ -140,6 +143,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate-openai-responses":
             from .openai_review import validate_responses
             report = validate_responses(args.raw_output, args.requests, args.output_dir)
+            print(json_dumps(report, pretty=True)); return 0 if report["passed"] else 1
+        if args.command == "validate-openai-pilot-gold":
+            from .openai_review import validate_pilot_gold
+            report = validate_pilot_gold(args.gold, args.requests, args.output, args.max_backward_distance)
             print(json_dumps(report, pretty=True)); return 0 if report["passed"] else 1
         if args.command == "apply-openai-responses":
             from .openai_review import apply_validated_responses

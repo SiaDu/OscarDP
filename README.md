@@ -148,6 +148,32 @@ alignment or shot-context files. Model output is constrained to request-local
 IDs, structurally validated, and still requires human pilot evaluation before
 any promotion.
 
+### Stage 2.5 constrained pilot responses
+
+Batch preparation now embeds a request-specific strict schema in every line.
+`request_id` is fixed to that request and `block_ids` is an enum containing
+exactly its supplied dialogue candidates. Subtitle order is still enforced by
+local validation. The reviewer normally preserves screenplay order, but a
+small same-scene backward move (three dialogue blocks by default) is accepted
+only with the explicit `repeated_or_reordered_dialogue` basis. Distant and
+cross-scene jumps remain invalid; `no_match` and `uncertain` do not move the
+local cursor.
+
+Validate a frozen pilot gold file without changing it:
+
+```bash
+python -m oscardp.script_context validate-openai-pilot-gold \
+  --gold /path/to/pilot_gold_filled.jsonl \
+  --requests /path/to/pilot_requests.jsonl \
+  --output /path/to/pilot_gold_validation.json
+```
+
+This report separates malformed or foreign labels, ordinary monotonic
+mappings, bounded final-cut repetitions/reorders, and unrepresentable sequence
+movement. `prepare-openai-batch` remains local-only: it writes a Batch JSONL
+and manifest but neither uploads nor submits them. The manifest records the
+instruction hash and request-level schema hashes for controlled comparisons.
+
 ### Stage 2.3.1 reviewed-output QC
 
 Reviewed shot context uses global screenplay block order. Every row includes
