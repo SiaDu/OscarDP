@@ -9,7 +9,7 @@ import pytest
 
 from oscardp.script_context.alignment import align_subtitles
 from oscardp.script_context.llm_review import apply_alignment_responses
-from oscardp.script_context.pipeline import ContextOptions, process_one
+from oscardp.script_context.pipeline import ContextOptions, _title_from_path, process_one
 from oscardp.script_context.schema import AlignmentConfig, CleanSubtitle
 from oscardp.script_context.screenplay import is_broken_page, normalize_character_cue, parse_layout_pages, stable_scene_id
 from oscardp.script_context.shot_mapping import map_shots
@@ -36,6 +36,11 @@ def _sub(index: int, text: str, start: float | None = None, end: float | None = 
     return CleanSubtitle(f"subtitle_{index:06d}", f"00:00:0{int(start)}.000", f"00:00:0{int(end)}.800", start, end, text, text, "en")
 
 
+def test_screenplay_title_removes_any_imdb_prefix() -> None:
+    assert _title_from_path(Path("tt27847051_TheSecretAgent.pdf")) == "The Secret Agent"
+    assert _title_from_path(Path("tt32536315.Blue.Moon.pdf")) == "Blue Moon"
+
+
 def test_scene_ids_character_and_layout_classification() -> None:
     assert [stable_scene_id(value) for value in ("1", "4A", "13B")] == ["scene_001", "scene_004A", "scene_013B"]
     assert normalize_character_cue("HART (CONT'D)") == "HART"
@@ -52,6 +57,44 @@ def test_scene_ids_character_and_layout_classification() -> None:
     assert [block["block_type"] for block in scene["script_blocks"]] == ["action", "dialogue"]
     assert scene["script_blocks"][1]["speaker"] == "HART"
     assert scene["script_blocks"][1]["parenthetical"] == "(quietly)"
+
+
+def test_parser_filters_dotted_page_numbers_and_ends_dialogue_at_transition() -> None:
+    pages = [{"page": 2, "width": 612, "lines": [
+        {"text": "EXT. ROAD. DAY", "x0": 70, "y0": 10},
+        {"text": "HART", "x0": 250, "y0": 30},
+        {"text": "Hello there.", "x0": 180, "y0": 50},
+        {"text": "CUT TO:", "x0": 450, "y0": 70},
+        {"text": "2.", "x0": 300, "y0": 790},
+    ]}]
+    scene = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"][0]
+    assert scene["location"] == "ROAD" and scene["time_of_day"] == "DAY"
+    assert [(block["block_type"], block["text"]) for block in scene["script_blocks"]] == [
+        ("dialogue", "Hello there."), ("action", "CUT TO:"),
+    ]
+
+
+def test_trailing_year_is_scene_time_not_native_scene_number() -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. DIGITALIZATION LAB. 2022", "x0": 70, "y0": 10},
+        {"text": "Machines hum.", "x0": 70, "y0": 30},
+    ]}]
+    scene = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"][0]
+    assert scene["scene_id"] == "scene_UNNUMBERED_001"
+    assert scene["screenplay_scene_id"] == "UNNUMBERED_001"
+    assert scene["location"] == "DIGITALIZATION LAB" and scene["time_of_day"] == "2022"
+
+
+def test_uppercase_dialogue_at_dialogue_indent_is_not_a_character_cue() -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. OFFICE. DAY", "x0": 70, "y0": 10},
+        {"text": "THE MOTHER", "x0": 252, "y0": 30},
+        {"text": "YOU LEFT HER ON HER OWN!!", "x0": 180, "y0": 50},
+        {"text": "OH LORD HELP ME!!", "x0": 180, "y0": 70},
+    ]}]
+    scene = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"][0]
+    assert scene["scene_characters"] == ["THE MOTHER"]
+    assert all(block.get("speaker") == "THE MOTHER" for block in scene["script_blocks"])
 
 
 def test_broken_fragment_page_detection() -> None:
@@ -253,3 +296,10 @@ def test_end_to_end_fixture(tmp_path: Path) -> None:
     assert result["validation_passed"]
     validation = validate_files(tmp_path / "out/movie_script_context.json", tmp_path / "out/subtitle_script_alignment.jsonl", tmp_path / "out/shot_script_context.jsonl", shots)
     assert validation.passed
+    context_path = tmp_path / "out/movie_script_context.json"
+    context = json.loads(context_path.read_text())
+    context["movie"]["title"] = "stale reused title"
+    context_path.write_text(json.dumps(context), encoding="utf-8")
+    overwritten = process_one(ContextOptions("tt1234567", pdf, subtitle, shots, tmp_path / "out", llm_mode="export", overwrite=True))
+    assert overwritten["resumed"] is False
+    assert json.loads(context_path.read_text())["movie"]["title"] == "Test"

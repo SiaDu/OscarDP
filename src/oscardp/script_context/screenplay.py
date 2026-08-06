@@ -14,9 +14,10 @@ TIME_WORDS = {
     "LATER", "CONTINUOUS", "MOMENTS LATER", "SAME TIME",
 }
 CUE_SUFFIX_RE = re.compile(r"\s*\((?:CONT['’]?D|CONTINUED|V\.?O\.?|O\.?S\.?|OFF)\)\s*$", re.I)
-PAGE_NOISE_RE = re.compile(r"^(?:CONTINUED:?|\"?BLUE MOON\"?\s+CONFORMED SCRIPT.*|\d+[A-Z]?)$", re.I)
+PAGE_NOISE_RE = re.compile(r"^(?:CONTINUED:?|\"?BLUE MOON\"?\s+CONFORMED SCRIPT.*|\d+[A-Z]?\.?)$", re.I)
 MORE_MARKER_RE = re.compile(r"^\(?\s*MORE\s*\)?$", re.I)
 SECTION_MARKER_RE = re.compile(r"^(?:PT|PART)\s+\d+\s*:$", re.I)
+TRANSITION_RE = re.compile(r"^(?:CUT TO(?:\s*:.*)?|FADE (?:IN|OUT)(?:\s*:.*)?|DISSOLVE TO(?:\s*:.*)?)$", re.I)
 
 
 def stable_scene_id(raw: str) -> str:
@@ -46,8 +47,8 @@ def _split_slugline(slugline: str) -> tuple[str, str, str | None]:
     prefix = re.match(r"^(INT\.?/EXT\.?|INT\.?|EXT\.?|I/E\.?|EST\.?)\s*", clean, re.I)
     int_ext = prefix.group(1).upper().replace(".", "") if prefix else ""
     rest = clean[prefix.end():].strip() if prefix else clean
-    ending_match = re.search(r"\s*-\s*([^-]+?)\s*$", rest)
-    if ending_match and ending_match.group(1).upper() in TIME_WORDS:
+    ending_match = re.search(r"(?:\s*-\s*|\.\s*)([^.-]+?)\s*$", rest)
+    if ending_match and (ending_match.group(1).upper() in TIME_WORDS or re.fullmatch(r"(?:19|20)\d{2}", ending_match.group(1))):
         return int_ext, rest[:ending_match.start()].strip(), ending_match.group(1).upper()
     return int_ext, rest, None
 
@@ -59,7 +60,7 @@ def _looks_like_cue(text: str, x0: float, width: float) -> bool:
     if SCENE_RE.match(stripped) or stripped.endswith(('.', '!', '?', ':')):
         return False
     letters = re.sub(r"[^A-Za-z]", "", stripped)
-    return bool(letters) and stripped == stripped.upper() and x0 >= width * 0.28
+    return bool(letters) and stripped == stripped.upper() and x0 >= width * 0.36
 
 
 def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, source_files: dict[str, str]) -> dict[str, Any]:
@@ -93,12 +94,17 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
                 continue
             heading = SCENE_RE.match(text)
             if heading:
-                raw_no = (heading.group("lead") or heading.group("trail") or "").upper()
+                lead = (heading.group("lead") or "").upper()
+                trail = (heading.group("trail") or "").upper()
+                trailing_year = trail if re.fullmatch(r"(?:19|20)\d{2}", trail) else ""
+                raw_no = lead or ("" if trailing_year else trail)
                 if not raw_no:
                     same_line = [value for y, value in numeric_by_y if abs(y - float(entry.get("y0", 0))) <= 2.5]
                     if same_line:
                         raw_no = same_line[0]
                 slugline = heading.group("slug").strip()
+                if trailing_year:
+                    slugline += f" {trailing_year}"
                 if not raw_no:
                     unnumbered += 1
                     raw_no = f"UNNUMBERED_{unnumbered:03d}"
@@ -123,6 +129,9 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
             current["script_pages"]["end"] = page_no
             if broken:
                 current["parsing"] = {"status": "needs_review", "needs_review": True}
+            if TRANSITION_RE.fullmatch(text):
+                current_cue = None
+                pending_parenthetical = None
             width = float(page.get("width", 612))
             if _looks_like_cue(text, float(entry.get("x0", 0)), width):
                 original = text
@@ -174,7 +183,7 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
 
     return {
         "schema_version": "1.0",
-        "parser_version": "2.2.1",
+        "parser_version": "2.2.3",
         "movie": {"movie_id": movie_key, "title": title},
         "source_files": source_files,
         "summary": {

@@ -45,7 +45,7 @@ def _input_fingerprint(options: ContextOptions) -> dict[str, Any]:
         return {"path": path.resolve().as_posix(), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
     return {
         "schema_version": "1.0", "movie_key": options.movie_key,
-        "alignment_version": "2.1", "parser_version": "2.2.1",
+        "alignment_version": "2.1", "parser_version": "2.2.3",
         "screenplay": describe(options.screenplay), "subtitle": describe(options.subtitle), "shots": describe(options.shots),
         "subtitle_language": options.subtitle_language, "alignment_threshold": options.alignment_threshold,
         "review_threshold": options.review_threshold,
@@ -73,10 +73,10 @@ def _close_logger(logger: logging.Logger) -> None:
 
 
 def _title_from_path(path: Path) -> str:
-    stem = path.stem
-    stem = stem.replace("tt32536315_", "")
     import re
-    return re.sub(r"[_\.]+", " ", stem).strip()
+    stem = re.sub(r"^tt\d{7,8}(?:[_\.\- ]+)?", "", path.stem, flags=re.IGNORECASE)
+    separated = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", stem)
+    return re.sub(r"[_\.]+", " ", separated).strip()
 
 
 def process_one(options: ContextOptions) -> dict[str, Any]:
@@ -111,9 +111,9 @@ def process_one(options: ContextOptions) -> dict[str, Any]:
     try:
         source_files = {"screenplay": options.screenplay.resolve().as_posix(), "subtitle": options.subtitle.resolve().as_posix(), "shots": options.shots.resolve().as_posix()}
         context = None
-        if outputs["context"].is_file():
+        if not options.overwrite and outputs["context"].is_file():
             existing_context = json.loads(outputs["context"].read_text(encoding="utf-8"))
-            if existing_context.get("parser_version") == "2.2.1" and existing_context.get("movie", {}).get("movie_id") == options.movie_key and existing_context.get("source_files", {}).get("screenplay") == source_files["screenplay"]:
+            if existing_context.get("parser_version") == "2.2.3" and existing_context.get("movie", {}).get("movie_id") == options.movie_key and existing_context.get("source_files", {}).get("screenplay") == source_files["screenplay"]:
                 context = existing_context
                 logger.info("Reusing existing movie_script_context.json")
         if context is None:

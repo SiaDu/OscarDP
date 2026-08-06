@@ -67,6 +67,29 @@ def test_deterministic_pilot_has_30_stratified_requests_and_null_gold(tmp_path: 
     assert all(value is None for row in gold for resolution in row["resolutions"] for value in (resolution["decision"], resolution["block_ids"], resolution["reviewer_notes"]))
 
 
+def test_pilot_backfills_missing_strata_and_uses_all_when_fewer_than_requested(tmp_path: Path) -> None:
+    rows = [request(index, "easy", index) for index in range(1, 13)]
+    requests = tmp_path / "requests.jsonl"; alignment = tmp_path / "alignment.jsonl"
+    write_jsonl(requests, rows); write_jsonl(alignment, [{"subtitle_id": f"subtitle_{i:06d}"} for i in range(1, 13)])
+    result = prepare_pilot(requests, alignment, tmp_path / "pilot", 30)
+    assert result["request_count"] == 12
+    assert result["strata"] == {"easy": 12, "fuzzy": 0, "multi": 0, "difficult": 0}
+    selected = [json.loads(line) for line in (tmp_path / "pilot/pilot_requests.jsonl").read_text().splitlines()]
+    assert len({row["request_id"] for row in selected}) == 12
+
+
+def test_pilot_backfills_a_partial_stratum_to_requested_count(tmp_path: Path) -> None:
+    rows = [request(index, "easy", index) for index in range(1, 28)]
+    rows.extend(request(index, "difficult", index) for index in range(28, 34))
+    requests = tmp_path / "requests.jsonl"; alignment = tmp_path / "alignment.jsonl"
+    write_jsonl(requests, rows); write_jsonl(alignment, [{"subtitle_id": f"subtitle_{i:06d}"} for i in range(1, 40)])
+    result = prepare_pilot(requests, alignment, tmp_path / "pilot", 30)
+    assert result["request_count"] == 30
+    assert result["strata"]["difficult"] >= 5
+    assert result["strata"]["easy"] + result["strata"]["difficult"] == 30
+    assert result["strata"]["fuzzy"] == result["strata"]["multi"] == 0
+
+
 def test_batch_uses_unique_custom_ids_and_strict_responses_schema(tmp_path: Path) -> None:
     requests = tmp_path / "requests.jsonl"; output = tmp_path / "batch.jsonl"
     write_jsonl(requests, [request(1, "easy", 1), request(2, "easy", 2)])

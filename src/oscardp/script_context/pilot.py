@@ -44,8 +44,8 @@ def _stratified_take(candidates: list[dict[str, Any]], count: int, total: int) -
 
 def prepare_pilot(requests_path: Path, alignment_path: Path, output_dir: Path, count: int = 30) -> dict[str, Any]:
     requests, alignments = read_jsonl(requests_path), read_jsonl(alignment_path)
-    if count != 30:
-        raise ValueError("Stage 2.2 pilot count must be exactly 30")
+    if count < 1:
+        raise ValueError("Pilot count must be positive")
     by_stratum = {name: [] for name in TARGETS}
     for request in requests:
         by_stratum[_stratum(request)].append(request)
@@ -56,17 +56,18 @@ def prepare_pilot(requests_path: Path, alignment_path: Path, output_dir: Path, c
         if name == "difficult":
             forced = sorted((item for item in by_stratum[name] if item.get("insufficient_candidates")), key=lambda item: item["request_id"])[:1]
         remaining = [item for item in by_stratum[name] if item not in forced]
-        choices = forced + _stratified_take(remaining, TARGETS[name] - len(forced), len(alignments))
-        if len(choices) < TARGETS[name]:
-            raise ValueError(f"Not enough {name} requests for pilot: {len(choices)}")
+        quota = min(TARGETS[name], max(0, count - len(selected)))
+        choices = forced[:quota] + _stratified_take(remaining, quota - len(forced[:quota]), len(alignments))
         selected.extend(choices); used.update(item["request_id"] for item in choices)
-    if len(selected) != count or len(used) != count:
+
+    target_count = min(count, len(requests))
+    if len(selected) < target_count:
+        remaining = [item for item in requests if item["request_id"] not in used]
+        choices = _stratified_take(remaining, target_count - len(selected), len(alignments))
+        selected.extend(choices); used.update(item["request_id"] for item in choices)
+    if len(selected) != target_count or len(used) != target_count:
         raise ValueError("Pilot selection is not unique and complete")
     selected.sort(key=lambda request: request["request_id"])
-    if not any(request.get("insufficient_candidates") for request in selected):
-        raise ValueError("Pilot must include the insufficient-candidate request")
-    if sum(len(request["subtitle_ids"]) > 1 for request in selected) < 5:
-        raise ValueError("Pilot must include at least five grouped-subtitle requests")
     manifest_rows = [{
         "request_id": request["request_id"], "stratum": _stratum(request),
         "timeline_region": _region(request, len(alignments)), "request_size": len(request["subtitle_ids"]),

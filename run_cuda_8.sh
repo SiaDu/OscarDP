@@ -38,8 +38,6 @@ print("Test tensor:", tensor.device)
 PY
 
 declare -A VIDEOS=(
-    [tt31193180]='/mnt/i/datasets/oscar_movie/tt31193180_Sinners/Sinners (2025) 4K HDR10+流媒体版 杜比全景声DDP5.1 简英特效字幕 .mkv'
-    [tt27847051]='/mnt/i/datasets/oscar_movie/tt27847051_TheSecretAgent/The.Secret.Agent.2025.2160p.AMZN.WEB-DL.DDP5.1.H.265.mkv'
     [tt1312221]='/mnt/i/datasets/oscar_movie/tt1312221_Frankenstein/Frankenstein.2025.1080p.NF.WEB-DL.H.264.DDP5.1.Atmos.mkv'
     [tt27714581]='/mnt/i/datasets/oscar_movie/tt27714581_SentimentalValue/Sentimental.Value.2025.MULTi.1080p.WEB-DL.H264.DDP5.1.Atmos-HamiltonShare.mkv'
     [tt14905854]='/mnt/i/datasets/oscar_movie/tt14905854_Hamnet/Hamnet.哈姆奈特.2025.1080p.中英字幕.mp4.mp4'
@@ -49,8 +47,6 @@ declare -A VIDEOS=(
 )
 
 ORDER=(
-    tt31193180
-    tt27847051
     tt1312221
     tt27714581
     tt14905854
