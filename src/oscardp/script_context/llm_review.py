@@ -216,6 +216,7 @@ def build_review_requests(
             "dialogue_candidates": [{
                 "scene_id": item["unit"].block["scene_id"], "block_id": item["unit"].block["block_id"],
                 "screenplay_order": item["unit"].block_index, "speaker": item["unit"].block["speaker"], "text": item["unit"].block["text"],
+                "parenthetical": item["unit"].block.get("parenthetical"),
                 "retrieval_methods": item["retrieval_methods"], "lexical_score": item["lexical_score"],
                 "semantic_score": item["semantic_score"], "retrieval_score": item["retrieval_score"],
             } for item in retrieved],
@@ -300,6 +301,7 @@ def build_alignment_diagnostics(context: dict[str, Any], alignments: list[dict[s
             tokens = tokenize(subtitle["text"]).tokens
             if len(tokens) >= 4 and any(any(block[index:index + len(tokens)] == tokens for index in range(len(block) - len(tokens) + 1)) for block in candidate_tokens):
                 substring_false_no_match += 1
+    parsing_audit = context.get("parsing_audit", {})
     return {
         "schema_version": "1.1", "total_subtitles": len(alignments),
         "auto_aligned": statuses.get("auto_aligned", 0), "needs_review": statuses.get("needs_review", 0),
@@ -321,6 +323,10 @@ def build_alignment_diagnostics(context: dict[str, Any], alignments: list[dict[s
         "unresolved_local_substring_false_no_match": substring_false_no_match,
         "monotonicity_violations": violations, "scene_candidate_window_violations": len(request_errors),
         "candidate_window_errors": request_errors,
+        "action_like_dialogue_count": int(parsing_audit.get("action_like_dialogue_count", 0)),
+        "editorial_label_speaker_count": int(parsing_audit.get("editorial_label_speaker_count", 0)),
+        "fragmented_parenthetical_count": int(parsing_audit.get("fragmented_parenthetical_count", 0)),
+        "screenplay_parsing_audit": parsing_audit,
     }
 
 

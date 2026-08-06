@@ -51,6 +51,16 @@ def _window_type(request: dict[str, Any]) -> str:
     return "normal_candidate_window"
 
 
+def _candidate_limit_saturated(request: dict[str, Any]) -> bool:
+    limit = request.get("candidate_limit")
+    return isinstance(limit, int) and limit > 0 and len(request.get("dialogue_candidates", [])) == limit
+
+
+def _selection_cell(request: dict[str, Any]) -> str:
+    saturation = "saturated" if _candidate_limit_saturated(request) else "not_saturated"
+    return f"{_window_type(request)}:{saturation}"
+
+
 def _balanced_take(candidates: list[dict[str, Any]], count: int, total: int) -> list[dict[str, Any]]:
     buckets: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for request in candidates:
@@ -90,6 +100,8 @@ def _proportional_quotas(counts: dict[str, int], target: int) -> dict[str, int]:
 
 
 def _distribution(requests: list[dict[str, Any]], total_subtitles: int) -> dict[str, Any]:
+    limits = sorted({request.get("candidate_limit") for request in requests if isinstance(request.get("candidate_limit"), int)})
+    saturated = sum(_candidate_limit_saturated(request) for request in requests)
     return {
         "request_count": len(requests),
         "subtitle_resolution_count": sum(len(request["subtitle_ids"]) for request in requests),
@@ -103,6 +115,11 @@ def _distribution(requests: list[dict[str, Any]], total_subtitles: int) -> dict[
             for request in requests
         ),
         "difficult_requests": sum(_stratum(request) == "difficult" for request in requests),
+        "candidate_limit_saturation": {
+            "configured_limits": limits, "saturated_requests": saturated,
+            "not_saturated_requests": len(requests) - saturated,
+            "saturation_rate": saturated / len(requests) if requests else 0.0,
+        },
     }
 
 
@@ -111,12 +128,13 @@ def prepare_pilot(requests_path: Path, alignment_path: Path, output_dir: Path, c
     if count < 1:
         raise ValueError("Pilot count must be positive")
     target_count = min(count, len(requests))
-    by_window = {name: [request for request in requests if _window_type(request) == name] for name in WINDOW_TYPES}
-    quotas = _proportional_quotas({name: len(values) for name, values in by_window.items()}, target_count)
+    cells = list(dict.fromkeys(_selection_cell(request) for request in requests))
+    by_cell = {name: [request for request in requests if _selection_cell(request) == name] for name in cells}
+    quotas = _proportional_quotas({name: len(values) for name, values in by_cell.items()}, target_count)
     selected: list[dict[str, Any]] = []
     used: set[str] = set()
-    for name in WINDOW_TYPES:
-        choices = _balanced_take(by_window[name], quotas[name], len(alignments))
+    for name in cells:
+        choices = _balanced_take(by_cell[name], quotas[name], len(alignments))
         selected.extend(choices); used.update(item["request_id"] for item in choices)
 
     if len(selected) < target_count:
@@ -133,7 +151,8 @@ def prepare_pilot(requests_path: Path, alignment_path: Path, output_dir: Path, c
         "candidate_window": _window_type(request),
         "fallback_used": bool(request.get("fallback_used")),
         "insufficient_candidates": bool(request.get("insufficient_candidates")),
-        "selection_reason": f"proportional_{_window_type(request)}_{_stratum(request)}",
+        "candidate_limit_saturated": _candidate_limit_saturated(request),
+        "selection_reason": f"diagnostic_balanced_{_selection_cell(request)}_{_stratum(request)}",
     } for request in selected]
     source_distribution = _distribution(requests, len(alignments))
     pilot_distribution = _distribution(selected, len(alignments))
@@ -143,14 +162,31 @@ def prepare_pilot(requests_path: Path, alignment_path: Path, output_dir: Path, c
         pilot_rate = pilot_distribution["candidate_windows"][name] / max(1, pilot_distribution["request_count"])
         if abs(source_rate - pilot_rate) > 0.15:
             warnings.append(f"material candidate-window representation difference for {name}: source={source_rate:.3f}, pilot={pilot_rate:.3f}")
+    source_saturation = source_distribution["candidate_limit_saturation"]["saturation_rate"]
+    pilot_saturation = pilot_distribution["candidate_limit_saturation"]["saturation_rate"]
+    if abs(source_saturation - pilot_saturation) > 0.10:
+        warnings.append(
+            f"material candidate-limit saturation representation difference: source={source_saturation:.3f}, pilot={pilot_saturation:.3f}"
+        )
+    warnings.append(
+        "This is a diagnostic-balanced pilot with deliberately oversampled strata; raw accuracy is not a statistically representative overall estimate."
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl(output_dir / "pilot_requests.jsonl", selected)
     _write_json(output_dir / "pilot_manifest.json", {
-        "schema_version": "1.0", "source_requests": requests_path.resolve().as_posix(),
+        "schema_version": "1.1", "source_requests": requests_path.resolve().as_posix(),
         "source_requests_sha256": hashlib.sha256(requests_path.read_bytes()).hexdigest(),
         "request_count": len(selected), "subtitle_count": sum(len(item["subtitle_ids"]) for item in selected),
         "source_pool_distribution": source_distribution,
+        "diagnostic_balanced_pilot_distribution": pilot_distribution,
         "pilot_distribution": pilot_distribution,
+        "selection_design": "diagnostic_balanced",
+        "statistically_representative": False,
+        "evaluation_reporting": {
+            "raw_diagnostic_accuracy": True, "per_stratum_accuracy": True,
+            "source_weighted_overall_accuracy": True,
+            "source_weighting_basis": "source_pool_request_count_by_stratum",
+        },
         "distribution": {"strata": pilot_distribution["strata"], "timeline": pilot_distribution["timeline"]},
         "representativeness_warnings": warnings, "requests": manifest_rows,
     })
@@ -160,6 +196,7 @@ def prepare_pilot(requests_path: Path, alignment_path: Path, output_dir: Path, c
         "request_count": len(selected), "subtitle_count": sum(len(item["subtitle_ids"]) for item in selected),
         "strata": pilot_distribution["strata"], "timeline": pilot_distribution["timeline"],
         "candidate_windows": pilot_distribution["candidate_windows"],
+        "candidate_limit_saturation": pilot_distribution["candidate_limit_saturation"],
         "source_pool_distribution": source_distribution,
         "representativeness_warnings": warnings,
     }

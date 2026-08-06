@@ -353,6 +353,16 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
     total = len(records)
     overall_accuracy = block_correct / total if total else 0.0
     easy_accuracy = accuracy("stratum", "easy")
+    accuracy_by_stratum = {name: accuracy("stratum", name) for name in ("easy", "fuzzy", "multi", "difficult")}
+    source_strata = manifest.get("source_pool_distribution", {}).get("strata", {})
+    weighted_strata = {
+        name: int(source_strata.get(name, 0)) for name, value in accuracy_by_stratum.items()
+        if value is not None and int(source_strata.get(name, 0)) > 0
+    }
+    source_weighted_accuracy = (
+        sum(float(accuracy_by_stratum[name]) * weight for name, weight in weighted_strata.items()) / sum(weighted_strata.values())
+        if weighted_strata else None
+    )
     criteria = {
         "zero_invalid_responses": invalid_count == 0,
         "zero_missing_predictions": missing_count == 0,
@@ -364,8 +374,11 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
         "exact_decision_accuracy": decision_correct / total if total else 0.0,
         "decision_confusion_matrix": confusion,
         "block_set_exact_match": overall_accuracy,
+        "raw_diagnostic_accuracy": overall_accuracy,
+        "source_weighted_overall_accuracy": source_weighted_accuracy,
+        "source_weighting_basis": "source_pool_request_count_by_stratum",
         "multi_block_block_set_accuracy": multi_accuracy,
-        "accuracy_by_stratum": {name: accuracy("stratum", name) for name in ("easy", "fuzzy", "multi", "difficult")},
+        "accuracy_by_stratum": accuracy_by_stratum,
         "accuracy_by_region": {name: accuracy("timeline_region", name) for name in ("early", "middle", "late")},
         "invalid_response_count": invalid_count, "missing_prediction_count": missing_count,
         "no_match_precision": no_match_precision, "no_match_recall": no_match_recall,

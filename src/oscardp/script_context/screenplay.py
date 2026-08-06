@@ -24,6 +24,19 @@ CUE_FORMAT_LABELS = {
     "EMPHASIS", "NOTE", "INSERT", "FLASHBACK", "TITLE", "CARD", "CONTINUED",
     "FADE", "CUT", "DISSOLVE", "PAN", "ZOOM",
 }
+EDITORIAL_OBJECT_RE = re.compile(
+    r"^THE\s+(?:PHOTOGRAPH|PHOTO|IMAGE|DOCUMENT)(?:\s+(?:IN\s+DETAIL|INSERT|CLOSE[- ]?UP))?\s*:?$",
+    re.I,
+)
+NARRATIVE_SUBJECT = r"(?:He|She|They|[A-Z][a-zÀ-ÿ.-]+(?:/[A-Z][a-zÀ-ÿ.-]+)?(?:\s+(?:and|&)\s+[A-Z][a-zÀ-ÿ.-]+)*)"
+NARRATIVE_ACTION_RE = re.compile(
+    rf"^{NARRATIVE_SUBJECT}\s+(?:looks?|listens?|turns?|walks?|exits?|enters?|approaches?|remembers?|sees?|puts?|takes?|nods?|stares?|glances?|watches?|points?|sits?|stands?|moves?|opens?|closes?|reacts?|holds?|heads?|runs?|leaves?|steps?|continues?)\b",
+    re.I,
+)
+NARRATIVE_APPOSITIVE_RE = re.compile(
+    r"^[A-Z][A-ZÀ-Ÿ'’.-]+(?:/[A-Z][A-ZÀ-Ÿ'’.-]+)?,\s+[^.!?]+,\s+(?:adds?|says?|asks?|answers?|continues?|looks?|walks?|turns?)\b",
+)
+INLINE_OPEN_PAREN_RE = re.compile(r"^(?P<speech>.+?\S)\s+(?P<parenthetical>\([^()]*)$")
 
 
 def stable_scene_id(raw: str) -> str:
@@ -63,13 +76,72 @@ def _looks_like_cue(text: str, x0: float, width: float) -> bool:
     stripped = text.strip()
     if not stripped or len(stripped) > 45 or stripped.startswith("("):
         return False
-    if SCENE_RE.match(stripped) or stripped.endswith(('.', '!', '?', ':')):
+    if SCENE_RE.match(stripped) or EDITORIAL_OBJECT_RE.fullmatch(stripped) or stripped.endswith(('.', '!', '?', ':')):
         return False
     label_words = re.findall(r"[A-Z]+", stripped.upper())
     if label_words and label_words[0] in CUE_FORMAT_LABELS:
         return False
     letters = re.sub(r"[^A-Za-z]", "", stripped)
     return bool(letters) and stripped == stripped.upper() and x0 >= width * 0.36
+
+
+def _looks_like_action_narrative(text: str, *, require_terminal: bool = True) -> bool:
+    stripped = text.strip()
+    terminal = stripped.rstrip("\"'’”)」]")
+    if not terminal or (require_terminal and not terminal.endswith((".", "...", ":"))):
+        return False
+    return bool(NARRATIVE_ACTION_RE.match(stripped) or NARRATIVE_APPOSITIVE_RE.match(stripped))
+
+
+def _ends_active_cue_as_action(
+    text: str, entry: dict[str, Any], previous: dict[str, Any] | None,
+    current_cue: tuple[str, str] | None, width: float, page_no: int,
+) -> bool:
+    if current_cue is None or previous is None or previous.get("block_type") != "dialogue":
+        return False
+    if previous.get("speaker") != current_cue[0] or previous.get("_page") != page_no:
+        return False
+    source_block, previous_source = entry.get("source_block"), previous.get("_source_block")
+    if not isinstance(source_block, int) or not isinstance(previous_source, int) or source_block == previous_source:
+        return False
+    x0, y0 = float(entry.get("x0", 0)), float(entry.get("y0", 0))
+    vertical_gap = y0 - float(previous.get("_y1", y0))
+    return width * 0.22 <= x0 <= width * 0.34 and 0 <= vertical_gap <= 72 and _looks_like_action_narrative(text, require_terminal=False)
+
+
+def audit_screenplay_structure(context: dict[str, Any]) -> dict[str, Any]:
+    affected: list[dict[str, Any]] = []
+    action_like = editorial = fragmented = 0
+    for scene in context.get("script_scenes", []):
+        for block in scene.get("script_blocks", []):
+            if block.get("block_type") != "dialogue":
+                continue
+            reasons: list[str] = []
+            speaker, text = str(block.get("speaker", "")), str(block.get("text", ""))
+            parenthetical = block.get("parenthetical")
+            if EDITORIAL_OBJECT_RE.fullmatch(speaker):
+                editorial += 1
+                reasons.append("editorial_label_speaker")
+            if _looks_like_action_narrative(text) or (EDITORIAL_OBJECT_RE.fullmatch(speaker) and text.rstrip().endswith(":")):
+                action_like += 1
+                reasons.append("action_like_dialogue")
+            if text.count("(") != text.count(")") or (
+                isinstance(parenthetical, str) and parenthetical.count("(") != parenthetical.count(")")
+            ):
+                fragmented += 1
+                reasons.append("fragmented_parenthetical")
+            if reasons:
+                affected.append({
+                    "scene_id": scene.get("scene_id"), "block_id": block.get("block_id"),
+                    "speaker": block.get("speaker"), "text": text,
+                    "parenthetical": parenthetical, "reasons": reasons,
+                })
+    return {
+        "schema_version": "1.0", "action_like_dialogue_count": action_like,
+        "editorial_label_speaker_count": editorial,
+        "fragmented_parenthetical_count": fragmented,
+        "confirmed_structural_error_count": len(affected), "affected_blocks": affected,
+    }
 
 
 def _wrapped_dialogue_continuation(
@@ -99,6 +171,7 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
     scenes: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
     pending_parenthetical: str | None = None
+    pending_parenthetical_target: dict[str, Any] | None = None
     current_cue: tuple[str, str] | None = None
     broken_pages: list[int] = []
     unnumbered = 0
@@ -123,6 +196,7 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
             if SECTION_MARKER_RE.fullmatch(text):
                 current_cue = None
                 pending_parenthetical = None
+                pending_parenthetical_target = None
                 continue
             heading = SCENE_RE.match(text)
             if heading:
@@ -155,6 +229,7 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
                 scenes.append(current)
                 current_cue = None
                 pending_parenthetical = None
+                pending_parenthetical_target = None
                 continue
             if current is None:
                 continue
@@ -170,17 +245,20 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
                 current["int_ext"], current["location"], current["time_of_day"] = _split_slugline(current["slugline"])
                 current_cue = None
                 pending_parenthetical = None
+                pending_parenthetical_target = None
                 continue
             is_transition = bool(TRANSITION_RE.fullmatch(text))
             if is_transition:
                 current_cue = None
                 pending_parenthetical = None
+                pending_parenthetical_target = None
             width = float(page.get("width", 612))
             if not is_transition and _looks_like_cue(text, float(entry.get("x0", 0)), width):
                 original = text
                 speaker = normalize_character_cue(text)
                 current_cue = (speaker, original)
                 pending_parenthetical = None
+                pending_parenthetical_target = None
                 if speaker not in current["scene_characters"]:
                     current["scene_characters"].append(speaker)
                 continue
@@ -191,9 +269,22 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
                 parenthetical, _, remainder = pending_parenthetical.partition(")")
                 pending_parenthetical = parenthetical + ")"
                 text = remainder.strip()
+                if pending_parenthetical_target is not None:
+                    pending_parenthetical_target["parenthetical"] = pending_parenthetical
+                    pending_parenthetical = None
+                    pending_parenthetical_target = None
                 if not text:
                     continue
             previous = current["script_blocks"][-1] if current["script_blocks"] else None
+            if _ends_active_cue_as_action(text, entry, previous, current_cue, width, page_no):
+                if pending_parenthetical is not None and previous is not None:
+                    previous_parenthetical = previous.get("parenthetical")
+                    previous["parenthetical"] = (
+                        f"{previous_parenthetical} {pending_parenthetical}" if previous_parenthetical else pending_parenthetical
+                    )
+                current_cue = None
+                pending_parenthetical = None
+                pending_parenthetical_target = None
             wrapped_continuation = _wrapped_dialogue_continuation(text, entry, previous, current_cue, width, page_no)
             if wrapped_continuation:
                 previous["text"] += " " + text
@@ -206,6 +297,13 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
             if current_cue and float(entry.get("x0", 0)) < width * 0.22:
                 current_cue = None
                 pending_parenthetical = None
+                pending_parenthetical_target = None
+            inline_parenthetical: str | None = None
+            if current_cue:
+                inline_match = INLINE_OPEN_PAREN_RE.match(text)
+                if inline_match:
+                    text = inline_match.group("speech").strip()
+                    inline_parenthetical = inline_match.group("parenthetical").strip()
             block_type = "dialogue" if current_cue else "action"
             source_block = entry.get("source_block")
             if (
@@ -216,6 +314,9 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
                 previous["text"] += " " + text
                 previous["_x0"] = float(entry.get("x0", previous.get("_x0", 0)))
                 previous["_y1"] = float(entry.get("y1", entry.get("y0", previous.get("_y1", 0))))
+                if inline_parenthetical is not None:
+                    pending_parenthetical = inline_parenthetical
+                    pending_parenthetical_target = previous
                 continue
             number = 1 + sum(block["block_type"] == block_type for block in current["script_blocks"])
             block = {
@@ -229,15 +330,18 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
                 block.update({"speaker": current_cue[0], "character_cue": current_cue[1], "parenthetical": pending_parenthetical})
                 pending_parenthetical = None
             current["script_blocks"].append(block)
+            if inline_parenthetical is not None:
+                pending_parenthetical = inline_parenthetical
+                pending_parenthetical_target = block
 
     for scene in scenes:
         for block in scene["script_blocks"]:
             for private in ("_source_block", "_x0", "_y1", "_page"):
                 block.pop(private, None)
 
-    return {
+    result = {
         "schema_version": "1.0",
-        "parser_version": "2.4.0",
+        "parser_version": "2.4.1",
         "movie": {"movie_id": movie_key, "title": title},
         "source_files": source_files,
         "summary": {
@@ -249,6 +353,8 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
         "broken_pages": broken_pages,
         "script_scenes": scenes,
     }
+    result["parsing_audit"] = audit_screenplay_structure(result)
+    return result
 
 
 def extract_pdf_layout(path: Path) -> list[dict[str, Any]]:

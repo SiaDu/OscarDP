@@ -92,6 +92,28 @@ def test_pilot_backfills_a_partial_stratum_to_requested_count(tmp_path: Path) ->
     assert result["strata"]["fuzzy"] == result["strata"]["multi"] == 0
 
 
+def test_pilot_reports_and_materially_represents_candidate_limit_saturation(tmp_path: Path) -> None:
+    rows = [request(index, "easy", index) for index in range(1, 41)]
+    for index, row in enumerate(rows):
+        row["candidate_limit"] = 4
+        if index < 16:
+            row["dialogue_candidates"] = [
+                {"scene_id": "scene_001", "block_id": f"b_{index}_{candidate}", "screenplay_order": candidate, "speaker": "HART", "text": "candidate"}
+                for candidate in range(4)
+            ]
+    requests = tmp_path / "requests.jsonl"; alignment = tmp_path / "alignment.jsonl"
+    write_jsonl(requests, rows); write_jsonl(alignment, [{"subtitle_id": f"subtitle_{i:06d}"} for i in range(1, 50)])
+    result = prepare_pilot(requests, alignment, tmp_path / "pilot", 30)
+    manifest = json.loads((tmp_path / "pilot/pilot_manifest.json").read_text())
+    assert result["candidate_limit_saturation"]["saturated_requests"] == 12
+    assert manifest["source_pool_distribution"]["candidate_limit_saturation"]["saturated_requests"] == 16
+    assert manifest["diagnostic_balanced_pilot_distribution"]["candidate_limit_saturation"]["saturated_requests"] == 12
+    assert sum(row["candidate_limit_saturated"] for row in manifest["requests"]) == 12
+    assert manifest["selection_design"] == "diagnostic_balanced"
+    assert manifest["statistically_representative"] is False
+    assert manifest["evaluation_reporting"]["source_weighted_overall_accuracy"] is True
+
+
 def test_batch_uses_unique_custom_ids_and_strict_responses_schema(tmp_path: Path) -> None:
     requests = tmp_path / "requests.jsonl"; output = tmp_path / "batch.jsonl"
     write_jsonl(requests, [request(1, "easy", 1), request(2, "easy", 2)])
@@ -301,10 +323,15 @@ def test_evaluate_pilot_reports_complete_metrics(tmp_path: Path) -> None:
     ]}]
     write_jsonl(gold, gold_rows); write_jsonl(validated, predictions)
     (tmp_path / "response_validation_report.json").write_text(json.dumps({"invalid_count": 2}))
-    manifest.write_text(json.dumps({"requests": [{"request_id": "r1", "stratum": "easy", "timeline_region": "early"}]}))
+    manifest.write_text(json.dumps({
+        "requests": [{"request_id": "r1", "stratum": "easy", "timeline_region": "early"}],
+        "source_pool_distribution": {"strata": {"easy": 10, "fuzzy": 0, "multi": 0, "difficult": 0}},
+    }))
     result = evaluate_pilot(gold, validated, manifest, output)
     assert result["decision_confusion_matrix"]["uncertain"]["missing"] == 1
     assert result["invalid_response_count"] == 2 and result["missing_prediction_count"] == 1
     assert result["multi_block_block_set_accuracy"] == 1.0
     assert result["no_match_precision"] == 1.0 and result["no_match_recall"] == 1.0
     assert result["uncertain_rate"] == 0.0 and result["acceptance_criteria"]["passed"] is False
+    assert result["raw_diagnostic_accuracy"] == 2 / 3
+    assert result["source_weighted_overall_accuracy"] == 2 / 3

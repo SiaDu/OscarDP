@@ -28,6 +28,9 @@ def validate_data(context: dict[str, Any], alignments: list[dict[str, Any]], sho
     if len(block_ids) != len(set(block_ids)):
         errors.append("block_id values must be unique")
     known_scenes, known_blocks = set(scene_ids), set(block_ids)
+    parsing_audit = context.get("parsing_audit", {})
+    if int(parsing_audit.get("confirmed_structural_error_count", 0)):
+        errors.append("pre-OpenAI screenplay structure gate failed")
     scene_order = {scene_id: index for index, scene_id in enumerate(scene_ids)}
     scene_by_id = {scene["scene_id"]: scene for scene in scenes}
     block_lookup = {block["block_id"]: (scene["scene_id"], block) for scene in scenes for block in scene.get("script_blocks", [])}

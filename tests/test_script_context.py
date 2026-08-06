@@ -11,7 +11,7 @@ from oscardp.script_context.alignment import align_subtitles
 from oscardp.script_context.llm_review import apply_alignment_responses
 from oscardp.script_context.pipeline import ContextOptions, _title_from_path, process_one
 from oscardp.script_context.schema import AlignmentConfig, CleanSubtitle
-from oscardp.script_context.screenplay import is_broken_page, normalize_character_cue, parse_layout_pages, stable_scene_id
+from oscardp.script_context.screenplay import audit_screenplay_structure, is_broken_page, normalize_character_cue, parse_layout_pages, stable_scene_id
 from oscardp.script_context.shot_mapping import map_shots
 from oscardp.script_context.subtitles import load_clean_subtitles
 from oscardp.script_context.validation import validate_data, validate_files
@@ -153,6 +153,82 @@ def test_short_left_displaced_line_continues_open_dialogue() -> None:
     assert [(block["block_type"], block["text"]) for block in scene["script_blocks"]] == [
         ("dialogue", "I'll hand it over soon... where was I?"),
     ]
+
+
+def test_editorial_object_heading_is_action_not_character_cue() -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. OFFICE. DAY", "x0": 108, "y0": 10, "y1": 22, "source_block": 1},
+        {"text": "A detective studies the evidence.", "x0": 108, "y0": 34, "y1": 46, "source_block": 2},
+        {"text": "THE PHOTOGRAPH", "x0": 413, "y0": 58, "y1": 70, "source_block": 3},
+        {"text": "IN DETAIL:", "x0": 441, "y0": 70, "y1": 82, "source_block": 4},
+    ]}]
+    scene = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"][0]
+    assert scene["scene_characters"] == []
+    assert [(block["block_type"], block["text"]) for block in scene["script_blocks"]][-2:] == [
+        ("action", "THE PHOTOGRAPH"), ("action", "IN DETAIL:"),
+    ]
+
+
+@pytest.mark.parametrize("narrative", [
+    "ELISANGELA, another workmate, adds, without explanation, looking at Marcelo:",
+    "Marcelo listens to his brother...",
+    "Elza and Valdemar look at Armando, both in shock and admiration. He remembers something:",
+    "Augusto and Bobbi turn their head back instinctively.",
+    'He looks perplexed at Elisângela, who looks at "Marcelo."',
+    "Marcos and Arlindo exit to the yard.",
+    "He looks at Joselice, quite uncomfortable.",
+])
+def test_new_source_block_narrative_ends_active_cue(narrative: str) -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. OFFICE. DAY", "x0": 108, "y0": 10, "y1": 22, "source_block": 1},
+        {"text": "MARIANO", "x0": 252, "y0": 34, "y1": 46, "source_block": 2},
+        {"text": "The spoken line remains dialogue.", "x0": 180, "y0": 46, "y1": 58, "source_block": 2},
+        {"text": "(looks across the room)", "x0": 209, "y0": 58, "y1": 70, "source_block": 3},
+        {"text": narrative, "x0": 180, "y0": 70, "y1": 82, "source_block": 3},
+    ]}]
+    result = parse_layout_pages(pages, "tt1", "Test", {})
+    blocks = result["script_scenes"][0]["script_blocks"]
+    assert blocks[0]["block_type"] == "dialogue"
+    assert blocks[0]["parenthetical"] == "(looks across the room)"
+    assert blocks[1]["block_type"] == "action" and blocks[1]["text"] == narrative
+    assert result["parsing_audit"]["confirmed_structural_error_count"] == 0
+
+
+def test_inline_parenthetical_continues_across_pdf_source_blocks() -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. HALL. DAY", "x0": 108, "y0": 10, "y1": 22, "source_block": 1},
+        {"text": "THE MOTHER", "x0": 252, "y0": 34, "y1": 46, "source_block": 2},
+        {"text": "Lemme speak, doc... (to", "x0": 209, "y0": 46, "y1": 58, "source_block": 2},
+        {"text": "her lawyer)", "x0": 216, "y0": 58, "y1": 70, "source_block": 3},
+        {"text": "THE MOTHER (CONT'D)", "x0": 252, "y0": 82, "y1": 94, "source_block": 4},
+        {"text": "LET ME SPEAK!", "x0": 180, "y0": 94, "y1": 106, "source_block": 5},
+    ]}]
+    result = parse_layout_pages(pages, "tt1", "Test", {})
+    blocks = result["script_scenes"][0]["script_blocks"]
+    assert [(block["text"], block.get("parenthetical")) for block in blocks] == [
+        ("Lemme speak, doc...", "(to her lawyer)"), ("LET ME SPEAK!", None),
+    ]
+    assert result["parsing_audit"]["fragmented_parenthetical_count"] == 0
+
+
+def test_structure_audit_reports_action_editorial_and_fragmented_dialogue() -> None:
+    context = _context([("THE PHOTOGRAPH", "IN DETAIL:"), ("HART", "He looks toward the door."), ("HART", "Wait here (quietly")])
+    audit = audit_screenplay_structure(context)
+    assert audit["action_like_dialogue_count"] == 2
+    assert audit["editorial_label_speaker_count"] == 1
+    assert audit["fragmented_parenthetical_count"] == 1
+    assert len(audit["affected_blocks"]) == 3
+
+
+def test_validation_fails_pre_openai_structure_gate() -> None:
+    context = _context([("HART", "A normal spoken line.")])
+    context["parsing_audit"] = {
+        "confirmed_structural_error_count": 1, "action_like_dialogue_count": 1,
+        "editorial_label_speaker_count": 0, "fragmented_parenthetical_count": 0,
+    }
+    result = validate_data(context, [], [], [])
+    assert result.passed is False
+    assert "pre-OpenAI screenplay structure gate failed" in result.errors
 
 
 def test_broken_fragment_page_detection() -> None:

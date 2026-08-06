@@ -99,6 +99,14 @@ The fallback range and final request size are configurable with
 pool and selected-pilot distributions for normal, fallback, and insufficient
 candidate windows, together with any material representativeness warning.
 
+Stage 2.4.1 adds a pre-OpenAI screenplay-structure gate for residual narrative
+text under active character cues, editorial object headings, and fragmented
+parentheticals. The gate records affected blocks and prevents review export when
+confirmed parser errors remain. Pilot manifests also record candidate-limit
+saturation for the source pool and every selected request. Pilot selection is
+diagnostic-balanced—not statistically representative—so evaluation reports raw
+diagnostic and per-stratum accuracy separately from a source-weighted estimate.
+
 ### Stage 2.2 optional OpenAI review
 
 OpenAI review is an optional, separate workflow. Normal `process-one` never
