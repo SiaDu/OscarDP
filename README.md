@@ -106,6 +106,11 @@ confirmed parser errors remain. Pilot manifests also record candidate-limit
 saturation for the source pool and every selected request. Pilot selection is
 diagnostic-balanced—not statistically representative—so evaluation reports raw
 diagnostic and per-stratum accuracy separately from a source-weighted estimate.
+Pilot acceptance uses complete-resolution exactness: the predicted decision
+must equal the gold decision and the block-ID sets must be equal. The legacy
+`block_set_exact_match` field retains its name for compatibility but follows
+this combined definition; block-ID-only agreement is diagnostic and never
+drives acceptance or source-weighted accuracy.
 
 ### Stage 2.2 optional OpenAI review
 

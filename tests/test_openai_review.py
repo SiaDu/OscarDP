@@ -335,3 +335,81 @@ def test_evaluate_pilot_reports_complete_metrics(tmp_path: Path) -> None:
     assert result["uncertain_rate"] == 0.0 and result["acceptance_criteria"]["passed"] is False
     assert result["raw_diagnostic_accuracy"] == 2 / 3
     assert result["source_weighted_overall_accuracy"] == 2 / 3
+
+
+def test_evaluate_pilot_rejects_equal_empty_blocks_when_decisions_differ(tmp_path: Path) -> None:
+    gold = tmp_path / "gold.jsonl"; validated = tmp_path / "validated.jsonl"
+    manifest = tmp_path / "manifest.json"; output = tmp_path / "evaluation.json"
+    write_jsonl(gold, [{"request_id": "r1", "resolutions": [
+        {"subtitle_id": "s1", "decision": "uncertain", "block_ids": []},
+    ]}])
+    write_jsonl(validated, [{"request_id": "r1", "resolutions": [
+        {"subtitle_id": "s1", "decision": "no_match", "block_ids": []},
+    ]}])
+    manifest.write_text(json.dumps({
+        "requests": [{"request_id": "r1", "stratum": "easy", "timeline_region": "early"}],
+        "source_pool_distribution": {"strata": {"easy": 1}},
+    }))
+    result = evaluate_pilot(gold, validated, manifest, output)
+    assert result["schema_version"] == "1.1"
+    assert result["exact_decision_accuracy"] == 0.0
+    assert result["resolution_exact_match"] == 0.0
+    assert result["block_set_exact_match"] == 0.0
+    assert result["raw_diagnostic_accuracy"] == 0.0
+    assert result["block_ids_only_exact_match"] == 1.0
+    assert result["accuracy_by_stratum"]["easy"] == 0.0
+    assert result["accuracy_by_region"]["early"] == 0.0
+    assert result["acceptance_criteria"]["passed"] is False
+
+
+def test_evaluate_pilot_complete_resolution_cases_and_multiblock_set_order(tmp_path: Path) -> None:
+    gold = tmp_path / "gold.jsonl"; validated = tmp_path / "validated.jsonl"
+    manifest = tmp_path / "manifest.json"; output = tmp_path / "evaluation.json"
+    write_jsonl(gold, [{"request_id": "r1", "resolutions": [
+        {"subtitle_id": "s_no_match", "decision": "no_match", "block_ids": []},
+        {"subtitle_id": "s_match", "decision": "match", "block_ids": ["dialogue_001"]},
+        {"subtitle_id": "s_wrong_blocks", "decision": "match", "block_ids": ["dialogue_001"]},
+        {"subtitle_id": "s_missing", "decision": "uncertain", "block_ids": []},
+        {"subtitle_id": "s_multi", "decision": "match", "block_ids": ["dialogue_001", "dialogue_002"]},
+    ]}])
+    write_jsonl(validated, [{"request_id": "r1", "resolutions": [
+        {"subtitle_id": "s_no_match", "decision": "no_match", "block_ids": []},
+        {"subtitle_id": "s_match", "decision": "match", "block_ids": ["dialogue_001"]},
+        {"subtitle_id": "s_wrong_blocks", "decision": "match", "block_ids": ["dialogue_002"]},
+        {"subtitle_id": "s_multi", "decision": "match", "block_ids": ["dialogue_002", "dialogue_001"]},
+    ]}])
+    manifest.write_text(json.dumps({
+        "requests": [{"request_id": "r1", "stratum": "multi", "timeline_region": "middle"}],
+        "source_pool_distribution": {"strata": {"multi": 1}},
+    }))
+    result = evaluate_pilot(gold, validated, manifest, output)
+    assert result["exact_decision_accuracy"] == 4 / 5
+    assert result["resolution_exact_match"] == 3 / 5
+    assert result["block_set_exact_match"] == 3 / 5
+    assert result["multi_block_block_set_accuracy"] == 1.0
+    assert result["missing_prediction_count"] == 1
+
+
+def test_source_weighted_accuracy_uses_complete_resolution_correctness(tmp_path: Path) -> None:
+    gold = tmp_path / "gold.jsonl"; validated = tmp_path / "validated.jsonl"
+    manifest = tmp_path / "manifest.json"; output = tmp_path / "evaluation.json"
+    write_jsonl(gold, [
+        {"request_id": "r_easy", "resolutions": [{"subtitle_id": "s1", "decision": "uncertain", "block_ids": []}]},
+        {"request_id": "r_difficult", "resolutions": [{"subtitle_id": "s2", "decision": "no_match", "block_ids": []}]},
+    ])
+    write_jsonl(validated, [
+        {"request_id": "r_easy", "resolutions": [{"subtitle_id": "s1", "decision": "no_match", "block_ids": []}]},
+        {"request_id": "r_difficult", "resolutions": [{"subtitle_id": "s2", "decision": "no_match", "block_ids": []}]},
+    ])
+    manifest.write_text(json.dumps({
+        "requests": [
+            {"request_id": "r_easy", "stratum": "easy", "timeline_region": "early"},
+            {"request_id": "r_difficult", "stratum": "difficult", "timeline_region": "late"},
+        ],
+        "source_pool_distribution": {"strata": {"easy": 90, "difficult": 10}},
+    }))
+    result = evaluate_pilot(gold, validated, manifest, output)
+    assert result["block_ids_only_exact_match"] == 1.0
+    assert result["raw_diagnostic_accuracy"] == 0.5
+    assert result["accuracy_by_stratum"] == {"easy": 0.0, "fuzzy": None, "multi": None, "difficult": 1.0}
+    assert result["source_weighted_overall_accuracy"] == 0.1

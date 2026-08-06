@@ -318,6 +318,14 @@ def apply_validated_responses(
     return report
 
 
+def resolution_correct(expected: dict[str, Any], actual: dict[str, Any] | None) -> bool:
+    return (
+        actual is not None
+        and actual["decision"] == expected["decision"]
+        and set(actual["block_ids"]) == set(expected["block_ids"])
+    )
+
+
 def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, output_path: Path) -> dict[str, Any]:
     gold, responses = read_jsonl(gold_path), read_jsonl(validated_path); manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if any(item.get("decision") is None or item.get("block_ids") is None for row in gold for item in row["resolutions"]):
@@ -329,10 +337,11 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
             actual = predicted.get((row["request_id"], expected["subtitle_id"]))
             records.append({"request_id": row["request_id"], "expected": expected, "actual": actual, **strata[row["request_id"]]})
     decision_correct = sum(bool(record["actual"] and record["actual"]["decision"] == record["expected"]["decision"]) for record in records)
-    block_correct = sum(bool(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"])) for record in records)
+    resolution_correct_count = sum(resolution_correct(record["expected"], record["actual"]) for record in records)
+    block_ids_only_correct = sum(bool(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"])) for record in records)
     def accuracy(field: str, value: str) -> float | None:
         subset = [record for record in records if record[field] == value]
-        return None if not subset else sum(bool(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"])) for record in subset) / len(subset)
+        return None if not subset else sum(resolution_correct(record["expected"], record["actual"]) for record in subset) / len(subset)
     decisions = ("match", "no_match", "uncertain")
     confusion = {expected: {actual: 0 for actual in (*decisions, "missing")} for expected in decisions}
     for record in records:
@@ -344,14 +353,14 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
     validation_report = json.loads(validation_report_path.read_text(encoding="utf-8")) if validation_report_path.is_file() else {}
     invalid_count = int(validation_report.get("invalid_count", 0))
     multi = [record for record in records if len(record["expected"]["block_ids"]) > 1]
-    multi_accuracy = None if not multi else sum(bool(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"])) for record in multi) / len(multi)
+    multi_accuracy = None if not multi else sum(resolution_correct(record["expected"], record["actual"]) for record in multi) / len(multi)
     predicted_no_match = sum(bool(record["actual"] and record["actual"]["decision"] == "no_match") for record in records)
     expected_no_match = sum(record["expected"]["decision"] == "no_match" for record in records)
     true_no_match = sum(bool(record["actual"] and record["actual"]["decision"] == "no_match" and record["expected"]["decision"] == "no_match") for record in records)
     no_match_precision = None if not predicted_no_match else true_no_match / predicted_no_match
     no_match_recall = None if not expected_no_match else true_no_match / expected_no_match
     total = len(records)
-    overall_accuracy = block_correct / total if total else 0.0
+    overall_accuracy = resolution_correct_count / total if total else 0.0
     easy_accuracy = accuracy("stratum", "easy")
     accuracy_by_stratum = {name: accuracy("stratum", name) for name in ("easy", "fuzzy", "multi", "difficult")}
     source_strata = manifest.get("source_pool_distribution", {}).get("strata", {})
@@ -370,10 +379,13 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
         "overall_block_set_accuracy_at_least_0_90": overall_accuracy >= 0.90,
     }
     result = {
-        "schema_version": "1.0", "subtitle_count": total,
+        "schema_version": "1.1", "subtitle_count": total,
         "exact_decision_accuracy": decision_correct / total if total else 0.0,
         "decision_confusion_matrix": confusion,
         "block_set_exact_match": overall_accuracy,
+        "resolution_exact_match": overall_accuracy,
+        "resolution_exact_match_definition": "decision equality and block-id set equality",
+        "block_ids_only_exact_match": block_ids_only_correct / total if total else 0.0,
         "raw_diagnostic_accuracy": overall_accuracy,
         "source_weighted_overall_accuracy": source_weighted_accuracy,
         "source_weighting_basis": "source_pool_request_count_by_stratum",
