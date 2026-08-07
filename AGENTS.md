@@ -52,6 +52,13 @@ are quality diagnostics and must not invalidate an otherwise legal response.
 Choosing the wrong supplied candidate is a gold-evaluation error, not an API
 response error. Never alter a prediction merely to clear a quality warning.
 
+Gold-adjudication packages are pending human-review artifacts. Build them only
+from candidate-task disagreements, preserve the complete request candidates and
+source provenance, and include local screenplay/subtitle context without
+changing source data. Diagnostic tags must never set adjudication, final
+decision, final block IDs, policy tags, or reviewer notes automatically. Frozen
+gold may change only through a separately authorized human-labelled workflow.
+
 ---
 
 ## 2. Paths

@@ -100,6 +100,14 @@ def build_parser() -> argparse.ArgumentParser:
     disagreements.add_argument("--gold", type=Path, required=True); disagreements.add_argument("--validated-responses", type=Path, required=True)
     disagreements.add_argument("--requests", type=Path, required=True); disagreements.add_argument("--manifest", type=Path, required=True)
     disagreements.add_argument("--output", type=Path, required=True)
+    adjudication = commands.add_parser("build-openai-gold-adjudication")
+    adjudication_validate = commands.add_parser("validate-openai-gold-adjudication")
+    for command in (adjudication, adjudication_validate):
+        command.add_argument("--gold", type=Path, required=True); command.add_argument("--validated-responses", type=Path, required=True)
+        command.add_argument("--requests", type=Path, required=True); command.add_argument("--manifest", type=Path, required=True)
+        command.add_argument("--screenplay-context", type=Path, required=True); command.add_argument("--alignment", type=Path, required=True)
+        command.add_argument("--evaluation", type=Path, required=True); command.add_argument("--disagreements", type=Path, required=True)
+        command.add_argument("--output-dir", type=Path, required=True)
     return parser
 
 
@@ -179,6 +187,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "build-openai-pilot-disagreements":
             from .openai_review import build_pilot_disagreements
             print(json_dumps(build_pilot_disagreements(args.gold, args.validated_responses, args.requests, args.manifest, args.output), pretty=True)); return 0
+        if args.command == "build-openai-gold-adjudication":
+            from .stage252 import build_gold_adjudication
+            result = build_gold_adjudication(args.gold, args.validated_responses, args.requests, args.manifest, args.screenplay_context, args.alignment, args.evaluation, args.disagreements, args.output_dir)
+            print(json_dumps(result, pretty=True)); return 0
+        if args.command == "validate-openai-gold-adjudication":
+            from .stage252 import validate_gold_adjudication
+            result = validate_gold_adjudication(args.gold, args.validated_responses, args.requests, args.manifest, args.screenplay_context, args.alignment, args.evaluation, args.disagreements, args.output_dir)
+            print(json_dumps(result, pretty=True)); return 0 if result["passed"] else 1
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr); return 2
     return 2

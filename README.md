@@ -197,6 +197,33 @@ both mean that no supplied candidate should be selected; a `match` is correct
 only when its block-ID set matches gold. This derived metric does not rewrite
 gold or the active Batch response schema.
 
+### Stage 2.5.2 gold adjudication package
+
+`build-openai-gold-adjudication` creates a local, self-contained human-review
+package containing only candidate-task disagreements. Each pending row includes
+nearby subtitles and deterministic mappings, the complete unmodified request
+candidate list, screenplay context outside that list, gold and prediction
+provenance, sequence diagnostics, and null human-decision fields. It never
+changes frozen gold or model responses. `validate-openai-gold-adjudication`
+checks the selected population, candidate/source consistency, pending human
+fields, and source hashes recorded in the artifact manifest.
+
+```bash
+python -m oscardp.script_context build-openai-gold-adjudication \
+  --gold /path/to/pilot_gold_filled.jsonl \
+  --validated-responses /path/to/validated_responses.jsonl \
+  --requests /path/to/pilot_requests.jsonl \
+  --manifest /path/to/pilot_manifest.json \
+  --screenplay-context /path/to/movie_script_context.json \
+  --alignment /path/to/subtitle_script_alignment.jsonl \
+  --evaluation /path/to/pilot_evaluation_stage251.json \
+  --disagreements /path/to/pilot_disagreements_stage251.jsonl \
+  --output-dir /path/to/gold_adjudication_stage252
+```
+
+The generated annotation policy is intentionally a TODO template. Diagnostic
+tags are non-final review aids and never populate adjudication labels.
+
 ### Stage 2.3.1 reviewed-output QC
 
 Reviewed shot context uses global screenplay block order. Every row includes
