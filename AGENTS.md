@@ -59,6 +59,14 @@ changing source data. Diagnostic tags must never set adjudication, final
 decision, final block IDs, policy tags, or reviewer notes automatically. Frozen
 gold may change only through a separately authorized human-labelled workflow.
 
+Policy-aware candidate-task schemas must be versioned separately from the
+historical three-way reviewer. V3 uses only `match` and
+`no_candidate_match`, retains request-specific candidate enums, and never asks
+the model to distinguish true screenplay absence from candidate-retrieval
+failure. Explicitly ambiguous adjudications remain in provisional gold and may
+be excluded only from a separately reported resolved-gold metric. Preparing a
+v3 Batch input is local-only and never authorizes upload or submission.
+
 ---
 
 ## 2. Paths

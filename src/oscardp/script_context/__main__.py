@@ -56,6 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument("--output-dir", type=Path, required=True); pilot.add_argument("--count", type=int, default=30)
     prepare_batch = commands.add_parser("prepare-openai-batch")
     prepare_batch.add_argument("--requests", type=Path, required=True); prepare_batch.add_argument("--output", type=Path, required=True); prepare_batch.add_argument("--model")
+    prepare_batch_v3 = commands.add_parser("prepare-openai-batch-v3")
+    prepare_batch_v3.add_argument("--requests", type=Path, required=True); prepare_batch_v3.add_argument("--annotation-policy", type=Path, required=True)
+    prepare_batch_v3.add_argument("--output", type=Path, required=True); prepare_batch_v3.add_argument("--model", required=True)
     remaining = commands.add_parser("prepare-openai-remaining")
     remaining.add_argument("--full-requests", type=Path, required=True); remaining.add_argument("--pilot-requests", type=Path, required=True)
     remaining.add_argument("--output", type=Path, required=True); remaining.add_argument("--manifest", type=Path, required=True); remaining.add_argument("--model", required=True)
@@ -65,6 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     fetch = commands.add_parser("fetch-openai-batch"); fetch.add_argument("--job-file", type=Path, required=True); fetch.add_argument("--output-dir", type=Path, required=True)
     validate_openai = commands.add_parser("validate-openai-responses")
     validate_openai.add_argument("--raw-output", type=Path, required=True); validate_openai.add_argument("--requests", type=Path, required=True); validate_openai.add_argument("--output-dir", type=Path, required=True)
+    validate_openai_v3 = commands.add_parser("validate-openai-responses-v3")
+    validate_openai_v3.add_argument("--raw-output", type=Path, required=True); validate_openai_v3.add_argument("--requests", type=Path, required=True); validate_openai_v3.add_argument("--output-dir", type=Path, required=True)
     validate_gold = commands.add_parser("validate-openai-pilot-gold")
     validate_gold.add_argument("--gold", type=Path, required=True); validate_gold.add_argument("--requests", type=Path, required=True)
     validate_gold.add_argument("--output", type=Path, required=True); validate_gold.add_argument("--max-backward-distance", type=int, default=3)
@@ -100,6 +105,10 @@ def build_parser() -> argparse.ArgumentParser:
     disagreements.add_argument("--gold", type=Path, required=True); disagreements.add_argument("--validated-responses", type=Path, required=True)
     disagreements.add_argument("--requests", type=Path, required=True); disagreements.add_argument("--manifest", type=Path, required=True)
     disagreements.add_argument("--output", type=Path, required=True)
+    evaluate_v3 = commands.add_parser("evaluate-openai-pilot-v3")
+    evaluate_v3.add_argument("--gold", type=Path, required=True); evaluate_v3.add_argument("--validated-responses", type=Path, required=True)
+    evaluate_v3.add_argument("--manifest", type=Path, required=True); evaluate_v3.add_argument("--adjudication", type=Path, required=True)
+    evaluate_v3.add_argument("--output", type=Path, required=True)
     adjudication = commands.add_parser("build-openai-gold-adjudication")
     adjudication_validate = commands.add_parser("validate-openai-gold-adjudication")
     for command in (adjudication, adjudication_validate):
@@ -140,6 +149,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-openai-batch":
             from .openai_review import prepare_batch
             print(json_dumps(prepare_batch(args.requests, args.output, args.model), pretty=True)); return 0
+        if args.command == "prepare-openai-batch-v3":
+            from .stage253 import prepare_batch_v3
+            print(json_dumps(prepare_batch_v3(args.requests, args.annotation_policy, args.output, args.model), pretty=True)); return 0
         if args.command == "prepare-openai-remaining":
             from .stage23 import prepare_remaining_requests
             print(json_dumps(prepare_remaining_requests(args.full_requests, args.pilot_requests, args.output, args.manifest, args.model), pretty=True)); return 0
@@ -155,6 +167,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate-openai-responses":
             from .openai_review import validate_responses
             report = validate_responses(args.raw_output, args.requests, args.output_dir)
+            print(json_dumps(report, pretty=True)); return 0 if report["passed"] else 1
+        if args.command == "validate-openai-responses-v3":
+            from .stage253 import validate_responses_v3
+            report = validate_responses_v3(args.raw_output, args.requests, args.output_dir)
             print(json_dumps(report, pretty=True)); return 0 if report["passed"] else 1
         if args.command == "validate-openai-pilot-gold":
             from .openai_review import validate_pilot_gold
@@ -187,6 +203,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "build-openai-pilot-disagreements":
             from .openai_review import build_pilot_disagreements
             print(json_dumps(build_pilot_disagreements(args.gold, args.validated_responses, args.requests, args.manifest, args.output), pretty=True)); return 0
+        if args.command == "evaluate-openai-pilot-v3":
+            from .stage253 import evaluate_pilot_v3
+            print(json_dumps(evaluate_pilot_v3(args.gold, args.validated_responses, args.manifest, args.adjudication, args.output), pretty=True)); return 0
         if args.command == "build-openai-gold-adjudication":
             from .stage252 import build_gold_adjudication
             result = build_gold_adjudication(args.gold, args.validated_responses, args.requests, args.manifest, args.screenplay_context, args.alignment, args.evaluation, args.disagreements, args.output_dir)

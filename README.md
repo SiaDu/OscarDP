@@ -224,6 +224,30 @@ python -m oscardp.script_context build-openai-gold-adjudication \
 The generated annotation policy is intentionally a TODO template. Diagnostic
 tags are non-final review aids and never populate adjudication labels.
 
+### Stage 2.5.3 policy-aware candidate pilot
+
+The versioned v3 workflow leaves historical v1/v2 schemas untouched. Its
+response decision is binary: `match` selects one or more request-local dialogue
+IDs, while `no_candidate_match` selects none. It applies annotation policy v1
+at screenplay-turn level: prefer the most specific proposition, allow
+fragmentation/repetition/reordering, reject merely related new propositions,
+and treat graphic or insert text as non-dialogue.
+
+```bash
+python -m oscardp.script_context prepare-openai-batch-v3 \
+  --requests /path/to/pilot_requests.jsonl \
+  --annotation-policy /path/to/annotation_policy_v1.md \
+  --output /path/to/pilot_batch_input_v3.jsonl \
+  --model gpt-5.6-terra
+```
+
+Preparation is local-only and creates no job. Every line retains a
+request-specific strict candidate enum. Future v3 responses use
+`validate-openai-responses-v3` and `evaluate-openai-pilot-v3`. The evaluator
+reports all provisional records and a resolved-gold view excluding only
+explicitly ambiguous adjudications; acceptance uses the resolved view without
+deleting the provisional record.
+
 ### Stage 2.3.1 reviewed-output QC
 
 Reviewed shot context uses global screenplay block order. Every row includes
