@@ -43,6 +43,15 @@ reordered final-film dialogue only when it uses the explicit
 three dialogue blocks. Never permit a foreign ID, distant jump, or cross-scene
 backward jump. Candidate-recall failures use `uncertain`, not invented IDs.
 
+Response validation, alignment-quality diagnostics, and gold evaluation are
+separate concerns. Hard validation answers whether a constrained response is
+structurally legal; foreign candidate IDs and cross-scene blocks within one
+multi-block resolution remain hard errors. Sequence regression between
+subtitle resolutions, missing reorder basis, repeated blocks, and large jumps
+are quality diagnostics and must not invalidate an otherwise legal response.
+Choosing the wrong supplied candidate is a gold-evaluation error, not an API
+response error. Never alter a prediction merely to clear a quality warning.
+
 ---
 
 ## 2. Paths

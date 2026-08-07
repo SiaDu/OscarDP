@@ -96,6 +96,10 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate = commands.add_parser("evaluate-openai-pilot")
     evaluate.add_argument("--gold", type=Path, required=True); evaluate.add_argument("--validated-responses", type=Path, required=True)
     evaluate.add_argument("--manifest", type=Path, required=True); evaluate.add_argument("--output", type=Path, required=True)
+    disagreements = commands.add_parser("build-openai-pilot-disagreements")
+    disagreements.add_argument("--gold", type=Path, required=True); disagreements.add_argument("--validated-responses", type=Path, required=True)
+    disagreements.add_argument("--requests", type=Path, required=True); disagreements.add_argument("--manifest", type=Path, required=True)
+    disagreements.add_argument("--output", type=Path, required=True)
     return parser
 
 
@@ -172,6 +176,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "evaluate-openai-pilot":
             from .openai_review import evaluate_pilot
             print(json_dumps(evaluate_pilot(args.gold, args.validated_responses, args.manifest, args.output), pretty=True)); return 0
+        if args.command == "build-openai-pilot-disagreements":
+            from .openai_review import build_pilot_disagreements
+            print(json_dumps(build_pilot_disagreements(args.gold, args.validated_responses, args.requests, args.manifest, args.output), pretty=True)); return 0
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr); return 2
     return 2

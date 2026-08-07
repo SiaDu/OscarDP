@@ -174,6 +174,29 @@ movement. `prepare-openai-batch` remains local-only: it writes a Batch JSONL
 and manifest but neither uploads nor submits them. The manifest records the
 instruction hash and request-level schema hashes for controlled comparisons.
 
+### Stage 2.5.1 validation layers
+
+OpenAI pilot review uses three deliberately separate checks:
+
+- **Hard validation** asks whether the response is a structurally legal,
+  request-constrained response. It rejects malformed output, missing or
+  reordered subtitle resolutions, invalid enums/confidence, foreign candidate
+  IDs, invalid block arrays, and multi-block selections that are internally
+  unordered, non-adjacent, or cross scenes.
+- **Sequence-quality diagnostics** ask whether the alignment behavior looks
+  suspicious. Backward mappings, missing `repeated_or_reordered_dialogue`
+  basis, large jumps, and repeated block use are retained as warnings or
+  high-risk events without changing the prediction.
+- **Gold evaluation** asks whether a structurally legal prediction is correct.
+  Selecting the wrong supplied candidate is an evaluation error, not a
+  malformed API response.
+
+Evaluation preserves the three-way `match`/`no_match`/`uncertain` history and
+also reports a derived candidate task. In that view, `no_match` and `uncertain`
+both mean that no supplied candidate should be selected; a `match` is correct
+only when its block-ID set matches gold. This derived metric does not rewrite
+gold or the active Batch response schema.
+
 ### Stage 2.3.1 reviewed-output QC
 
 Reviewed shot context uses global screenplay block order. Every row includes

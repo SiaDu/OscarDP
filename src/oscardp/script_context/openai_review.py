@@ -214,9 +214,21 @@ def _resolution_validation(
     response: dict[str, Any], request: dict[str, Any], max_backward_distance: int = 3,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
+    sequence_quality: dict[str, Any] = {
+        "backward_mapping_count": 0,
+        "bounded_backward_mapping_count": 0,
+        "large_backward_mapping_count": 0,
+        "missing_reorder_basis_count": 0,
+        "cross_scene_sequence_jump_count": 0,
+        "large_forward_jump_count": 0,
+        "repeated_block_mapping_count": 0,
+        "high_risk_sequence_event_count": 0,
+        "events": [],
+    }
     diagnostics: dict[str, Any] = {
-        "bounded_backward_mapping_count": 0, "foreign_candidate_output_count": 0,
-        "bounded_backward_mappings": [],
+        "hard_validation_policy": "stage_2_5_1",
+        "foreign_candidate_output_count": 0,
+        "sequence_quality": sequence_quality,
     }
     if response.get("request_id") != request.get("request_id"):
         errors.append("request_id mismatch")
@@ -242,8 +254,10 @@ def _resolution_validation(
             errors.append(f"invalid decision_basis for {item.get('subtitle_id')}")
         if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
             errors.append(f"invalid confidence for {item.get('subtitle_id')}")
-        if not isinstance(block_ids, list) or len(block_ids) != len(set(block_ids)):
-            errors.append(f"block_ids must be a unique array for {item.get('subtitle_id')}"); selections.append(None); continue
+        if not isinstance(block_ids, list) or any(not isinstance(block_id, str) or not block_id for block_id in block_ids):
+            errors.append(f"block_ids must be an array of non-empty strings for {item.get('subtitle_id')}"); selections.append(None); continue
+        if len(block_ids) != len(set(block_ids)):
+            errors.append(f"block_ids must be unique for {item.get('subtitle_id')}"); selections.append(None); continue
         if decision == "match" and not block_ids:
             errors.append(f"match requires block_ids for {item.get('subtitle_id')}")
         if decision in {"no_match", "uncertain"} and block_ids:
@@ -267,31 +281,59 @@ def _resolution_validation(
             "scene_id": next(iter(scenes)) if len(scenes) == 1 else None,
         })
 
+    def event(previous: dict[str, Any], current: dict[str, Any], reason: str, severity: str, distance: int, **extra: Any) -> None:
+        record = {
+            "request_id": request.get("request_id"),
+            "previous_subtitle_id": previous["subtitle_id"],
+            "subtitle_id": current["subtitle_id"],
+            "previous_screenplay_span": [previous["start"], previous["end"]],
+            "current_screenplay_span": [current["start"], current["end"]],
+            "distance": distance,
+            "previous_scene": previous["scene_id"],
+            "current_scene": current["scene_id"],
+            "decision_basis": current["basis"],
+            "severity": severity,
+            "reason": reason,
+            **extra,
+        }
+        sequence_quality["events"].append(record)
+        if severity == "high_risk":
+            sequence_quality["high_risk_sequence_event_count"] += 1
+
     previous: dict[str, Any] | None = None
-    for index, current in enumerate(selections):
+    for current in selections:
         if current is None:
             continue
-        if previous is not None and (current["start"] < previous["start"] or current["end"] < previous["end"]):
-            next_selection = next((item for item in selections[index + 1:] if item is not None), None)
-            distance = max(previous["start"] - current["start"], previous["end"] - current["end"])
-            reasons: list[str] = []
-            if current["basis"] != "repeated_or_reordered_dialogue":
-                reasons.append("explicit repeated_or_reordered_dialogue basis required")
-            if current["scene_id"] is None or current["scene_id"] != previous["scene_id"]:
-                reasons.append("backward mapping crosses scenes")
-            if next_selection is not None and next_selection["scene_id"] != current["scene_id"]:
-                reasons.append("backward mapping differs from surrounding scene")
-            if distance > max_backward_distance:
-                reasons.append(f"backward mapping exceeds distance {max_backward_distance}")
-            if reasons:
-                errors.append("non-monotonic block selection")
-                errors.extend(reasons)
-            else:
-                diagnostics["bounded_backward_mapping_count"] += 1
-                diagnostics["bounded_backward_mappings"].append({
-                    "subtitle_id": current["subtitle_id"], "distance": distance,
-                    "scene_id": current["scene_id"],
-                })
+        if previous is not None:
+            if current["scene_id"] != previous["scene_id"]:
+                sequence_quality["cross_scene_sequence_jump_count"] += 1
+                event(previous, current, "cross_scene_sequence_jump", "high_risk", 0)
+            if current["start"] == previous["start"] and current["end"] == previous["end"]:
+                sequence_quality["repeated_block_mapping_count"] += 1
+                event(previous, current, "repeated_block_mapping", "info", 0)
+            if current["start"] < previous["start"] or current["end"] < previous["end"]:
+                sequence_quality["backward_mapping_count"] += 1
+                distance = max(previous["start"] - current["start"], previous["end"] - current["end"])
+                large = distance > max_backward_distance
+                missing_basis = current["basis"] != "repeated_or_reordered_dialogue"
+                if large:
+                    sequence_quality["large_backward_mapping_count"] += 1
+                else:
+                    sequence_quality["bounded_backward_mapping_count"] += 1
+                if missing_basis:
+                    sequence_quality["missing_reorder_basis_count"] += 1
+                severity = "high_risk" if large or current["scene_id"] != previous["scene_id"] else ("warning" if missing_basis else "info")
+                event(
+                    previous, current,
+                    "large_backward_mapping" if large else "bounded_backward_mapping",
+                    severity, distance,
+                    missing_reorder_basis=missing_basis,
+                    large_backward_mapping=large,
+                )
+            elif current["start"] - previous["end"] > max_backward_distance:
+                distance = current["start"] - previous["end"]
+                sequence_quality["large_forward_jump_count"] += 1
+                event(previous, current, "large_forward_jump", "warning", distance)
         previous = current
     return errors, diagnostics
 
@@ -319,13 +361,39 @@ def validate_responses(raw_path: Path, requests_path: Path, output_dir: Path) ->
             errors.append({"line": line_number, "custom_id": custom_id, "errors": [extraction_error]}); continue
         resolution_errors, resolution_diagnostics = _resolution_validation(structured, request_by_id[custom_id])  # type: ignore[arg-type]
         if resolution_errors:
-            errors.append({"line": line_number, "custom_id": custom_id, "errors": resolution_errors}); continue
+            errors.append({
+                "line": line_number, "custom_id": custom_id, "errors": resolution_errors,
+                "validation_diagnostics": resolution_diagnostics,
+            }); continue
         valid.append({
             **structured, "custom_id": custom_id, "response_id": body.get("id"),
             "model": body.get("model"), "validation_diagnostics": resolution_diagnostics,
         })  # type: ignore[arg-type]
     missing = sorted(set(request_by_id) - seen)
-    report = {"schema_version": "1.0", "request_count": len(requests), "valid_count": len(valid), "invalid_count": len(errors), "missing_request_ids": missing, "errors": errors, "passed": not errors and not missing}
+    quality_fields = (
+        "backward_mapping_count", "bounded_backward_mapping_count", "large_backward_mapping_count",
+        "missing_reorder_basis_count", "cross_scene_sequence_jump_count", "large_forward_jump_count",
+        "repeated_block_mapping_count", "high_risk_sequence_event_count",
+    )
+    sequence_quality = {field: 0 for field in quality_fields}
+    sequence_quality["events"] = []
+    for response in valid:
+        quality = response["validation_diagnostics"]["sequence_quality"]
+        for field in quality_fields:
+            sequence_quality[field] += int(quality[field])
+        sequence_quality["events"].extend(quality["events"])
+    report = {
+        "schema_version": "1.1", "validation_policy": "stage_2_5_1_hard_contract",
+        "request_count": len(requests), "resolution_count": sum(len(row.get("resolutions", [])) for row in valid),
+        "valid_count": len(valid), "invalid_count": len(errors), "missing_request_ids": missing,
+        "foreign_candidate_output_count": sum(
+            int(row.get("validation_diagnostics", {}).get("foreign_candidate_output_count", 0)) for row in valid
+        ) + sum(
+            int(row.get("validation_diagnostics", {}).get("foreign_candidate_output_count", 0)) for row in errors
+        ),
+        "sequence_quality": sequence_quality,
+        "errors": errors, "passed": not errors and not missing,
+    }
     output_dir.mkdir(parents=True, exist_ok=True); _write_jsonl(output_dir / "validated_responses.jsonl", valid); _write_json(output_dir / "response_validation_report.json", report)
     return report
 
@@ -514,6 +582,30 @@ def resolution_correct(expected: dict[str, Any], actual: dict[str, Any] | None) 
     )
 
 
+def candidate_outcome(resolution: dict[str, Any] | None) -> str:
+    if resolution is None:
+        return "missing"
+    return "candidate_match" if resolution.get("decision") == "match" else "no_candidate_match"
+
+
+def candidate_task_correct(expected: dict[str, Any], actual: dict[str, Any] | None) -> bool:
+    if actual is None:
+        return False
+    if expected["decision"] == "match":
+        return actual.get("decision") == "match" and set(actual.get("block_ids", [])) == set(expected["block_ids"])
+    return actual.get("decision") in {"no_match", "uncertain"}
+
+
+def candidate_presence_correct(expected: dict[str, Any], actual: dict[str, Any] | None) -> bool:
+    return actual is not None and candidate_outcome(expected) == candidate_outcome(actual)
+
+
+def _is_candidate_recall_gold(resolution: dict[str, Any]) -> bool:
+    notes = resolution.get("reviewer_notes")
+    normalized = notes.lower() if isinstance(notes, str) else ""
+    return resolution.get("decision") == "uncertain" and "absent" in normalized and "candidate" in normalized
+
+
 def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, output_path: Path) -> dict[str, Any]:
     gold, responses = read_jsonl(gold_path), read_jsonl(validated_path); manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if any(item.get("decision") is None or item.get("block_ids") is None for row in gold for item in row["resolutions"]):
@@ -526,6 +618,8 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
             records.append({"request_id": row["request_id"], "expected": expected, "actual": actual, **strata[row["request_id"]]})
     decision_correct = sum(bool(record["actual"] and record["actual"]["decision"] == record["expected"]["decision"]) for record in records)
     resolution_correct_count = sum(resolution_correct(record["expected"], record["actual"]) for record in records)
+    candidate_task_correct_count = sum(candidate_task_correct(record["expected"], record["actual"]) for record in records)
+    candidate_presence_correct_count = sum(candidate_presence_correct(record["expected"], record["actual"]) for record in records)
     block_ids_only_correct = sum(bool(record["actual"] and set(record["actual"]["block_ids"]) == set(record["expected"]["block_ids"])) for record in records)
     def accuracy(field: str, value: str) -> float | None:
         subset = [record for record in records if record[field] == value]
@@ -536,14 +630,22 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
         expected = record["expected"]["decision"]
         actual = "missing" if record["actual"] is None else record["actual"]["decision"]
         confusion[expected][actual] += 1
+    candidate_confusion = {
+        expected: {actual: 0 for actual in ("candidate_match", "no_candidate_match", "missing")}
+        for expected in ("candidate_match", "no_candidate_match")
+    }
+    for record in records:
+        candidate_confusion[candidate_outcome(record["expected"])][candidate_outcome(record["actual"])] += 1
     missing_count = sum(record["actual"] is None for record in records)
     validation_report_path = validated_path.with_name("response_validation_report.json")
     validation_report = json.loads(validation_report_path.read_text(encoding="utf-8")) if validation_report_path.is_file() else {}
     invalid_count = int(validation_report.get("invalid_count", 0))
-    foreign_candidate_output_count = sum(
-        "block outside request candidates" in error
-        for row in validation_report.get("errors", []) for error in row.get("errors", [])
-    )
+    foreign_candidate_output_count = int(validation_report.get("foreign_candidate_output_count", 0))
+    if "foreign_candidate_output_count" not in validation_report:
+        foreign_candidate_output_count = sum(
+            "block outside request candidates" in error
+            for row in validation_report.get("errors", []) for error in row.get("errors", [])
+        )
     multi = [record for record in records if len(record["expected"]["block_ids"]) > 1]
     multi_accuracy = None if not multi else sum(resolution_correct(record["expected"], record["actual"]) for record in multi) / len(multi)
     predicted_no_match = sum(bool(record["actual"] and record["actual"]["decision"] == "no_match") for record in records)
@@ -574,16 +676,29 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
         item.get("decision") == "match" and item.get("decision_basis") == "repeated_or_reordered_dialogue"
         for row in responses for item in row.get("resolutions", [])
     )
-    bounded_backward_count = sum(
-        int(row.get("validation_diagnostics", {}).get("bounded_backward_mapping_count", 0))
-        for row in responses
-    )
+    sequence_quality = validation_report.get("sequence_quality", {})
+    bounded_backward_count = int(sequence_quality.get("bounded_backward_mapping_count", sum(
+        int(row.get("validation_diagnostics", {}).get("bounded_backward_mapping_count", 0)) for row in responses
+    )))
     candidate_recall_uncertain_count = sum(
         item.get("decision") == "uncertain" and item.get("decision_basis") == "insufficient_context"
         for row in responses for item in row.get("resolutions", [])
     )
+    candidate_recall_records = []
+    candidate_recall_behavior = {decision: 0 for decision in ("uncertain", "no_match", "match", "missing")}
+    for record in records:
+        if not _is_candidate_recall_gold(record["expected"]):
+            continue
+        predicted_decision = "missing" if record["actual"] is None else record["actual"]["decision"]
+        candidate_recall_behavior[predicted_decision] += 1
+        candidate_recall_records.append({
+            "request_id": record["request_id"], "subtitle_id": record["expected"]["subtitle_id"],
+            "predicted_decision": predicted_decision,
+            "predicted_block_ids": [] if record["actual"] is None else record["actual"]["block_ids"],
+        })
     result = {
-        "schema_version": "1.1", "subtitle_count": total,
+        "schema_version": "1.2", "request_count": len(gold), "subtitle_count": total, "resolution_count": total,
+        "structural_invalid_count": invalid_count,
         "exact_decision_accuracy": decision_correct / total if total else 0.0,
         "decision_confusion_matrix": confusion,
         "block_set_exact_match": overall_accuracy,
@@ -603,6 +718,90 @@ def evaluate_pilot(gold_path: Path, validated_path: Path, manifest_path: Path, o
         "bounded_backward_mapping_count": bounded_backward_count,
         "foreign_candidate_output_count": foreign_candidate_output_count,
         "candidate_recall_uncertain_count": candidate_recall_uncertain_count,
+        "candidate_task_accuracy": candidate_task_correct_count / total if total else 0.0,
+        "candidate_task_accuracy_definition": "gold match requires the same block-ID set; gold no_match or uncertain accepts either non-selecting decision",
+        "candidate_presence_decision_accuracy": candidate_presence_correct_count / total if total else 0.0,
+        "candidate_task_confusion_matrix": candidate_confusion,
+        "candidate_recall_gold_count": len(candidate_recall_records),
+        "candidate_recall_prediction_behavior": candidate_recall_behavior,
+        "candidate_recall_gold_records": candidate_recall_records,
+        "sequence_quality": sequence_quality,
         "acceptance_criteria": {"checks": criteria, "passed": all(criteria.values())},
     }
     _write_json(output_path, result); return result
+
+
+def build_pilot_disagreements(
+    gold_path: Path, validated_path: Path, requests_path: Path, manifest_path: Path, output_path: Path,
+) -> dict[str, Any]:
+    gold, responses, requests = read_jsonl(gold_path), read_jsonl(validated_path), read_jsonl(requests_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    predicted = {(row["request_id"], item["subtitle_id"]): item for row in responses for item in row["resolutions"]}
+    response_by_id = {row["request_id"]: row for row in responses}
+    request_by_id = {row["request_id"]: row for row in requests}
+    selection_by_id = {row["request_id"]: row for row in manifest["requests"]}
+    output: list[dict[str, Any]] = []
+    classification_counts: Counter[str] = Counter()
+    for gold_row in gold:
+        request_id = gold_row["request_id"]
+        request = request_by_id[request_id]
+        subtitles = {row["subtitle_id"]: row for row in request["subtitles"]}
+        events = response_by_id.get(request_id, {}).get("validation_diagnostics", {}).get("sequence_quality", {}).get("events", [])
+        for expected in gold_row["resolutions"]:
+            actual = predicted.get((request_id, expected["subtitle_id"]))
+            if resolution_correct(expected, actual):
+                continue
+            expected_blocks, actual_blocks = set(expected["block_ids"]), set() if actual is None else set(actual["block_ids"])
+            classifications: list[str] = []
+            if actual is None:
+                classifications.append("missing_prediction")
+            else:
+                if expected_blocks == actual_blocks and expected["decision"] != actual["decision"]:
+                    classifications.append("correct_candidate_wrong_decision")
+                if expected["decision"] == "match" and actual["decision"] == "match" and expected_blocks != actual_blocks:
+                    classifications.append("wrong_candidate")
+                if actual_blocks < expected_blocks:
+                    classifications.append("underselection")
+                if expected_blocks < actual_blocks:
+                    classifications.append("overselection")
+                decision_pair = (expected["decision"], actual["decision"])
+                labels = {
+                    ("no_match", "uncertain"): "gold_no_match_predicted_uncertain",
+                    ("no_match", "match"): "gold_no_match_predicted_match",
+                    ("uncertain", "no_match"): "gold_uncertain_predicted_no_match",
+                    ("uncertain", "match"): "gold_uncertain_predicted_match",
+                }
+                if decision_pair in labels:
+                    classifications.append(labels[decision_pair])
+            if _is_candidate_recall_gold(expected):
+                classifications.append("candidate_recall_failure")
+            item_events = [event for event in events if event.get("subtitle_id") == expected["subtitle_id"]]
+            if item_events or (actual and actual.get("decision_basis") == "repeated_or_reordered_dialogue"):
+                classifications.append("repeated_or_reordered_error")
+            classifications = list(dict.fromkeys(classifications))
+            classification_counts.update(classifications)
+            subtitle = subtitles[expected["subtitle_id"]]
+            selection = selection_by_id[request_id]
+            output.append({
+                "request_id": request_id, "subtitle_id": expected["subtitle_id"],
+                "subtitle_text": subtitle["text"], "subtitle_time": subtitle["time"],
+                "gold_decision": expected["decision"], "gold_block_ids": expected["block_ids"],
+                "predicted_decision": None if actual is None else actual["decision"],
+                "predicted_block_ids": [] if actual is None else actual["block_ids"],
+                "confidence": None if actual is None else actual.get("confidence"),
+                "decision_basis": None if actual is None else actual.get("decision_basis"),
+                "candidate_count": len(request["dialogue_candidates"]),
+                "dialogue_candidates": request["dialogue_candidates"],
+                "candidate_limit_saturated": selection.get("candidate_limit_saturated", False),
+                "fallback_used": selection.get("fallback_used", False),
+                "sequence_diagnostic_events": item_events,
+                "three_way_correct": False,
+                "candidate_task_correct": candidate_task_correct(expected, actual),
+                "classification": classifications,
+            })
+    _write_jsonl(output_path, output)
+    return {
+        "schema_version": "1.0", "resolution_count": sum(len(row["resolutions"]) for row in gold),
+        "disagreement_count": len(output), "classification_counts": dict(sorted(classification_counts.items())),
+        "output": output_path.as_posix(),
+    }

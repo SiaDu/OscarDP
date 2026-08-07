@@ -11,9 +11,11 @@ import pytest
 from oscardp.script_context.openai_review import (
     _add_reviewed_status_counts,
     _download_text,
+    _resolution_validation,
     apply_validated_responses,
     batch_line,
     check_batch,
+    candidate_task_correct,
     evaluate_pilot,
     fetch_batch,
     prepare_batch,
@@ -160,11 +162,14 @@ def test_invalid_structured_resolutions_are_rejected(mutate, message: str) -> No
     assert any(message in error for error in validate_resolution(response, req))
 
 
-def test_non_monotonic_block_selection_is_rejected() -> None:
+def test_non_monotonic_block_selection_is_quality_warning_not_hard_error() -> None:
     req = request(1, "multi", 1)
     req["dialogue_candidates"].append({"scene_id": "scene_001", "block_id": "scene_001_dialogue_002", "screenplay_order": 2, "speaker": "HART", "text": "two"})
     response = valid_response(req); response["resolutions"][0]["block_ids"] = ["scene_001_dialogue_002"]; response["resolutions"][1]["block_ids"] = ["scene_001_dialogue_001"]
-    assert "non-monotonic block selection" in validate_resolution(response, req)
+    errors, diagnostics = _resolution_validation(response, req)
+    assert errors == []
+    assert diagnostics["sequence_quality"]["backward_mapping_count"] == 1
+    assert diagnostics["sequence_quality"]["missing_reorder_basis_count"] == 1
 
 
 def interval_request(spans: list[list[int]]) -> tuple[dict, dict]:
@@ -200,9 +205,11 @@ def test_interval_monotonicity_allows_reuse_and_forward_overlap(spans: list[list
     [[2, 3], [1, 2]],
     [[0, 1, 2], [1]],
 ])
-def test_interval_monotonicity_rejects_start_or_end_regression(spans: list[list[int]]) -> None:
+def test_interval_regression_is_structurally_valid(spans: list[list[int]]) -> None:
     req, response = interval_request(spans)
-    assert "non-monotonic block selection" in validate_resolution(response, req)
+    errors, diagnostics = _resolution_validation(response, req)
+    assert errors == []
+    assert diagnostics["sequence_quality"]["backward_mapping_count"] >= 1
 
 
 @pytest.mark.parametrize("spans", [
@@ -224,16 +231,40 @@ def test_bounded_final_cut_repetition_or_reorder_with_explicit_basis(spans: list
 
 def test_bounded_reorder_requires_explicit_basis() -> None:
     req, response = interval_request([[0], [2], [1]])
-    assert "explicit repeated_or_reordered_dialogue basis required" in validate_resolution(response, req)
+    errors, diagnostics = _resolution_validation(response, req)
+    assert errors == []
+    quality = diagnostics["sequence_quality"]
+    assert quality["bounded_backward_mapping_count"] == 1
+    assert quality["missing_reorder_basis_count"] == 1
+    assert quality["events"][-1]["severity"] == "warning"
 
 
-def test_reordered_dialogue_rejects_cross_scene_and_excessive_distance() -> None:
+def test_reordered_dialogue_reports_cross_scene_and_excessive_distance() -> None:
     req, response = interval_request([[4], [1]])
     response["resolutions"][1]["decision_basis"] = "repeated_or_reordered_dialogue"
-    assert validate_resolution(response, req) == []
-    assert "backward mapping exceeds distance 2" in validate_resolution(response, req, max_backward_distance=2)
+    errors, diagnostics = _resolution_validation(response, req, max_backward_distance=2)
+    assert errors == []
+    assert diagnostics["sequence_quality"]["large_backward_mapping_count"] == 1
+    assert diagnostics["sequence_quality"]["high_risk_sequence_event_count"] == 1
     req["dialogue_candidates"][1]["scene_id"] = "scene_002"
-    assert "backward mapping crosses scenes" in validate_resolution(response, req)
+    errors, diagnostics = _resolution_validation(response, req)
+    assert errors == []
+    assert diagnostics["sequence_quality"]["cross_scene_sequence_jump_count"] == 1
+
+
+def test_cross_scene_multiblock_is_hard_invalid_but_same_scene_is_valid() -> None:
+    req, response = interval_request([[0, 1]])
+    assert validate_resolution(response, req) == []
+    req["dialogue_candidates"][1]["scene_id"] = "scene_002"
+    assert any("cross scenes" in error for error in validate_resolution(response, req))
+
+
+def test_large_backward_movement_is_high_risk_not_hard_invalid() -> None:
+    req, response = interval_request([[5], [0]])
+    errors, diagnostics = _resolution_validation(response, req, max_backward_distance=3)
+    assert errors == []
+    event = next(event for event in diagnostics["sequence_quality"]["events"] if event["reason"] == "large_backward_mapping")
+    assert event["distance"] == 5 and event["severity"] == "high_risk"
 
 
 def test_pilot_gold_validator_classifies_bounded_reorder_without_rejecting_it(tmp_path: Path) -> None:
@@ -401,6 +432,8 @@ def test_evaluate_pilot_reports_complete_metrics(tmp_path: Path) -> None:
     assert result["uncertain_rate"] == 0.0 and result["acceptance_criteria"]["passed"] is False
     assert result["raw_diagnostic_accuracy"] == 2 / 3
     assert result["source_weighted_overall_accuracy"] == 2 / 3
+    assert result["candidate_task_accuracy"] == 2 / 3
+    assert result["candidate_presence_decision_accuracy"] == 2 / 3
 
 
 def test_evaluate_pilot_reports_stage25_diagnostics(tmp_path: Path) -> None:
@@ -408,7 +441,7 @@ def test_evaluate_pilot_reports_stage25_diagnostics(tmp_path: Path) -> None:
     manifest = tmp_path / "manifest.json"; output = tmp_path / "evaluation.json"
     write_jsonl(gold, [{"request_id": "r1", "resolutions": [
         {"subtitle_id": "s1", "decision": "match", "block_ids": ["b1"]},
-        {"subtitle_id": "s2", "decision": "uncertain", "block_ids": []},
+        {"subtitle_id": "s2", "decision": "uncertain", "block_ids": [], "reviewer_notes": "Likely block is absent from the candidate set."},
     ]}])
     write_jsonl(validated, [{
         "request_id": "r1",
@@ -431,6 +464,8 @@ def test_evaluate_pilot_reports_stage25_diagnostics(tmp_path: Path) -> None:
     assert result["bounded_backward_mapping_count"] == 1
     assert result["foreign_candidate_output_count"] == 1
     assert result["candidate_recall_uncertain_count"] == 1
+    assert result["candidate_recall_gold_count"] == 1
+    assert result["candidate_recall_prediction_behavior"]["uncertain"] == 1
 
 
 def test_evaluate_pilot_rejects_equal_empty_blocks_when_decisions_differ(tmp_path: Path) -> None:
@@ -447,7 +482,7 @@ def test_evaluate_pilot_rejects_equal_empty_blocks_when_decisions_differ(tmp_pat
         "source_pool_distribution": {"strata": {"easy": 1}},
     }))
     result = evaluate_pilot(gold, validated, manifest, output)
-    assert result["schema_version"] == "1.1"
+    assert result["schema_version"] == "1.2"
     assert result["exact_decision_accuracy"] == 0.0
     assert result["resolution_exact_match"] == 0.0
     assert result["block_set_exact_match"] == 0.0
@@ -455,6 +490,9 @@ def test_evaluate_pilot_rejects_equal_empty_blocks_when_decisions_differ(tmp_pat
     assert result["block_ids_only_exact_match"] == 1.0
     assert result["accuracy_by_stratum"]["easy"] == 0.0
     assert result["accuracy_by_region"]["early"] == 0.0
+    assert result["candidate_task_accuracy"] == 1.0
+    assert result["candidate_presence_decision_accuracy"] == 1.0
+    assert result["candidate_task_confusion_matrix"]["no_candidate_match"]["no_candidate_match"] == 1
     assert result["acceptance_criteria"]["passed"] is False
 
 
@@ -484,6 +522,28 @@ def test_evaluate_pilot_complete_resolution_cases_and_multiblock_set_order(tmp_p
     assert result["block_set_exact_match"] == 3 / 5
     assert result["multi_block_block_set_accuracy"] == 1.0
     assert result["missing_prediction_count"] == 1
+    assert result["candidate_task_accuracy"] == 3 / 5
+
+
+def test_candidate_task_treats_no_match_and_uncertain_as_equivalent() -> None:
+    assert candidate_task_correct(
+        {"decision": "no_match", "block_ids": []}, {"decision": "uncertain", "block_ids": []},
+    )
+    assert candidate_task_correct(
+        {"decision": "uncertain", "block_ids": []}, {"decision": "no_match", "block_ids": []},
+    )
+    assert not candidate_task_correct(
+        {"decision": "match", "block_ids": ["A"]}, {"decision": "match", "block_ids": ["B"]},
+    )
+    assert not candidate_task_correct({"decision": "no_match", "block_ids": []}, None)
+
+
+def test_wrong_supplied_candidate_is_hard_valid_but_evaluation_wrong() -> None:
+    req, response = interval_request([[1]])
+    assert validate_resolution(response, req) == []
+    assert not candidate_task_correct(
+        {"decision": "match", "block_ids": ["block_0"]}, response["resolutions"][0],
+    )
 
 
 def test_source_weighted_accuracy_uses_complete_resolution_correctness(tmp_path: Path) -> None:
