@@ -8,7 +8,7 @@ from typing import Any
 
 from oscardp.shots.schema import json_dumps
 
-from .openai_review import _extract_structured
+from .openai_review import _extract_structured, _submit_validated_batch
 from .openai_schema import V3_DECISION_BASES, V3_DECISIONS, V3_SYSTEM_INSTRUCTIONS, alignment_response_schema_v3
 from .pipeline import _write_json, _write_jsonl
 from .schema import read_jsonl
@@ -100,6 +100,26 @@ def prepare_batch_v3(
     }
     _write_json(output_path.with_suffix(output_path.suffix + ".manifest.json"), manifest)
     return manifest
+
+
+def submit_batch_v3(batch_input: Path, job_file: Path, *, confirm_submit: bool) -> dict[str, Any]:
+    if not confirm_submit:
+        raise RuntimeError("Refusing paid submission without --confirm-submit")
+    rows = read_jsonl(batch_input)
+    errors = validate_batch_lines_v3(rows)
+    if errors:
+        raise ValueError("Invalid v3 Batch input: " + "; ".join(errors))
+    return _submit_validated_batch(
+        batch_input,
+        job_file,
+        rows,
+        metadata_extra={
+            "schema_version": "1.0",
+            "decision_schema_version": "candidate_task_v3",
+            "review_policy_version": "annotation_policy_v1",
+            "batch_input_sha256": hashlib.sha256(batch_input.read_bytes()).hexdigest(),
+        },
+    )
 
 
 def _sequence_quality_v3(selections: list[dict[str, Any] | None], request_id: str, threshold: int = 3) -> dict[str, Any]:

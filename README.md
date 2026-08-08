@@ -143,6 +143,16 @@ The remaining lifecycle commands are `submit-openai-batch`,
 paid operation and refuses to run without `--confirm-submit` and
 `OPENAI_API_KEY`.
 
+Candidate-task v3 inputs have an explicit submission command and validator;
+the historical command remains reserved for v1/v2 inputs:
+
+```bash
+python -m oscardp.script_context submit-openai-batch-v3 \
+  --batch-input /path/to/pilot_batch_input_v3.jsonl \
+  --job-file /path/to/pilot_batch_job_v3.json \
+  --confirm-submit
+```
+
 Reviewed outputs use `.llm_reviewed.jsonl` names and never replace deterministic
 alignment or shot-context files. Model output is constrained to request-local
 IDs, structurally validated, and still requires human pilot evaluation before

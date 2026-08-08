@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -10,9 +13,12 @@ from oscardp.script_context.openai_schema import (
     alignment_response_schema,
     alignment_response_schema_v3,
 )
+from oscardp.script_context.openai_review import batch_line, submit_batch
 from oscardp.script_context.stage253 import (
+    batch_line_v3,
     evaluate_pilot_v3,
     prepare_batch_v3,
+    submit_batch_v3,
     validate_batch_lines_v3,
     validate_resolution_v3,
 )
@@ -99,6 +105,74 @@ def test_prepare_v3_batch_preserves_payload_and_policy_manifest(tmp_path: Path) 
     assert manifest["review_policy_version"] == "annotation_policy_v1"
     assert manifest["decision_schema_version"] == "candidate_task_v3"
     assert manifest["request_payload_data_unchanged"] is True
+
+
+def test_historical_submit_uses_historical_validator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    batch = tmp_path / "batch.jsonl"; write_jsonl(batch, [batch_line(request(), "test-model")])
+    validator = Mock(return_value=["historical validator marker"])
+    client = Mock(side_effect=AssertionError("client must not be accessed"))
+    monkeypatch.setattr("oscardp.script_context.openai_review.validate_batch_lines", validator)
+    monkeypatch.setattr("oscardp.script_context.openai_review._client", client)
+    with pytest.raises(ValueError, match="historical validator marker"):
+        submit_batch(batch, tmp_path / "job.json", confirm_submit=True)
+    validator.assert_called_once()
+    client.assert_not_called()
+
+
+def test_v3_submit_mocked_lifecycle_and_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    batch = tmp_path / "batch-v3.jsonl"; job = tmp_path / "job-v3.json"
+    write_jsonl(batch, [batch_line_v3(request(), "test-model")])
+    expected_hash = hashlib.sha256(batch.read_bytes()).hexdigest()
+    files = SimpleNamespace(create=Mock(return_value=SimpleNamespace(id="file-v3")))
+    batches = SimpleNamespace(create=Mock(return_value=SimpleNamespace(id="batch-v3", status="validating")))
+    monkeypatch.setattr("oscardp.script_context.openai_review._client", lambda: SimpleNamespace(files=files, batches=batches))
+
+    result = submit_batch_v3(batch, job, confirm_submit=True)
+
+    assert result == json.loads(job.read_text(encoding="utf-8"))
+    assert result["decision_schema_version"] == "candidate_task_v3"
+    assert result["review_policy_version"] == "annotation_policy_v1"
+    assert result["request_count"] == 1 and result["model"] == "test-model"
+    assert result["batch_input_sha256"] == expected_hash
+    files.create.assert_called_once()
+    batches.create.assert_called_once_with(input_file_id="file-v3", endpoint="/v1/responses", completion_window="24h")
+
+
+def test_versioned_submit_paths_reject_the_other_schema_before_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    historical = tmp_path / "historical.jsonl"; v3 = tmp_path / "v3.jsonl"
+    write_jsonl(historical, [batch_line(request(), "test-model")])
+    write_jsonl(v3, [batch_line_v3(request(), "test-model")])
+    client = Mock(side_effect=AssertionError("client must not be accessed"))
+    monkeypatch.setattr("oscardp.script_context.openai_review._client", client)
+
+    with pytest.raises(ValueError, match="Invalid v3 Batch input"):
+        submit_batch_v3(historical, tmp_path / "v3-job.json", confirm_submit=True)
+    with pytest.raises(ValueError, match="Invalid batch input"):
+        submit_batch(v3, tmp_path / "historical-job.json", confirm_submit=True)
+    client.assert_not_called()
+
+
+def test_v3_submit_rejects_tampered_candidate_enum_before_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    row = batch_line_v3(request(), "test-model")
+    enum = row["body"]["text"]["format"]["schema"]["properties"]["resolutions"]["items"]["properties"]["block_ids"]["items"]["enum"]
+    enum.append("FOREIGN")
+    batch = tmp_path / "tampered-v3.jsonl"; write_jsonl(batch, [row])
+    client = Mock(side_effect=AssertionError("client must not be accessed"))
+    monkeypatch.setattr("oscardp.script_context.openai_review._client", client)
+
+    with pytest.raises(ValueError, match="request-specific v3 schema"):
+        submit_batch_v3(batch, tmp_path / "job.json", confirm_submit=True)
+    client.assert_not_called()
+
+
+def test_v3_submit_requires_confirmation_before_api_access(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    batch = tmp_path / "batch-v3.jsonl"; write_jsonl(batch, [batch_line_v3(request(), "test-model")])
+    client = Mock(side_effect=AssertionError("client must not be accessed"))
+    monkeypatch.setattr("oscardp.script_context.openai_review._client", client)
+
+    with pytest.raises(RuntimeError, match="confirm-submit"):
+        submit_batch_v3(batch, tmp_path / "job.json", confirm_submit=False)
+    client.assert_not_called()
 
 
 def test_v3_evaluator_binary_gold_and_ambiguous_exclusion(tmp_path: Path) -> None:

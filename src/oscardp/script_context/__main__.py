@@ -64,6 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
     remaining.add_argument("--output", type=Path, required=True); remaining.add_argument("--manifest", type=Path, required=True); remaining.add_argument("--model", required=True)
     submit = commands.add_parser("submit-openai-batch")
     submit.add_argument("--batch-input", type=Path, required=True); submit.add_argument("--job-file", type=Path, required=True); submit.add_argument("--confirm-submit", action="store_true")
+    submit_v3 = commands.add_parser("submit-openai-batch-v3")
+    submit_v3.add_argument("--batch-input", type=Path, required=True); submit_v3.add_argument("--job-file", type=Path, required=True); submit_v3.add_argument("--confirm-submit", action="store_true")
     check = commands.add_parser("check-openai-batch"); check.add_argument("--job-file", type=Path, required=True)
     fetch = commands.add_parser("fetch-openai-batch"); fetch.add_argument("--job-file", type=Path, required=True); fetch.add_argument("--output-dir", type=Path, required=True)
     validate_openai = commands.add_parser("validate-openai-responses")
@@ -158,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "submit-openai-batch":
             from .openai_review import submit_batch
             print(json_dumps(submit_batch(args.batch_input, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
+        if args.command == "submit-openai-batch-v3":
+            from .stage253 import submit_batch_v3
+            print(json_dumps(submit_batch_v3(args.batch_input, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
         if args.command == "check-openai-batch":
             from .openai_review import check_batch
             print(json_dumps(check_batch(args.job_file), pretty=True)); return 0

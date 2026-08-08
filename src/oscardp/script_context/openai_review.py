@@ -114,6 +114,24 @@ def _client() -> Any:
     return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
+def _submit_validated_batch(
+    batch_input: Path,
+    job_file: Path,
+    rows: list[dict[str, Any]],
+    *,
+    metadata_extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    client = _client()
+    with batch_input.open("rb") as handle:
+        uploaded = client.files.create(file=handle, purpose="batch")
+    batch = client.batches.create(input_file_id=uploaded.id, endpoint="/v1/responses", completion_window="24h")
+    metadata = {"schema_version": "1.0", "input_file_id": uploaded.id, "batch_id": batch.id, "status": batch.status, "request_count": len(rows), "model": rows[0]["body"]["model"] if rows else None, "submitted_at": datetime.now(UTC).isoformat()}
+    if metadata_extra:
+        metadata.update(metadata_extra)
+    _write_json(job_file, metadata)
+    return metadata
+
+
 def submit_batch(batch_input: Path, job_file: Path, *, confirm_submit: bool) -> dict[str, Any]:
     if not confirm_submit:
         raise RuntimeError("Refusing paid submission without --confirm-submit")
@@ -121,13 +139,7 @@ def submit_batch(batch_input: Path, job_file: Path, *, confirm_submit: bool) -> 
     errors = validate_batch_lines(rows)
     if errors:
         raise ValueError("Invalid batch input: " + "; ".join(errors))
-    client = _client()
-    with batch_input.open("rb") as handle:
-        uploaded = client.files.create(file=handle, purpose="batch")
-    batch = client.batches.create(input_file_id=uploaded.id, endpoint="/v1/responses", completion_window="24h")
-    metadata = {"schema_version": "1.0", "input_file_id": uploaded.id, "batch_id": batch.id, "status": batch.status, "request_count": len(rows), "model": rows[0]["body"]["model"] if rows else None, "submitted_at": datetime.now(UTC).isoformat()}
-    _write_json(job_file, metadata)
-    return metadata
+    return _submit_validated_batch(batch_input, job_file, rows)
 
 
 def check_batch(job_file: Path) -> dict[str, Any]:

@@ -43,6 +43,10 @@ reordered final-film dialogue only when it uses the explicit
 three dialogue blocks. Never permit a foreign ID, distant jump, or cross-scene
 backward jump. Candidate-recall failures use `uncertain`, not invented IDs.
 
+Use `submit-openai-batch-v3` only for candidate-task v3 Batch inputs. It must
+validate with `validate_batch_lines_v3` before API access; keep the historical
+`submit-openai-batch` path and validator for v1/v2 inputs.
+
 Response validation, alignment-quality diagnostics, and gold evaluation are
 separate concerns. Hard validation answers whether a constrained response is
 structurally legal; foreign candidate IDs and cross-scene blocks within one
