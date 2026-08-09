@@ -41,6 +41,13 @@ def _insert_like(text: str) -> bool:
     return bool(re.match(r"^(?:\[.*\]|(?:title|card|super|sign|chapter|telegram|letter|text)\s*:)", stripped, re.I))
 
 
+def _target_lexical_overlap(text: str, candidates: list[dict[str, Any]]) -> float:
+    target = set(tokenize(text).tokens)
+    if not target:
+        return 0.0
+    return max((len(target & set(tokenize(row.get("text", "")).tokens)) / len(target) for row in candidates), default=0.0)
+
+
 def build_production_high_risk_audit_v3(
     requests_path: Path, responses_path: Path, alignment_path: Path, shot_context_path: Path,
     context_path: Path, output_path: Path, summary_path: Path, *, low_confidence_threshold: float = 0.8,
@@ -119,9 +126,12 @@ def build_production_high_risk_audit_v3(
             no_match_classification = None
             no_match_evidence: list[str] = []
             if resolution["decision"] == "no_candidate_match":
-                lexical = max((float(row.get("lexical_score") or row.get("retrieval_score") or 0.0) for row in candidates), default=0.0)
-                semantic = max((float(row.get("semantic_score") or 0.0) for row in candidates), default=0.0)
                 automatic_matches = automatic_by_id.get(subtitle_id, {}).get("matches", [])
+                lexical = max(
+                    _target_lexical_overlap(text, candidates),
+                    max((float(row.get("lexical_score") or 0.0) for row in automatic_matches), default=0.0),
+                )
+                semantic = max((float(row.get("semantic_score") or 0.0) for row in automatic_matches), default=0.0)
                 if lexical >= 0.75:
                     reasons.append("strong_lexical_overlap_no_candidate_match"); no_match_evidence.append("strong_lexical_overlap")
                 if semantic >= 0.75:

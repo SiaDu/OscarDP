@@ -31,7 +31,7 @@ def request() -> dict:
             {"subtitle_id": "subtitle_000002", "text": "[SIGN: EXIT]", "time": {"start_sec": 1.0, "end_sec": 1.8}},
         ],
         "dialogue_candidates": [
-            {"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "A", "text": "Hi.", "lexical_score": .9},
+            {"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "A", "text": "Sign exit", "lexical_score": .9},
             {"scene_id": "scene_001", "block_id": "scene_001_dialogue_002", "screenplay_order": 1, "speaker": "B", "text": "Go.", "lexical_score": .9},
         ],
         "automatic_candidate_mappings": [{"subtitle_id": "subtitle_000002", "matches": [{"block_id": "scene_001_dialogue_001"}]}],
