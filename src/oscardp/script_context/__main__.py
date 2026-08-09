@@ -224,6 +224,10 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_calibration.add_argument("--reference", type=Path, required=True); evaluate_calibration.add_argument("--validated-responses", type=Path, required=True)
     evaluate_calibration.add_argument("--pilot-manifest", type=Path, required=True); evaluate_calibration.add_argument("--response-validation", type=Path, required=True)
     evaluate_calibration.add_argument("--output", type=Path, required=True)
+    evaluate_spot_check = commands.add_parser("evaluate-production-spot-check-v3")
+    evaluate_spot_check.add_argument("--reference", type=Path, required=True); evaluate_spot_check.add_argument("--validated-responses", type=Path, required=True)
+    evaluate_spot_check.add_argument("--pilot-manifest", type=Path, required=True); evaluate_spot_check.add_argument("--response-validation", type=Path, required=True)
+    evaluate_spot_check.add_argument("--output", type=Path, required=True)
     evaluate_calibration_adjudicated = commands.add_parser("evaluate-independent-calibration-adjudicated-v3")
     evaluate_calibration_adjudicated.add_argument("--reference", type=Path, required=True); evaluate_calibration_adjudicated.add_argument("--validated-responses", type=Path, required=True)
     evaluate_calibration_adjudicated.add_argument("--pilot-manifest", type=Path, required=True); evaluate_calibration_adjudicated.add_argument("--response-validation", type=Path, required=True)
@@ -434,6 +438,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "evaluate-independent-calibration-v3":
             from .stage253 import evaluate_independent_calibration_v3
             print(json_dumps(evaluate_independent_calibration_v3(args.reference, args.validated_responses, args.pilot_manifest, args.response_validation, args.output), pretty=True)); return 0
+        if args.command == "evaluate-production-spot-check-v3":
+            from .stage253 import evaluate_production_spot_check_v3
+            print(json_dumps(evaluate_production_spot_check_v3(args.reference, args.validated_responses, args.pilot_manifest, args.response_validation, args.output), pretty=True)); return 0
         if args.command == "evaluate-independent-calibration-adjudicated-v3":
             from .stage253 import evaluate_independent_calibration_adjudicated_v3
             result = evaluate_independent_calibration_adjudicated_v3(

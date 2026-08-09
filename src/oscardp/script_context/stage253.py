@@ -951,8 +951,11 @@ def validate_independent_calibration_reference(
 
 def evaluate_independent_calibration_v3(
     reference_path: Path, validated_path: Path, pilot_manifest_path: Path,
-    response_validation_path: Path, output_path: Path,
+    response_validation_path: Path, output_path: Path, *,
+    evaluation_role: str = "independent_calibration",
 ) -> dict[str, Any]:
+    if evaluation_role not in {"independent_calibration", "production_spot_check"}:
+        raise ValueError("unsupported reference evaluation role")
     references = read_jsonl(reference_path)
     responses = read_jsonl(validated_path)
     pilot_manifest = json.loads(pilot_manifest_path.read_text(encoding="utf-8"))
@@ -978,7 +981,10 @@ def evaluate_independent_calibration_v3(
     }
     result = {
         "schema_version": "1.0", "decision_schema_version": "candidate_task_v3",
-        "evaluation_role": "independent_calibration", "human_gold": False,
+        "evaluation_role": evaluation_role,
+        "independent_calibration": evaluation_role == "independent_calibration",
+        "promotion_eligible_evidence": evaluation_role == "independent_calibration",
+        "human_gold": False,
         "reference_sha256": hashlib.sha256(reference_path.read_bytes()).hexdigest(),
         "reference_resolution_count": len(records), "metrics": metrics,
         "structural_invalid_request_count": int(validation.get("invalid_count", 0)),
@@ -986,10 +992,21 @@ def evaluate_independent_calibration_v3(
         "foreign_candidate_output_count": int(validation.get("foreign_candidate_output_count", 0)),
         "sequence_quality": validation.get("sequence_quality", {}),
         "numeric_acceptance_gate": {"checks": checks, "passed": all(checks.values())},
-        "promotion_requires_error_class_audit": True,
+        "promotion_requires_error_class_audit": evaluation_role == "independent_calibration",
+        "production_advance_requires_error_class_audit": True,
     }
     _write_json(output_path, result)
     return result
+
+
+def evaluate_production_spot_check_v3(
+    reference_path: Path, validated_path: Path, pilot_manifest_path: Path,
+    response_validation_path: Path, output_path: Path,
+) -> dict[str, Any]:
+    return evaluate_independent_calibration_v3(
+        reference_path, validated_path, pilot_manifest_path, response_validation_path,
+        output_path, evaluation_role="production_spot_check",
+    )
 
 
 def evaluate_independent_calibration_adjudicated_v3(

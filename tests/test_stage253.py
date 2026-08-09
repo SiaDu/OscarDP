@@ -24,6 +24,7 @@ from oscardp.script_context.stage253 import (
     evaluate_pilot_v3,
     evaluate_independent_calibration_adjudicated_v3,
     evaluate_independent_calibration_v3,
+    evaluate_production_spot_check_v3,
     prepare_batch_v3,
     prepare_batch_v321_vocative,
     prepare_batch_v32_policy,
@@ -358,6 +359,22 @@ def test_independent_calibration_evaluator_reports_numeric_gate_and_not_human_go
     assert result["metrics"]["candidate_task_accuracy"] == 1.0
     assert result["numeric_acceptance_gate"]["passed"] is True
     assert result["promotion_requires_error_class_audit"] is True
+
+
+def test_production_spot_check_evaluator_cannot_be_claimed_as_independent_calibration(tmp_path: Path) -> None:
+    reference = tmp_path / "reference.jsonl"; responses = tmp_path / "validated.jsonl"
+    pilot_manifest = tmp_path / "pilot-manifest.json"; validation = tmp_path / "response-validation.json"; output = tmp_path / "evaluation.json"
+    write_jsonl(reference, [{"request_id": "r1", "reference_resolutions": [{"subtitle_id": "s1", "decision": "match", "block_ids": ["A"]}]}])
+    write_jsonl(responses, [{"request_id": "r1", "resolutions": [resolution("s1", "match", ["A"], "exact_or_near_exact")]}])
+    pilot_manifest.write_text(json.dumps({"requests": [{"request_id": "r1", "stratum": "easy", "timeline_region": "early"}]}), encoding="utf-8")
+    validation.write_text(json.dumps({"valid_count": 30, "invalid_count": 0, "foreign_candidate_output_count": 0, "sequence_quality": {}}), encoding="utf-8")
+
+    result = evaluate_production_spot_check_v3(reference, responses, pilot_manifest, validation, output)
+
+    assert result["evaluation_role"] == "production_spot_check"
+    assert result["independent_calibration"] is False
+    assert result["promotion_eligible_evidence"] is False
+    assert result["numeric_acceptance_gate"]["passed"] is True
 
 
 def test_adjudicated_calibration_evaluator_preserves_frozen_reference_and_constrains_corrections(tmp_path: Path) -> None:
