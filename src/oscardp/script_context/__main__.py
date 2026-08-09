@@ -151,6 +151,11 @@ def build_parser() -> argparse.ArgumentParser:
     lexical_rescue = commands.add_parser("augment-review-requests-global-lexical")
     lexical_rescue.add_argument("--requests", type=Path, required=True); lexical_rescue.add_argument("--screenplay-context", type=Path, required=True)
     lexical_rescue.add_argument("--output", type=Path, required=True); lexical_rescue.add_argument("--max-rescue-candidates", type=int, default=12)
+    lexical_rescue.add_argument(
+        "--retrieval-version",
+        choices=("global_lexical_rescue_v2", "global_lexical_rescue_v3"),
+        default="global_lexical_rescue_v2",
+    )
     production_finalize = commands.add_parser("finalize-openai-production-movie-v3")
     production_finalize.add_argument("--movie-key", required=True); production_finalize.add_argument("--inventory", type=Path, required=True)
     production_finalize.add_argument("--status", type=Path, required=True); production_finalize.add_argument("--screenplay-context", type=Path, required=True)
@@ -343,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json_dumps(augment_review_requests_global_lexical(
                 args.requests, args.screenplay_context, args.output,
                 max_rescue_candidates=args.max_rescue_candidates,
+                retrieval_version=args.retrieval_version,
             ), pretty=True)); return 0
         if args.command == "finalize-openai-production-movie-v3":
             from .production_qc import finalize_production_movie_v3

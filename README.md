@@ -219,6 +219,23 @@ python -m oscardp.script_context validate-independent-calibration-reference \
   --output /path/to/calibration_reference_validation.json
 ```
 
+Screenplay-wide lexical rescue is versioned. Historical request sets keep the
+v2 behavior; v3 adds conservative support for dialogue fragments, short replies
+with a real content token, and reordered content tokens while continuing to
+reject function-word-only global matches:
+
+```bash
+python -m oscardp.script_context augment-review-requests-global-lexical \
+  --requests /path/to/alignment_requests.jsonl \
+  --screenplay-context /path/to/movie_script_context.json \
+  --output /path/to/requests.full.global_lexical_rescue_v3.jsonl \
+  --retrieval-version global_lexical_rescue_v3
+```
+
+The output and manifest are immutable/version-tagged. A reviewer bundle that
+changes from retrieval v2 to v3 is a descendant experiment and requires a new,
+previously unused independent calibration movie before production promotion.
+
 After version-specific response validation, use
 `evaluate-independent-calibration-v3` to report candidate-task, candidate
 presence, exact-block, negative-discrimination, and sequence metrics. Its

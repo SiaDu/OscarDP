@@ -104,6 +104,42 @@ def _lexical_evidence(subtitle_text: str, unit: Any) -> tuple[float, str]:
     return _fuzzy(subtitle_tokens, block_tokens), "rapidfuzz"
 
 
+def _global_rescue_evidence_v3(subtitle_text: str, unit: Any) -> tuple[float, str]:
+    """Return conservative screenplay-wide evidence for fragments and short replies.
+
+    Unlike the local retriever, this helper intentionally requires at least one
+    content token.  Two-token subtitles are admitted only by normalized
+    containment; longer subtitles can additionally use partial-string or
+    unordered content-token coverage.  This keeps generic function-word replies
+    from becoming screenplay-wide candidates while recovering legitimate
+    expanded/contracted dialogue fragments.
+    """
+    subtitle_tokens = tokenize(subtitle_text).tokens
+    block_tokens = unit.token_text.tokens
+    content_tokens = tuple(token for token in subtitle_tokens if token not in _GLOBAL_RESCUE_FUNCTION_WORDS)
+    if not subtitle_tokens or not block_tokens or not content_tokens:
+        return 0.0, "none"
+    score, method = _lexical_evidence(subtitle_text, unit)
+    if method != "rapidfuzz" or score >= 0.80:
+        return score, method
+    if len(subtitle_tokens) < 3:
+        return 0.0, "none"
+
+    from rapidfuzz.fuzz import partial_ratio
+
+    subtitle_text_normalized = " ".join(subtitle_tokens)
+    block_text_normalized = " ".join(block_tokens)
+    block_token_set = set(block_tokens)
+    content_coverage = sum(token in block_token_set for token in content_tokens) / len(content_tokens)
+    partial_score = partial_ratio(subtitle_text_normalized, block_text_normalized) / 100.0
+    if partial_score >= 0.86 and content_coverage >= 2 / 3:
+        return min(0.98, partial_score), "global_partial_fragment"
+
+    if len(set(content_tokens)) >= 2 and content_coverage == 1.0:
+        return 0.92, "global_content_token_coverage"
+    return 0.0, "none"
+
+
 def _retrieve_candidates(
     rows: list[dict[str, Any]], units: list[Any], bounds: tuple[int, int],
     candidate_limit: int, semantic: _SemanticRetriever | None,
@@ -321,6 +357,7 @@ def validate_review_requests(requests: list[dict[str, Any]], context: dict[str, 
 
 def augment_review_requests_global_lexical(
     requests_path: Path, context_path: Path, output_path: Path, *, max_rescue_candidates: int = 12,
+    retrieval_version: str = "global_lexical_rescue_v2",
 ) -> dict[str, Any]:
     """Write a versioned request set with strong screenplay-wide lexical rescue candidates."""
     manifest_path = output_path.with_suffix(output_path.suffix + ".manifest.json")
@@ -328,6 +365,8 @@ def augment_review_requests_global_lexical(
         raise FileExistsError("refusing to overwrite global lexical rescue requests")
     if not 1 <= max_rescue_candidates <= 36:
         raise ValueError("max_rescue_candidates must be between 1 and 36")
+    if retrieval_version not in {"global_lexical_rescue_v2", "global_lexical_rescue_v3"}:
+        raise ValueError("unsupported global lexical rescue version")
     context = json.loads(context_path.read_text(encoding="utf-8"))
     requests = [json.loads(line) for line in requests_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     units = build_script_units(context)
@@ -341,14 +380,19 @@ def augment_review_requests_global_lexical(
         for subtitle in request.get("subtitles", []):
             tokens = tokenize(subtitle.get("text", "")).tokens
             content_tokens = {token for token in tokens if token not in _GLOBAL_RESCUE_FUNCTION_WORDS}
-            if len(tokens) < 3 or not content_tokens:
+            if not content_tokens or (retrieval_version == "global_lexical_rescue_v2" and len(tokens) < 3):
                 continue
             ranked: list[tuple[float, int, str]] = []
             for index, unit in enumerate(units):
                 if unit.block["block_id"] in existing:
                     continue
-                score, method = _lexical_evidence(subtitle["text"], unit)
-                if method != "rapidfuzz" or score >= 0.80:
+                if retrieval_version == "global_lexical_rescue_v3":
+                    score, method = _global_rescue_evidence_v3(subtitle["text"], unit)
+                    accepted = method != "none"
+                else:
+                    score, method = _lexical_evidence(subtitle["text"], unit)
+                    accepted = method != "rapidfuzz" or score >= 0.80
+                if accepted:
                     ranked.append((score, index, method))
             ranked.sort(key=lambda item: (-item[0], item[1]))
             if ranked:
@@ -387,7 +431,7 @@ def augment_review_requests_global_lexical(
                 }
             rescued_requests += 1; rescued_targets += len(target_hits); added_total += len(additions)
         if additions:
-            request["retrieval_version"] = "global_lexical_rescue_v2"
+            request["retrieval_version"] = retrieval_version
             request["global_lexical_rescue_target_ids"] = sorted(target_hits)
             request["global_lexical_rescue_candidate_count"] = len(additions)
         output.append(request)
@@ -408,7 +452,7 @@ def augment_review_requests_global_lexical(
     result = {"schema_version": "1.0", "request_count": len(output),
               "rescued_request_count": rescued_requests,
               "rescued_target_count": rescued_targets, "added_candidate_count": added_total,
-              "retrieval_version": "global_lexical_rescue_v2", "max_rescue_candidates": max_rescue_candidates,
+              "retrieval_version": retrieval_version, "max_rescue_candidates": max_rescue_candidates,
               "source_requests": requests_path.resolve().as_posix(),
               "source_requests_sha256": hashlib.sha256(requests_path.read_bytes()).hexdigest(),
               "screenplay_context": context_path.resolve().as_posix(),

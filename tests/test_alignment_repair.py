@@ -109,6 +109,87 @@ def test_global_lexical_rescue_rejects_function_word_only_cross_scene_phrase(tmp
     assert "retrieval_version" not in row
 
 
+@pytest.mark.parametrize(
+    ("subtitle", "screenplay", "expected_method"),
+    [
+        (
+            "And they'll try and track us, too.",
+            "They track it remotely. And they'll try to track us too.",
+            "global_partial_fragment",
+        ),
+        ("I'll try.", "Okay? I mean, I'll try.", "normalized_substring"),
+        (
+            "Put the gun down.",
+            "Listen to me. Put down the gun and listen.",
+            "global_content_token_coverage",
+        ),
+    ],
+)
+def test_global_lexical_rescue_v3_recovers_generic_fragment_classes(
+    tmp_path, subtitle: str, screenplay: str, expected_method: str,
+) -> None:
+    import json
+    context = context_for([["Unrelated local candidate"], [screenplay]])
+    context_path = tmp_path / "context.json"; context_path.write_text(json.dumps(context), encoding="utf-8")
+    request = {
+        "request_id": "alignment_review_000001", "subtitle_ids": ["subtitle_000001"],
+        "subtitles": [{"subtitle_id": "subtitle_000001", "text": subtitle, "time": {"start_sec": 1, "end_sec": 2}}],
+        "dialogue_candidates": [{"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "HART", "text": "Unrelated local candidate", "parenthetical": None, "retrieval_methods": ["anchor_window"], "lexical_score": None, "semantic_score": None, "retrieval_score": None}],
+        "candidate_scenes": ["scene_001"], "candidate_limit": 4,
+    }
+    requests = tmp_path / "requests.jsonl"; requests.write_text(json.dumps(request) + "\n", encoding="utf-8")
+    output = tmp_path / "rescued.jsonl"
+    result = augment_review_requests_global_lexical(
+        requests, context_path, output, retrieval_version="global_lexical_rescue_v3",
+    )
+    row = json.loads(output.read_text())
+    rescued = next(candidate for candidate in row["dialogue_candidates"] if candidate["block_id"] == "scene_002_dialogue_001")
+    assert expected_method in rescued["retrieval_methods"]
+    assert row["global_lexical_rescue_target_ids"] == ["subtitle_000001"]
+    assert result["retrieval_version"] == row["retrieval_version"] == "global_lexical_rescue_v3"
+
+
+def test_global_lexical_rescue_v3_still_rejects_function_word_only_phrase(tmp_path) -> None:
+    import json
+    context = context_for([["Local scene response"], ["How are you doing today?"]])
+    context_path = tmp_path / "context.json"; context_path.write_text(json.dumps(context), encoding="utf-8")
+    request = {
+        "request_id": "alignment_review_000001", "subtitle_ids": ["subtitle_000001"],
+        "subtitles": [{"subtitle_id": "subtitle_000001", "text": "How are you", "time": {"start_sec": 1, "end_sec": 2}}],
+        "dialogue_candidates": [{"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "HART", "text": "Local scene response", "parenthetical": None, "retrieval_methods": ["anchor_window"], "lexical_score": None, "semantic_score": None, "retrieval_score": None}],
+        "candidate_scenes": ["scene_001"], "candidate_limit": 2,
+    }
+    requests = tmp_path / "requests.jsonl"; requests.write_text(json.dumps(request) + "\n", encoding="utf-8")
+    output = tmp_path / "rescued.jsonl"
+    result = augment_review_requests_global_lexical(
+        requests, context_path, output, retrieval_version="global_lexical_rescue_v3",
+    )
+    row = json.loads(output.read_text())
+    assert result["rescued_target_count"] == 0
+    assert [candidate["block_id"] for candidate in row["dialogue_candidates"]] == ["scene_001_dialogue_001"]
+
+
+def test_global_lexical_rescue_v3_partial_fragment_requires_content_overlap(tmp_path) -> None:
+    import json
+    context = context_for([["Unrelated local candidate"], ["Hey."], ["They track it remotely. And they'll try to track us too."]])
+    context_path = tmp_path / "context.json"; context_path.write_text(json.dumps(context), encoding="utf-8")
+    request = {
+        "request_id": "alignment_review_000001", "subtitle_ids": ["subtitle_000001"],
+        "subtitles": [{"subtitle_id": "subtitle_000001", "text": "And they'll try and track us, too.", "time": {"start_sec": 1, "end_sec": 2}}],
+        "dialogue_candidates": [{"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "HART", "text": "Unrelated local candidate", "parenthetical": None, "retrieval_methods": ["anchor_window"], "lexical_score": None, "semantic_score": None, "retrieval_score": None}],
+        "candidate_scenes": ["scene_001"], "candidate_limit": 4,
+    }
+    requests = tmp_path / "requests.jsonl"; requests.write_text(json.dumps(request) + "\n", encoding="utf-8")
+    output = tmp_path / "rescued.jsonl"
+    augment_review_requests_global_lexical(
+        requests, context_path, output, retrieval_version="global_lexical_rescue_v3",
+    )
+    row = json.loads(output.read_text())
+    block_ids = [candidate["block_id"] for candidate in row["dialogue_candidates"]]
+    assert "scene_003_dialogue_001" in block_ids
+    assert "scene_002_dialogue_001" not in block_ids
+
+
 def test_anchors_split_regions_and_deleted_script_gap_is_allowed() -> None:
     context = context_for([["First reliable anchor has enough words", "This deleted screenplay dialogue never appears", "Last reliable anchor also has enough words"]])
     rows = align_subtitles(subs(["First reliable anchor has enough words", "Last reliable anchor also has enough words"]), context, "tt1")
