@@ -93,9 +93,16 @@ def _retrieve_candidates(
     rows: list[dict[str, Any]], units: list[Any], bounds: tuple[int, int],
     candidate_limit: int, semantic: _SemanticRetriever | None,
     *, minimum_score: float = 0.22, top_per_subtitle: int = 8,
+    required_indices: dict[int, str] | None = None,
 ) -> list[dict[str, Any]]:
     low, high = bounds
     evidence: dict[int, dict[str, Any]] = {}
+    for index, method in (required_indices or {}).items():
+        if low <= index <= high:
+            evidence[index] = {
+                "lexical_score": 0.0, "semantic_score": None,
+                "retrieval_score": 0.0, "methods": {method}, "required": True,
+            }
     preferred_cursor = low
     for row in rows:
         semantic_scores = {} if semantic is None else semantic.scores(row["text"], low, high)
@@ -111,7 +118,7 @@ def _retrieve_candidates(
         if usable:
             preferred_cursor = max(preferred_cursor, usable[0][2])
         for _, retrieval_score, index, method, semantic_score in usable:
-            item = evidence.setdefault(index, {"lexical_score": 0.0, "semantic_score": None, "retrieval_score": 0.0, "methods": set()})
+            item = evidence.setdefault(index, {"lexical_score": 0.0, "semantic_score": None, "retrieval_score": 0.0, "methods": set(), "required": False})
             lexical_score, _ = _lexical_evidence(row["text"], units[index])
             item["lexical_score"] = max(item["lexical_score"], lexical_score)
             if semantic_score is not None:
@@ -123,10 +130,13 @@ def _retrieve_candidates(
     for index in list(evidence):
         for adjacent in (index - 1, index + 1):
             if low <= adjacent <= high and adjacent not in evidence:
-                evidence[adjacent] = {"lexical_score": 0.0, "semantic_score": None, "retrieval_score": 0.0, "methods": {"adjacent_dialogue"}}
-    selected = sorted(
-        evidence, key=lambda index: (-float(evidence[index]["retrieval_score"]), index)
-    )[:candidate_limit]
+                evidence[adjacent] = {"lexical_score": 0.0, "semantic_score": None, "retrieval_score": 0.0, "methods": {"adjacent_dialogue"}, "required": False}
+    required = sorted(index for index, item in evidence.items() if item.get("required"))
+    ranked_optional = sorted(
+        (index for index in evidence if index not in required),
+        key=lambda index: (-float(evidence[index]["retrieval_score"]), index),
+    )
+    selected = required[:candidate_limit] + ranked_optional[:max(0, candidate_limit - len(required))]
     return [{
         "unit": units[index],
         "lexical_score": round(float(evidence[index]["lexical_score"]), 6),
@@ -192,7 +202,24 @@ def build_review_requests(
         first = group[0]
         rows = [alignments[item["index"]] for item in group]
         if first["fallback"]:
-            retrieved = [] if first["bounds"] is None else _retrieve_candidates(rows, units, first["bounds"], candidate_limit, semantic)
+            required_indices: dict[int, str] = {}
+            if (
+                first["bounds"] is not None
+                and (first["before"] is not None or first["after"] is not None)
+                and first["bounds"][1] - first["bounds"][0] <= 2
+            ):
+                required_indices[first["bounds"][0]] = "anchor_boundary"
+                required_indices[first["bounds"][1]] = "anchor_boundary"
+            if first["before"] is not None or first["after"] is not None:
+                for row in rows:
+                    for match in row.get("script_matches", []):
+                        order = match.get("screenplay_order")
+                        if isinstance(order, int):
+                            required_indices[order] = "automatic_mapping"
+            retrieved = [] if first["bounds"] is None else _retrieve_candidates(
+                rows, units, first["bounds"], candidate_limit, semantic,
+                required_indices=required_indices,
+            )
         else:
             local_units = first["candidates"]
             if len(local_units) <= candidate_limit:

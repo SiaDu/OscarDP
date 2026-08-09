@@ -91,6 +91,39 @@ def test_no_anchor_review_is_insufficient_and_grouped() -> None:
     assert requests[0]["candidate_interval_reason"] == "fallback_timeline_estimate"
 
 
+def test_short_reply_between_anchors_separated_by_empty_scene_keeps_boundary_candidates() -> None:
+    context = context_for([
+        ["Opening reliable anchor has enough distinct words"],
+        [],
+        ["Closing reliable anchor also has enough distinct words"],
+    ])
+    rows = align_subtitles(subs([
+        "Opening reliable anchor has enough distinct words",
+        "Well",
+        "Closing reliable anchor also has enough distinct words",
+    ]), context, "tt1")
+    request = build_review_requests(context, rows)["alignment_requests"][0]
+    assert request["fallback_used"] is True
+    assert request["candidate_interval_reason"] == "fallback_between_reliable_anchors"
+    assert request["insufficient_candidates"] is False
+    assert [candidate["block_id"] for candidate in request["dialogue_candidates"]] == [
+        "scene_001_dialogue_001", "scene_003_dialogue_001",
+    ]
+    assert all("anchor_boundary" in candidate["retrieval_methods"] for candidate in request["dialogue_candidates"])
+
+
+def test_fallback_keeps_existing_low_confidence_automatic_mapping() -> None:
+    context = context_for([["Opening reliable anchor has enough distinct words", "A long line ending with stop"]])
+    rows = align_subtitles(subs(["Opening reliable anchor has enough distinct words", "Stop"]), context, "tt1")
+    assert rows[1]["script_matches"]
+    assert rows[1]["alignment"]["needs_review"] is True
+    request = build_review_requests(context, rows)["alignment_requests"][0]
+    automatic_id = rows[1]["script_matches"][0]["block_id"]
+    candidate = next(item for item in request["dialogue_candidates"] if item["block_id"] == automatic_id)
+    assert "automatic_mapping" in candidate["retrieval_methods"]
+    assert request["insufficient_candidates"] is False
+
+
 def test_wide_anchor_fallback_retrieves_vehicle_exit_dialogue_in_global_order() -> None:
     context = context_for([
         ["Opening reliable anchor has enough distinct words"],
