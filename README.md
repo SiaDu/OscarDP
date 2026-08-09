@@ -422,6 +422,34 @@ set independently with `--max-unresolved-reviewer-selection-risks` and
 `--max-unresolved-candidate-recall-risks`, but production limits must not be
 raised simply to force a movie through QC.
 
+When source evidence confirms an obvious production error, use a separate
+machine/Codex evidence plan rather than fabricating a human label. The command
+below accepts supplied-candidate reviewer corrections, explicitly diagnosed
+candidate-recall corrections, and genuine `uncertain` decisions. It preserves
+the original OpenAI resolution, validates every selected screenplay block,
+and writes only a new tagged alignment, shot context, adjudicated audit, and
+correction report:
+
+```bash
+python -m oscardp.script_context apply-production-evidence-corrections-v3 \
+  --correction-plan /path/to/evidence_correction_plan.jsonl \
+  --diagnosis /path/to/high_risk_diagnosis.jsonl \
+  --risk-audit /path/to/high_risk_audit.jsonl \
+  --requests /path/to/requests.full.jsonl \
+  --normalized-responses /path/to/validated_responses.apply_normalized.jsonl \
+  --deterministic-alignment /path/to/subtitle_script_alignment.jsonl \
+  --screenplay-context /path/to/movie_script_context.json \
+  --shots /path/to/shots.jsonl \
+  --output-dir /path/to/movie-output \
+  --output-tag evidence_corrected_v1 \
+  --adjudicated-audit /path/to/high_risk_audit.evidence_corrected_v1.jsonl \
+  --adjudicated-summary /path/to/high_risk_audit_summary.evidence_corrected_v1.json
+```
+
+This is not human gold. Genuine ambiguity remains `needs_review`; corrections
+outside the original request enum are permitted only when a prior versioned
+diagnosis names the exact missing screenplay block.
+
 ```bash
 python -m oscardp.script_context build-openai-production-risk-audit-v3 \
   --requests /path/to/alignment_requests.jsonl \

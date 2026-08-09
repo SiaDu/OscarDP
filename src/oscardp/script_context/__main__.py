@@ -151,6 +151,19 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("candidate_task_v3_structure_v2", "candidate_task_v3_structure_v3"),
         default="candidate_task_v3_structure_v2",
     )
+    evidence_corrections = commands.add_parser("apply-production-evidence-corrections-v3")
+    evidence_corrections.add_argument("--correction-plan", type=Path, required=True)
+    evidence_corrections.add_argument("--diagnosis", type=Path, required=True)
+    evidence_corrections.add_argument("--risk-audit", type=Path, required=True)
+    evidence_corrections.add_argument("--requests", type=Path, required=True)
+    evidence_corrections.add_argument("--normalized-responses", type=Path, required=True)
+    evidence_corrections.add_argument("--deterministic-alignment", type=Path, required=True)
+    evidence_corrections.add_argument("--screenplay-context", type=Path, required=True)
+    evidence_corrections.add_argument("--shots", type=Path, required=True)
+    evidence_corrections.add_argument("--output-dir", type=Path, required=True)
+    evidence_corrections.add_argument("--output-tag", required=True)
+    evidence_corrections.add_argument("--adjudicated-audit", type=Path, required=True)
+    evidence_corrections.add_argument("--adjudicated-summary", type=Path, required=True)
     lexical_rescue = commands.add_parser("augment-review-requests-global-lexical")
     lexical_rescue.add_argument("--requests", type=Path, required=True); lexical_rescue.add_argument("--screenplay-context", type=Path, required=True)
     lexical_rescue.add_argument("--output", type=Path, required=True); lexical_rescue.add_argument("--max-rescue-candidates", type=int, default=12)
@@ -167,6 +180,7 @@ def build_parser() -> argparse.ArgumentParser:
     production_finalize.add_argument("--deterministic-alignment", type=Path, required=True); production_finalize.add_argument("--deterministic-shot-context", type=Path, required=True)
     production_finalize.add_argument("--reviewed-alignment", type=Path, required=True); production_finalize.add_argument("--reviewed-shot-context", type=Path, required=True)
     production_finalize.add_argument("--shots", type=Path, required=True); production_finalize.add_argument("--requests", type=Path, required=True)
+    production_finalize.add_argument("--deterministic-requests", type=Path)
     production_finalize.add_argument("--validated-responses", type=Path, required=True); production_finalize.add_argument("--reviewer-manifest", type=Path, required=True)
     production_finalize.add_argument("--lifecycle-report", type=Path, action="append", required=True)
     production_finalize.add_argument("--risk-audit", type=Path, required=True); production_finalize.add_argument("--risk-summary", type=Path, required=True)
@@ -359,6 +373,15 @@ def main(argv: list[str] | None = None) -> int:
                 hard_validation_contract_version=args.hard_validation_contract,
             )
             print(json_dumps(result, pretty=True)); return 0
+        if args.command == "apply-production-evidence-corrections-v3":
+            from .production_qc import apply_production_evidence_corrections_v3
+            result = apply_production_evidence_corrections_v3(
+                args.correction_plan, args.diagnosis, args.risk_audit, args.requests,
+                args.normalized_responses, args.deterministic_alignment,
+                args.screenplay_context, args.shots, args.output_dir, args.output_tag,
+                args.adjudicated_audit, args.adjudicated_summary,
+            )
+            print(json_dumps(result, pretty=True)); return 0
         if args.command == "augment-review-requests-global-lexical":
             from .llm_review import augment_review_requests_global_lexical
             print(json_dumps(augment_review_requests_global_lexical(
@@ -377,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.qc_report, args.manifest, max_unresolved_ambiguities=args.max_unresolved_ambiguities,
                 max_unresolved_candidate_recall_risks=args.max_unresolved_candidate_recall_risks,
                 max_unresolved_reviewer_selection_risks=args.max_unresolved_reviewer_selection_risks,
+                deterministic_requests_path=args.deterministic_requests,
             )
             print(json_dumps(result, pretty=True)); return 0
         if args.command == "build-openai-composite-audit":

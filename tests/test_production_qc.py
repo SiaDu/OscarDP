@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from oscardp.script_context.production_qc import (
+    apply_production_evidence_corrections_v3,
     build_production_high_risk_audit_v3,
     finalize_production_movie_v3,
 )
@@ -146,6 +147,60 @@ def test_production_risk_audit_does_not_treat_weak_automatic_mapping_as_recall_f
     assert "candidate_recall_risk" not in row["inclusion_reasons"]
 
 
+def test_production_evidence_corrections_validate_supplied_and_recall_blocks(tmp_path: Path, monkeypatch) -> None:
+    requests = tmp_path / "requests.jsonl"
+    write_jsonl(requests, [
+        {"request_id": "r1", "subtitle_ids": ["s1"], "dialogue_candidates": [{"block_id": "b1"}]},
+        {"request_id": "r2", "subtitle_ids": ["s2"], "dialogue_candidates": []},
+    ])
+    responses = tmp_path / "normalized.jsonl"
+    base_resolution = {"decision": "no_match", "block_ids": [], "confidence": .9, "decision_basis": "changed_or_improvised_dialogue"}
+    write_jsonl(responses, [
+        {"request_id": "r1", "model": "m", "resolutions": [{"subtitle_id": "s1", **base_resolution}]},
+        {"request_id": "r2", "model": "m", "resolutions": [{"subtitle_id": "s2", **base_resolution}]},
+    ])
+    diagnosis = tmp_path / "diagnosis.jsonl"
+    write_jsonl(diagnosis, [
+        {"subtitle_id": "s1", "diagnosis": "confirmed_reviewer_selection_error", "evidence_block_ids": ["b1"], "rationale": "supplied exact", "adjudicator_type": "codex_evidence_diagnosis_not_human_gold"},
+        {"subtitle_id": "s2", "diagnosis": "confirmed_candidate_recall_error", "evidence_block_ids": ["b2"], "rationale": "outside exact", "adjudicator_type": "codex_evidence_diagnosis_not_human_gold"},
+    ])
+    plan = tmp_path / "plan.jsonl"
+    write_jsonl(plan, [
+        {"request_id": "r1", "subtitle_id": "s1", "decision": "match", "block_ids": ["b1"], "rationale": "apply supplied"},
+        {"request_id": "r2", "subtitle_id": "s2", "decision": "match", "block_ids": ["b2"], "rationale": "apply recall"},
+    ])
+    audit = tmp_path / "audit.jsonl"
+    write_jsonl(audit, [
+        {"subtitle_id": "s1", "diagnostics": {"no_candidate_match_classification": "reviewer_selection_risk"}},
+        {"subtitle_id": "s2", "diagnostics": {"no_candidate_match_classification": "candidate_recall_risk"}},
+    ])
+    deterministic = tmp_path / "alignment.jsonl"; write_jsonl(deterministic, [{"movie_id": "tt1", "subtitle_id": "s1"}])
+    context = tmp_path / "context.json"
+    context.write_text(json.dumps({"script_scenes": [{"script_blocks": [
+        {"block_type": "dialogue", "block_id": "b1"}, {"block_type": "dialogue", "block_id": "b2"},
+    ]}]}), encoding="utf-8")
+    shots = tmp_path / "shots.jsonl"; write_jsonl(shots, [])
+    captured = {}
+
+    def fake_apply(_alignment, _requests, corrected, _context, _shots, output_dir, output_tag, **_kwargs):
+        captured["responses"] = [json.loads(line) for line in corrected.read_text().splitlines()]
+        return {"baseline_files_unchanged": True, "validation_passed": True, "alignment_output": str(output_dir / f"a-{output_tag}"), "shot_output": str(output_dir / f"s-{output_tag}")}
+
+    monkeypatch.setattr("oscardp.script_context.production_qc.apply_validated_responses", fake_apply)
+    adjudicated = tmp_path / "adjudicated.jsonl"; summary = tmp_path / "summary.json"
+    result = apply_production_evidence_corrections_v3(
+        plan, diagnosis, audit, requests, responses, deterministic, context, shots,
+        tmp_path / "out", "evidence_v1", adjudicated, summary,
+    )
+
+    corrected = [resolution for response in captured["responses"] for resolution in response["resolutions"]]
+    assert [row["block_ids"] for row in corrected] == [["b1"], ["b2"]]
+    assert all(row["evidence_correction"]["adjudicator_type"] == "codex_source_evidence_not_human_gold" for row in corrected)
+    assert result["validation_passed"] and result["human_gold"] is False
+    counts = json.loads(summary.read_text())["no_candidate_match_classification_counts"]
+    assert counts == {"resolved_by_evidence_correction": 2}
+
+
 def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path, monkeypatch) -> None:
     movie = "tt1"
     source_dir = tmp_path / "sources"; source_dir.mkdir()
@@ -156,7 +211,7 @@ def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path,
     requests = tmp_path / "requests.jsonl"; responses = tmp_path / "responses.jsonl"; reviewer = tmp_path / "reviewer.json"
     context.write_text(json.dumps({"source_files": {"subtitle": str(subtitle)}, "script_scenes": []}), encoding="utf-8")
     write_jsonl(deterministic, []); write_jsonl(deterministic_shots, []); write_jsonl(shots, [])
-    write_jsonl(reviewed, [{"subtitle_id": "subtitle_000001", "alignment": {"status": "llm_aligned"}}]); write_jsonl(reviewed_shots, [])
+    write_jsonl(reviewed, [{"subtitle_id": "subtitle_000001", "alignment": {"status": "needs_review"}}]); write_jsonl(reviewed_shots, [])
     req = request(); req["subtitle_ids"] = ["subtitle_000001"]; req["subtitles"] = [req["subtitles"][0]]
     res = response(); res["resolutions"] = [res["resolutions"][0]]
     write_jsonl(requests, [req]); write_jsonl(responses, [res])
@@ -164,8 +219,8 @@ def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path,
     inventory = tmp_path / "inventory.json"; status = tmp_path / "status.json"
     inventory.write_text(json.dumps({"movies": [{"movie_id": movie, "video": {"path": str(video), "sha256": sha(video)}, "subtitle": {"path": str(subtitle), "sha256": sha(subtitle)}, "screenplay": {"path": str(screenplay), "sha256": sha(screenplay)}, "stage1": {"shots_sha256": sha(shots)}}]}), encoding="utf-8")
     status.write_text(json.dumps({"movies": [{"movie_id": movie, "artifact_hashes": {"video": sha(video), "subtitle": sha(subtitle), "screenplay": sha(screenplay), "shots": sha(shots)}, "deterministic_output_hashes": {"screenplay_context": sha(context), "alignment": sha(deterministic), "shot_context": sha(deterministic_shots), "review_requests": sha(requests)}}]}), encoding="utf-8")
-    risk = tmp_path / "risk.jsonl"; write_jsonl(risk, [{"subtitle_id": "subtitle_000001"}])
-    risk_summary = tmp_path / "risk-summary.json"; risk_summary.write_text(json.dumps({"record_count": 1, "audit_sha256": sha(risk), "inclusion_reason_counts": {"low_confidence": 1}}), encoding="utf-8")
+    risk = tmp_path / "risk.jsonl"; write_jsonl(risk, [{"subtitle_id": "subtitle_000001", "diagnostics": {"no_candidate_match_classification": "ambiguous_needs_review"}}])
+    risk_summary = tmp_path / "risk-summary.json"; risk_summary.write_text(json.dumps({"record_count": 1, "audit_sha256": sha(risk), "inclusion_reason_counts": {"low_confidence": 1}, "no_candidate_match_classification_counts": {"ambiguous_needs_review": 1}}), encoding="utf-8")
     lifecycle = tmp_path / "merge.json"; lifecycle.write_text(json.dumps({"passed": True}), encoding="utf-8")
     monkeypatch.setattr("oscardp.script_context.production_qc.validate_files", lambda *args: SimpleNamespace(passed=True, errors=[], alignment_count=1, shot_count=0))
 
@@ -175,7 +230,7 @@ def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path,
         tmp_path / "qc.json", tmp_path / "manifest.json",
     )
 
-    assert result["passed"] and result["unresolved_ambiguity_count"] == 0
+    assert result["passed"] and result["unresolved_ambiguity_count"] == 1
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["status"] == "COMPLETE" and manifest["counts"]["requests"] == 1
     assert all(row["unchanged"] for row in manifest["protected_hashes"].values())
@@ -184,7 +239,7 @@ def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path,
         "record_count": 1, "audit_sha256": sha(risk), "inclusion_reason_counts": {},
         "no_candidate_match_classification_counts": {"ambiguous_needs_review": 6},
     }), encoding="utf-8")
-    with pytest.raises(RuntimeError, match="unresolved ambiguity count 6"):
+    with pytest.raises(RuntimeError, match="unresolved ambiguity count 7"):
         finalize_production_movie_v3(
             movie, inventory, status, context, deterministic, deterministic_shots, reviewed, reviewed_shots,
             shots, requests, responses, reviewer, [lifecycle], risk, risk_summary,

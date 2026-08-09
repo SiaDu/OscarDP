@@ -3,12 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import tempfile
 from collections import Counter
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .alignment import tokenize
+from .openai_review import apply_validated_responses
 from .pipeline import _write_json, _write_jsonl
 from .schema import read_jsonl
 from .stage253 import validate_resolution_v3
@@ -309,6 +312,170 @@ def build_production_high_risk_audit_v3(
     return summary
 
 
+def apply_production_evidence_corrections_v3(
+    correction_plan_path: Path, diagnosis_path: Path, risk_audit_path: Path,
+    requests_path: Path, normalized_responses_path: Path, deterministic_alignment_path: Path,
+    context_path: Path, shots_path: Path, output_dir: Path, output_tag: str,
+    adjudicated_audit_path: Path, adjudicated_summary_path: Path,
+) -> dict[str, Any]:
+    """Apply source-evidence corrections without representing them as human gold."""
+    if not re.fullmatch(r"[a-z0-9_]+", output_tag):
+        raise ValueError("output_tag must contain only lowercase letters, digits, and underscores")
+    openai_dir = output_dir / "review" / "openai"
+    targets = [
+        output_dir / f"subtitle_script_alignment.llm_reviewed_{output_tag}.jsonl",
+        output_dir / f"shot_script_context.llm_reviewed_{output_tag}.jsonl",
+        openai_dir / f"{output_tag}_apply_report.json",
+        openai_dir / f"{output_tag}_reviewed_alignment_diagnostics.json",
+        openai_dir / f"{output_tag}_evidence_correction_report.json",
+        adjudicated_audit_path, adjudicated_summary_path,
+    ]
+    if any(path.exists() for path in targets):
+        raise FileExistsError("refusing to overwrite evidence-corrected production artifacts")
+    plan = read_jsonl(correction_plan_path)
+    diagnoses = read_jsonl(diagnosis_path)
+    audit = read_jsonl(risk_audit_path)
+    requests = read_jsonl(requests_path)
+    responses = read_jsonl(normalized_responses_path)
+    request_by_id = {row["request_id"]: row for row in requests}
+    response_by_id = {row["request_id"]: deepcopy(row) for row in responses}
+    diagnosis_by_subtitle = {row["subtitle_id"]: row for row in diagnoses}
+    if len(diagnosis_by_subtitle) != len(diagnoses):
+        raise ValueError("evidence diagnosis contains duplicate subtitle IDs")
+    resolution_lookup = {
+        (response["request_id"], resolution["subtitle_id"]): resolution
+        for response in response_by_id.values() for resolution in response["resolutions"]
+    }
+    block_ids = {
+        block["block_id"]
+        for scene in json.loads(context_path.read_text(encoding="utf-8"))["script_scenes"]
+        for block in scene["script_blocks"] if block["block_type"] == "dialogue"
+    }
+    deterministic_rows = read_jsonl(deterministic_alignment_path)
+    if not deterministic_rows or not isinstance(deterministic_rows[0].get("movie_id"), str):
+        raise ValueError("deterministic alignment lacks movie_id")
+    movie_id = deterministic_rows[0]["movie_id"]
+    corrected_ids: set[str] = set()
+    for correction in plan:
+        request_id, subtitle_id = correction.get("request_id"), correction.get("subtitle_id")
+        key = (request_id, subtitle_id)
+        if request_id not in request_by_id or key not in resolution_lookup:
+            raise ValueError(f"evidence correction references unknown request/subtitle: {request_id}/{subtitle_id}")
+        if subtitle_id in corrected_ids:
+            raise ValueError(f"duplicate evidence correction for {subtitle_id}")
+        corrected_ids.add(subtitle_id)
+        decision, selected = correction.get("decision"), correction.get("block_ids")
+        if decision not in {"match", "no_match", "uncertain"} or not isinstance(selected, list):
+            raise ValueError(f"invalid evidence correction decision for {subtitle_id}")
+        if decision == "match" and (not selected or any(block_id not in block_ids for block_id in selected)):
+            raise ValueError(f"evidence correction has invalid screenplay blocks for {subtitle_id}")
+        if decision != "match" and selected:
+            raise ValueError(f"non-match evidence correction has block IDs for {subtitle_id}")
+        diagnosis_id = correction.get("diagnosis_subtitle_id", subtitle_id)
+        diagnosis = diagnosis_by_subtitle.get(diagnosis_id)
+        if diagnosis is None:
+            raise ValueError(f"evidence correction lacks diagnosis for {subtitle_id}")
+        diagnosis_type = diagnosis.get("diagnosis")
+        evidence_ids = set(diagnosis.get("evidence_block_ids") or [])
+        supplied_ids = {row["block_id"] for row in request_by_id[request_id].get("dialogue_candidates", [])}
+        if decision == "match":
+            allowed = supplied_ids if diagnosis_type == "confirmed_reviewer_selection_error" else evidence_ids
+            if not set(selected) <= allowed:
+                raise ValueError(f"evidence correction selects unsupported blocks for {subtitle_id}")
+            if diagnosis_type not in {"confirmed_reviewer_selection_error", "confirmed_candidate_recall_error"}:
+                raise ValueError(f"match correction has incompatible diagnosis for {subtitle_id}")
+        elif decision == "uncertain" and diagnosis_type != "genuine_ambiguity":
+            raise ValueError(f"uncertain correction lacks genuine ambiguity diagnosis for {subtitle_id}")
+        original = deepcopy(resolution_lookup[key])
+        resolution_lookup[key].update({
+            "decision": decision, "block_ids": selected, "confidence": 1.0,
+            "decision_basis": "exact_or_near_exact" if decision == "match" else "insufficient_context",
+            "openai_resolution": original.get("openai_resolution", original),
+            "evidence_correction": {
+                "adjudicator_type": "codex_source_evidence_not_human_gold",
+                "diagnosis_subtitle_id": diagnosis_id, "diagnosis": diagnosis_type,
+                "rationale": correction.get("rationale"),
+            },
+        })
+    if not corrected_ids:
+        raise ValueError("evidence correction plan is empty")
+    ordered = [response_by_id[row["request_id"]] for row in requests]
+    with tempfile.TemporaryDirectory(prefix="oscardp_evidence_corrections_") as directory:
+        corrected_responses = Path(directory) / "responses.jsonl"
+        _write_jsonl(corrected_responses, ordered)
+        applied = apply_validated_responses(
+            deterministic_alignment_path, requests_path, corrected_responses, context_path,
+            shots_path, output_dir, output_tag, validate_against_historical_schema=False,
+        )
+    diagnosis_counts: Counter[str] = Counter()
+    adjudicated_rows = []
+    for row in audit:
+        current = deepcopy(row)
+        diagnosis = diagnosis_by_subtitle.get(row["subtitle_id"])
+        if diagnosis is not None:
+            diagnosis_type = diagnosis["diagnosis"]
+            diagnosis_counts[diagnosis_type] += 1
+            current["evidence_review"] = {
+                "adjudicator_type": diagnosis["adjudicator_type"], "diagnosis": diagnosis_type,
+                "evidence_block_ids": diagnosis.get("evidence_block_ids", []),
+                "rationale": diagnosis["rationale"], "human_gold": False,
+            }
+            if diagnosis_type == "genuine_ambiguity":
+                classification = "ambiguous_needs_review"
+            elif diagnosis_type == "diagnostic_false_positive_true_no_match":
+                classification = "probable_true_no_match"
+            else:
+                classification = "resolved_by_evidence_correction"
+            current["diagnostics"]["no_candidate_match_classification"] = classification
+        adjudicated_rows.append(current)
+    _write_jsonl(adjudicated_audit_path, adjudicated_rows)
+    classifications = Counter(
+        row.get("diagnostics", {}).get("no_candidate_match_classification")
+        for row in adjudicated_rows
+        if row.get("diagnostics", {}).get("no_candidate_match_classification") is not None
+    )
+    original_no_match_count = sum(
+        resolution.get("decision") == "no_match"
+        for response in responses for resolution in response.get("resolutions", [])
+    )
+    unrepresented_probable = original_no_match_count - sum(classifications.values())
+    if unrepresented_probable < 0:
+        raise ValueError("adjudicated audit classifications exceed original no-match resolutions")
+    if unrepresented_probable:
+        classifications["probable_true_no_match"] += unrepresented_probable
+    reason_counts = Counter(
+        reason for row in adjudicated_rows for reason in row.get("inclusion_reasons", [])
+    )
+    summary = {
+        "schema_version": "1.0", "movie_id": movie_id,
+        "record_count": len(adjudicated_rows), "audit_sha256": _sha(adjudicated_audit_path),
+        "inclusion_reason_counts": dict(sorted(reason_counts.items())),
+        "no_candidate_match_classification_counts": dict(sorted(classifications.items())),
+        "evidence_diagnosis_counts": dict(sorted(diagnosis_counts.items())),
+        "corrected_subtitle_count": len(corrected_ids),
+        "human_gold": False, "original_openai_responses_preserved": True,
+        "source_hashes": {
+            "correction_plan": _sha(correction_plan_path), "diagnosis": _sha(diagnosis_path),
+            "risk_audit": _sha(risk_audit_path), "requests": _sha(requests_path),
+            "normalized_responses": _sha(normalized_responses_path),
+        },
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    _write_json(adjudicated_summary_path, summary)
+    report = {
+        "schema_version": "1.0", "output_tag": output_tag,
+        "corrected_subtitle_count": len(corrected_ids), "corrected_subtitle_ids": sorted(corrected_ids),
+        "original_openai_responses_preserved": True, "human_gold": False,
+        "baseline_files_unchanged": applied["baseline_files_unchanged"],
+        "validation_passed": applied["validation_passed"],
+        "alignment_output": applied["alignment_output"], "shot_output": applied["shot_output"],
+        "adjudicated_audit": adjudicated_audit_path.as_posix(),
+        "adjudicated_summary": adjudicated_summary_path.as_posix(),
+    }
+    _write_json(openai_dir / f"{output_tag}_evidence_correction_report.json", report)
+    return report
+
+
 def finalize_production_movie_v3(
     movie_id: str, inventory_path: Path, status_path: Path, context_path: Path,
     deterministic_alignment_path: Path, deterministic_shot_context_path: Path,
@@ -318,6 +485,7 @@ def finalize_production_movie_v3(
     qc_path: Path, manifest_path: Path, *, max_unresolved_ambiguities: int = 5,
     max_unresolved_candidate_recall_risks: int = 0,
     max_unresolved_reviewer_selection_risks: int = 0,
+    deterministic_requests_path: Path | None = None,
 ) -> dict[str, Any]:
     if qc_path.exists() or manifest_path.exists():
         raise FileExistsError("refusing to overwrite final production QC artifacts")
@@ -364,6 +532,9 @@ def finalize_production_movie_v3(
     risk_summary = json.loads(risk_summary_path.read_text(encoding="utf-8"))
     if risk_summary.get("audit_sha256") != _sha(risk_audit_path):
         errors.append("high-risk audit hash differs from its summary")
+    risk_request_hash = risk_summary.get("source_hashes", {}).get("requests")
+    if risk_request_hash is not None and risk_request_hash != _sha(requests_path):
+        errors.append("high-risk audit request hash differs from production requests")
     expected_sources = {
         "video": (Path(inventory_movie["video"]["path"]), inventory_movie["video"]["sha256"]),
         "screenplay": (Path(inventory_movie["screenplay"]["path"]), inventory_movie["screenplay"]["sha256"]),
@@ -381,7 +552,8 @@ def finalize_production_movie_v3(
     deterministic_expected = status_movie["deterministic_output_hashes"]
     deterministic_paths = {
         "screenplay_context": context_path, "alignment": deterministic_alignment_path,
-        "shot_context": deterministic_shot_context_path, "review_requests": requests_path,
+        "shot_context": deterministic_shot_context_path,
+        "review_requests": deterministic_requests_path or requests_path,
     }
     for label, path in deterministic_paths.items():
         expected = deterministic_expected[label]
@@ -394,7 +566,18 @@ def finalize_production_movie_v3(
     diagnostic_ambiguities = int(risk_summary.get("no_candidate_match_classification_counts", {}).get("ambiguous_needs_review", 0))
     candidate_recall_risks = int(risk_summary.get("no_candidate_match_classification_counts", {}).get("candidate_recall_risk", 0))
     reviewer_selection_risks = int(risk_summary.get("no_candidate_match_classification_counts", {}).get("reviewer_selection_risk", 0))
-    unresolved = int(status_counts.get("needs_review", 0)) + diagnostic_ambiguities
+    needs_review_ids = {
+        row["subtitle_id"] for row in reviewed_rows if row["alignment"]["status"] == "needs_review"
+    }
+    ambiguous_audit_ids = {
+        row["subtitle_id"] for row in read_jsonl(risk_audit_path)
+        if row.get("diagnostics", {}).get("no_candidate_match_classification") == "ambiguous_needs_review"
+    }
+    unresolved = (
+        len(needs_review_ids | ambiguous_audit_ids)
+        if len(ambiguous_audit_ids) == diagnostic_ambiguities
+        else len(needs_review_ids) + diagnostic_ambiguities
+    )
     if unresolved > max_unresolved_ambiguities:
         errors.append(f"unresolved ambiguity count {unresolved} exceeds allowed isolated maximum {max_unresolved_ambiguities}")
     if candidate_recall_risks > max_unresolved_candidate_recall_risks:

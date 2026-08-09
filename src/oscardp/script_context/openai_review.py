@@ -551,11 +551,16 @@ def apply_validated_responses(
             subtitle_id = resolution["subtitle_id"]; row = row_by_subtitle[subtitle_id]; original = deepcopy(row)
             decision, block_ids = resolution["decision"], resolution["block_ids"]
             audit = {
-                "resolver": "human_correction" if resolution.get("human_correction") else "openai_responses_batch",
+                "resolver": (
+                    "human_correction" if resolution.get("human_correction")
+                    else "codex_source_evidence_correction" if resolution.get("evidence_correction")
+                    else "openai_responses_batch"
+                ),
                 "model": response.get("model"), "request_id": response["request_id"], "response_id": response.get("response_id"),
                 "confidence": resolution["confidence"], "decision": decision, "decision_basis": resolution["decision_basis"],
                 "original_openai_resolution": resolution.get("openai_resolution"),
                 "human_correction": resolution.get("human_correction"), "original_automatic": original,
+                "evidence_correction": resolution.get("evidence_correction"),
             }
             if decision == "match":
                 selected = [block_lookup[block_id] for block_id in block_ids]
