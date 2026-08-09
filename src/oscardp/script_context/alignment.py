@@ -234,6 +234,24 @@ def _best_local_match(
     return SpanMatch(best.block_indices, best.spans, best.method, best.lexical_score, best.combined_score, best.subtitle_coverage, max(0.0, best.combined_score - second_score))
 
 
+def _unique_exact_in_bounds(
+    sub_tokens: tuple[str, ...], units: list[ScriptUnit], low: int, high: int,
+) -> SpanMatch | None:
+    occurrences: list[tuple[int, int]] = []
+    for block_index in range(low, high + 1):
+        occurrences.extend(
+            (block_index, start)
+            for start in _subsequence_positions(sub_tokens, units[block_index].token_text.tokens)
+        )
+    if len(occurrences) != 1:
+        return None
+    block_index, start = occurrences[0]
+    return SpanMatch(
+        (block_index,), ((start, start + len(sub_tokens)),),
+        "normalized_substring_nonmonotonic", 1.0, 0.99, 1.0, 0.0,
+    )
+
+
 def _match_payload(match: SpanMatch, units: list[ScriptUnit], subtitle_tokens: int) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     for block_index, (start, end) in zip(match.block_indices, match.spans):
@@ -345,9 +363,13 @@ def align_subtitles(subtitles: list[CleanSubtitle], context: dict[str, Any], mov
             elif candidate and candidate.combined_score >= config.review_threshold:
                 status, review = "needs_review", True
             else:
-                results[index] = make_row(index, None, "no_match", "no_match", True, False, "below_review_threshold")
-                continue
-            results[index] = make_row(index, candidate, status, candidate.method, review, exact is not None and not review, "low_confidence" if review else None)
+                nonmonotonic_exact = _unique_exact_in_bounds(sub_tokens, units, low, high) if len(sub_tokens) >= 4 else None
+                if nonmonotonic_exact is None:
+                    results[index] = make_row(index, None, "no_match", "no_match", True, False, "below_review_threshold")
+                    continue
+                candidate, status, review = nonmonotonic_exact, "needs_review", True
+            review_reason = "nonmonotonic_exact_fragment" if candidate.method == "normalized_substring_nonmonotonic" else "low_confidence" if review else None
+            results[index] = make_row(index, candidate, status, candidate.method, review, exact is not None and not review, review_reason)
             if status == "auto_aligned":
                 cursor_block = candidate.block_indices[-1]
                 cursor_token = candidate.spans[-1][1]

@@ -88,6 +88,27 @@ def test_backward_same_block_future_exact_does_not_starve_current_fragment() -> 
     assert diagnostics["unresolved_local_substring_false_no_match"] == 0
 
 
+def test_repeated_refrain_keeps_earlier_nonmonotonic_exact_as_review_candidate() -> None:
+    context = context_for([["Opening reliable anchor has distinct words"], [
+        "first refrain has enough words second refrain has enough words third refrain has enough words final refrain has enough words"
+    ], ["Closing reliable anchor has distinct words"]])
+    rows = align_subtitles(subs([
+        "Opening reliable anchor has distinct words",
+        "final refrain has enough words",
+        "first refrain has enough words",
+        "second refrain has enough words",
+        "third refrain has enough words",
+        "final refrain has enough words",
+        "Closing reliable anchor has distinct words",
+    ]), context, "tt1")
+    first_final = rows[1]
+    assert first_final["alignment"]["status"] == "needs_review"
+    assert first_final["alignment"]["method"] == "normalized_substring_nonmonotonic"
+    assert first_final["alignment"]["review_reason"] == "nonmonotonic_exact_fragment"
+    assert first_final["script_matches"][0]["block_id"] == "scene_002_dialogue_001"
+    assert rows[5]["alignment"]["status"] == "auto_aligned"
+
+
 def test_improvised_subtitle_between_anchors_remains_no_match() -> None:
     context = context_for([["First reliable anchor has enough words", "Last reliable anchor also has enough words"]])
     rows = align_subtitles(subs(["First reliable anchor has enough words", "This improvised business is nowhere in the screenplay", "Last reliable anchor also has enough words"]), context, "tt1")
