@@ -236,6 +236,22 @@ The output and manifest are immutable/version-tagged. A reviewer bundle that
 changes from retrieval v2 to v3 is a descendant experiment and requires a new,
 previously unused independent calibration movie before production promotion.
 
+If source evidence discovered after a calibration run contradicts a frozen
+provisional reference, keep that reference byte-for-byte unchanged and write a
+versioned adjudication overlay. The adjudicated evaluator validates corrections
+against the original candidate enums, excludes only explicit ambiguities, and
+reports both frozen and resolved metrics:
+
+```bash
+python -m oscardp.script_context evaluate-independent-calibration-adjudicated-v3 \
+  --reference /path/to/calibration_reference_frozen.jsonl \
+  --validated-responses /path/to/validated_responses.jsonl \
+  --pilot-manifest /path/to/pilot_manifest.json \
+  --response-validation /path/to/response_validation_report.json \
+  --adjudication /path/to/calibration_reference_adjudication_v2.jsonl \
+  --output /path/to/calibration_evaluation.adjudicated_v2.json
+```
+
 After version-specific response validation, use
 `evaluate-independent-calibration-v3` to report candidate-task, candidate
 presence, exact-block, negative-discrimination, and sequence metrics. Its

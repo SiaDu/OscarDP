@@ -990,3 +990,135 @@ def evaluate_independent_calibration_v3(
     }
     _write_json(output_path, result)
     return result
+
+
+def evaluate_independent_calibration_adjudicated_v3(
+    reference_path: Path, validated_path: Path, pilot_manifest_path: Path,
+    response_validation_path: Path, adjudication_path: Path, output_path: Path,
+) -> dict[str, Any]:
+    """Evaluate an immutable calibration reference with a versioned post-run overlay.
+
+    The overlay may affirm a frozen label, correct a demonstrable reference
+    error, or exclude a genuinely ambiguous item.  It never edits the frozen
+    reference and every correction is constrained to the original request's
+    candidate IDs.
+    """
+    references = read_jsonl(reference_path)
+    responses = read_jsonl(validated_path)
+    pilot_manifest = json.loads(pilot_manifest_path.read_text(encoding="utf-8"))
+    validation = json.loads(response_validation_path.read_text(encoding="utf-8"))
+    adjudications = read_jsonl(adjudication_path)
+    predicted = {(row["request_id"], item["subtitle_id"]): item for row in responses for item in row["resolutions"]}
+    selection = {row["request_id"]: row for row in pilot_manifest["requests"]}
+    originals: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any]]] = {}
+    for row in references:
+        request = row.get("request", {})
+        for expected in row["reference_resolutions"]:
+            originals[(row["request_id"], expected["subtitle_id"])] = (expected, request)
+
+    overlay: dict[tuple[str, str], dict[str, Any]] = {}
+    errors: list[str] = []
+    for row in adjudications:
+        key = (row.get("request_id"), row.get("subtitle_id"))
+        if key in overlay:
+            errors.append(f"duplicate adjudication {key}")
+            continue
+        if key not in originals:
+            errors.append(f"adjudication outside frozen reference {key}")
+            continue
+        overlay[key] = row
+        original, request = originals[key]
+        if row.get("original_reference") != {
+            "decision": original.get("decision"), "block_ids": original.get("block_ids")
+        }:
+            errors.append(f"{key}: original_reference differs from frozen reference")
+        action = row.get("adjudication")
+        if action not in {"affirm", "correct_reference", "ambiguous"}:
+            errors.append(f"{key}: invalid adjudication action")
+            continue
+        if not isinstance(row.get("evidence"), str) or not row["evidence"].strip():
+            errors.append(f"{key}: evidence is required")
+        if action == "correct_reference":
+            corrected = row.get("corrected_reference")
+            if not isinstance(corrected, dict):
+                errors.append(f"{key}: corrected_reference is required")
+                continue
+            decision, block_ids = corrected.get("decision"), corrected.get("block_ids")
+            allowed = {candidate.get("block_id") for candidate in request.get("dialogue_candidates", [])}
+            if decision not in {"match", "no_candidate_match"}:
+                errors.append(f"{key}: invalid corrected decision")
+            if not isinstance(block_ids, list) or len(block_ids) != len(set(block_ids)):
+                errors.append(f"{key}: corrected block IDs must be a unique list")
+            elif set(block_ids) - allowed:
+                errors.append(f"{key}: corrected reference contains foreign candidate IDs")
+            elif decision == "match" and not block_ids:
+                errors.append(f"{key}: corrected match requires block IDs")
+            elif decision == "no_candidate_match" and block_ids:
+                errors.append(f"{key}: corrected no_candidate_match requires empty block IDs")
+        elif row.get("corrected_reference") is not None:
+            errors.append(f"{key}: only correct_reference may carry corrected_reference")
+    if errors:
+        raise ValueError("invalid calibration adjudication overlay: " + "; ".join(errors[:20]))
+
+    frozen_records: list[dict[str, Any]] = []
+    resolved_records: list[dict[str, Any]] = []
+    ambiguous_ids: list[str] = []
+    correction_count = 0
+    for key, (original, _) in originals.items():
+        request_id, subtitle_id = key
+        base = {"request_id": request_id, "actual": predicted.get(key), **selection[request_id]}
+        frozen_records.append({**base, "expected": original})
+        adjudication = overlay.get(key)
+        if adjudication and adjudication["adjudication"] == "ambiguous":
+            ambiguous_ids.append(subtitle_id)
+            continue
+        expected = original
+        if adjudication and adjudication["adjudication"] == "correct_reference":
+            expected = {**original, **adjudication["corrected_reference"]}
+            correction_count += 1
+        resolved_records.append({**base, "expected": expected})
+
+    frozen_metrics = _binary_metrics(frozen_records)
+    resolved_metrics = _binary_metrics(resolved_records)
+    def grouped(field: str, values: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+        result: dict[str, dict[str, Any]] = {}
+        for value in values:
+            subset = [record for record in resolved_records if record.get(field) == value]
+            result[value] = {
+                "resolution_count": len(subset),
+                "candidate_task_accuracy": None if not subset else _binary_metrics(subset)["candidate_task_accuracy"],
+            }
+        return result
+    by_stratum = grouped("stratum", ("easy", "fuzzy", "multi", "difficult"))
+    by_timeline = grouped("timeline_region", ("early", "middle", "late"))
+    missing_count = sum(record["actual"] is None for record in frozen_records)
+    checks = {
+        "all_30_requests_structurally_valid": validation.get("valid_count") == 30 and validation.get("invalid_count") == 0,
+        "zero_missing_predictions": missing_count == 0,
+        "zero_foreign_candidates": int(validation.get("foreign_candidate_output_count", 0)) == 0,
+        "resolved_candidate_task_accuracy_at_least_0_90": resolved_metrics["candidate_task_accuracy"] >= 0.90,
+        "resolved_candidate_presence_accuracy_at_least_0_90": resolved_metrics["candidate_presence_decision_accuracy"] >= 0.90,
+        "easy_accuracy_at_least_0_95_when_sample_permits": (
+            by_stratum["easy"]["resolution_count"] < 5
+            or float(by_stratum["easy"]["candidate_task_accuracy"] or 0.0) >= 0.95
+        ),
+    }
+    result = {
+        "schema_version": "1.0", "decision_schema_version": "candidate_task_v3",
+        "evaluation_role": "independent_calibration_post_freeze_adjudication", "human_gold": False,
+        "frozen_reference_sha256": hashlib.sha256(reference_path.read_bytes()).hexdigest(),
+        "adjudication_overlay_sha256": hashlib.sha256(adjudication_path.read_bytes()).hexdigest(),
+        "frozen_reference_unchanged": True, "overlay_record_count": len(adjudications),
+        "reference_correction_count": correction_count,
+        "excluded_ambiguous_count": len(ambiguous_ids), "excluded_ambiguous_subtitle_ids": sorted(ambiguous_ids),
+        "frozen_reference_metrics": frozen_metrics, "resolved_adjudicated_metrics": resolved_metrics,
+        "resolved_accuracy_by_stratum": by_stratum, "resolved_accuracy_by_timeline_region": by_timeline,
+        "structural_invalid_request_count": int(validation.get("invalid_count", 0)),
+        "missing_prediction_count": missing_count,
+        "foreign_candidate_output_count": int(validation.get("foreign_candidate_output_count", 0)),
+        "sequence_quality": validation.get("sequence_quality", {}),
+        "numeric_acceptance_gate": {"basis": "resolved_adjudicated_metrics", "checks": checks, "passed": all(checks.values())},
+        "promotion_requires_error_class_audit": True,
+    }
+    _write_json(output_path, result)
+    return result

@@ -106,9 +106,37 @@ def reviewer_manifest_v321_validator_v3(
     path.write_text(json.dumps(source), encoding="utf-8")
 
 
+def reviewer_manifest_v321_retrieval_v3(path: Path, parent: Path, evidence: Path) -> None:
+    path.write_text(json.dumps({
+        "reviewer_version": "v3.2.1-production.3-retrieval-v3-validator-v3",
+        "parent_reviewer_version": "v3.2.1-production.2-validator-v3",
+        "status": "promoted_global_production_reviewer", "model": "gpt-5.6-terra",
+        "decision_schema_version": "candidate_task_v3",
+        "hard_validation_contract_version": "candidate_task_v3_structure_v3",
+        "prompt_sha256": hashlib.sha256(V321_VOCATIVE_SYSTEM_INSTRUCTIONS.encode()).hexdigest(),
+        "retrieval_version": "global_lexical_rescue_v3",
+        "independent_calibration": {
+            "reference_frozen_before_reviewer_output": True,
+            "new_systematic_failure_class_found": False,
+            "numeric_gate": {"passed": True},
+        },
+        "artifact_paths": {"evaluation": evidence.resolve().as_posix()},
+        "artifact_sha256": {"evaluation": hashlib.sha256(evidence.read_bytes()).hexdigest()},
+        "parent_reviewer_manifest": parent.resolve().as_posix(),
+        "parent_reviewer_manifest_sha256": hashlib.sha256(parent.read_bytes()).hexdigest(),
+    }), encoding="utf-8")
+
+
 def retrieval_manifest(path: Path) -> None:
     path.with_suffix(path.suffix + ".manifest.json").write_text(json.dumps({
         "retrieval_version": "global_lexical_rescue_v2",
+        "output_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }), encoding="utf-8")
+
+
+def retrieval_manifest_v3(path: Path) -> None:
+    path.with_suffix(path.suffix + ".manifest.json").write_text(json.dumps({
+        "retrieval_version": "global_lexical_rescue_v3",
         "output_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     }), encoding="utf-8")
 
@@ -230,6 +258,28 @@ def test_production_321_uses_promoted_prompt_retrieval_and_calibration_bindings(
     evidence.write_text("changed\n", encoding="utf-8")
     with pytest.raises(ValueError, match="calibration artifact hash differs"):
         prepare_production_batch_v3(remaining, reviewer, tmp_path / "changed-evidence.jsonl")
+
+
+def test_production_321_retrieval_v3_binds_parent_calibration_and_requests(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.v3.jsonl"
+    parent = tmp_path / "parent-reviewer.json"
+    evidence = tmp_path / "calibration-evaluation.json"
+    reviewer = tmp_path / "reviewer-retrieval-v3.json"
+    write_jsonl(requests, [request(1)])
+    retrieval_manifest_v3(requests)
+    parent.write_text("frozen parent\n", encoding="utf-8")
+    evidence.write_text("frozen calibration\n", encoding="utf-8")
+    reviewer_manifest_v321_retrieval_v3(reviewer, parent, evidence)
+
+    output = tmp_path / "batch.jsonl"
+    result = prepare_production_batch_v3(requests, reviewer, output)
+    assert result["production_reviewer_version"] == "v3.2.1-production.3-retrieval-v3-validator-v3"
+    assert result["retrieval_version"] == "global_lexical_rescue_v3"
+    assert result["hard_validation_contract_version"] == "candidate_task_v3_structure_v3"
+
+    parent.write_text("changed parent\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="parent reviewer hash differs"):
+        prepare_production_batch_v3(requests, reviewer, tmp_path / "other.jsonl")
 
 
 def test_production_321_validator_v3_is_versioned_and_binds_both_calibrations(

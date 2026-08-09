@@ -70,6 +70,16 @@ PRODUCTION_REVIEWER_VERSIONS = {
         "retrieval_version": "global_lexical_rescue_v2",
         "review_policy_version": "annotation_policy_v1_plus_generic_v3.2.1_vocative_instructions",
     },
+    "v3.2.1-production.3-retrieval-v3-validator-v3": {
+        "output_tag": "v3_2_1_production_3_retrieval_v3_validator_v3",
+        "lifecycle_schema_version": "v3_2_1_production_3_retrieval_v3_validator_v3",
+        "hard_validation_contract_version": "candidate_task_v3_structure_v3",
+        "instructions": V321_VOCATIVE_SYSTEM_INSTRUCTIONS,
+        "batch_line": batch_line_v321_vocative,
+        "batch_validator": validate_batch_lines_v321_vocative,
+        "retrieval_version": "global_lexical_rescue_v3",
+        "review_policy_version": "annotation_policy_v1_plus_generic_v3.2.1_vocative_instructions",
+    },
 }
 
 
@@ -116,7 +126,11 @@ def _load_reviewer_manifest(path: Path) -> dict[str, Any]:
         inherited_path = Path(inherited)
         if not inherited_path.is_file() or _sha(inherited_path) != inherited_hash:
             raise ValueError("production.2 inherited production.1 evidence hash differs")
-    if version in {"v3.2.1-production.1", "v3.2.1-production.2-validator-v3"}:
+    if version in {
+        "v3.2.1-production.1",
+        "v3.2.1-production.2-validator-v3",
+        "v3.2.1-production.3-retrieval-v3-validator-v3",
+    }:
         if manifest.get("retrieval_version") != settings["retrieval_version"]:
             raise ValueError("production reviewer has the wrong retrieval version")
         calibration = source.get("independent_calibration")
@@ -169,6 +183,14 @@ def _load_reviewer_manifest(path: Path) -> dict[str, Any]:
             resolved = Path(artifact_path)
             if not resolved.is_file() or _sha(resolved) != expected_hash:
                 raise ValueError(f"validator-v3 calibration artifact hash differs: {name}")
+    if version == "v3.2.1-production.3-retrieval-v3-validator-v3":
+        inherited = manifest.get("parent_reviewer_manifest")
+        inherited_hash = manifest.get("parent_reviewer_manifest_sha256")
+        if not isinstance(inherited, str) or not isinstance(inherited_hash, str):
+            raise ValueError("retrieval-v3 reviewer is missing its parent reviewer binding")
+        inherited_path = Path(inherited)
+        if not inherited_path.is_file() or _sha(inherited_path) != inherited_hash:
+            raise ValueError("retrieval-v3 parent reviewer hash differs")
     return manifest
 
 

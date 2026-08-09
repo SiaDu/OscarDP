@@ -22,6 +22,7 @@ from oscardp.script_context.stage253 import (
     batch_line_v32_policy,
     batch_line_v33_action_context,
     evaluate_pilot_v3,
+    evaluate_independent_calibration_adjudicated_v3,
     evaluate_independent_calibration_v3,
     prepare_batch_v3,
     prepare_batch_v321_vocative,
@@ -357,6 +358,40 @@ def test_independent_calibration_evaluator_reports_numeric_gate_and_not_human_go
     assert result["metrics"]["candidate_task_accuracy"] == 1.0
     assert result["numeric_acceptance_gate"]["passed"] is True
     assert result["promotion_requires_error_class_audit"] is True
+
+
+def test_adjudicated_calibration_evaluator_preserves_frozen_reference_and_constrains_corrections(tmp_path: Path) -> None:
+    reference = tmp_path / "reference.jsonl"; responses = tmp_path / "validated.jsonl"
+    pilot_manifest = tmp_path / "pilot-manifest.json"; validation = tmp_path / "response-validation.json"
+    adjudication = tmp_path / "adjudication.jsonl"; output = tmp_path / "evaluation.json"
+    req = request()
+    write_jsonl(reference, [{
+        "request_id": "r1", "request": req,
+        "reference_resolutions": [{"subtitle_id": "s1", "decision": "no_candidate_match", "block_ids": []}],
+    }])
+    frozen_hash = hashlib.sha256(reference.read_bytes()).hexdigest()
+    write_jsonl(responses, [{"request_id": "r1", "resolutions": [resolution("s1", "match", ["A"], "exact_or_near_exact")]}])
+    pilot_manifest.write_text(json.dumps({"requests": [{"request_id": "r1", "stratum": "easy", "timeline_region": "early"}]}), encoding="utf-8")
+    validation.write_text(json.dumps({"valid_count": 30, "invalid_count": 0, "foreign_candidate_output_count": 0, "sequence_quality": {}}), encoding="utf-8")
+    write_jsonl(adjudication, [{
+        "request_id": "r1", "subtitle_id": "s1", "adjudication": "correct_reference",
+        "original_reference": {"decision": "no_candidate_match", "block_ids": []},
+        "corrected_reference": {"decision": "match", "block_ids": ["A"]},
+        "attribution_layer": "gold_annotation_policy", "evidence": "The supplied line is exact source evidence.",
+    }])
+    result = evaluate_independent_calibration_adjudicated_v3(reference, responses, pilot_manifest, validation, adjudication, output)
+    assert result["frozen_reference_sha256"] == frozen_hash
+    assert hashlib.sha256(reference.read_bytes()).hexdigest() == frozen_hash
+    assert result["reference_correction_count"] == 1
+    assert result["resolved_adjudicated_metrics"]["candidate_task_accuracy"] == 1.0
+    assert result["resolved_accuracy_by_stratum"]["easy"] == {"resolution_count": 1, "candidate_task_accuracy": 1.0}
+    assert result["numeric_acceptance_gate"]["passed"] is True
+
+    row = json.loads(adjudication.read_text())
+    row["corrected_reference"]["block_ids"] = ["FOREIGN"]
+    write_jsonl(adjudication, [row])
+    with pytest.raises(ValueError, match="foreign candidate"):
+        evaluate_independent_calibration_adjudicated_v3(reference, responses, pilot_manifest, validation, adjudication, output)
 
 
 def test_v32_submit_mocked_lifecycle_uses_its_own_validator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
