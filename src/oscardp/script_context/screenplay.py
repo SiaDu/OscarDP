@@ -91,7 +91,7 @@ def _looks_like_action_narrative(text: str, *, require_terminal: bool = True) ->
     if not terminal or (require_terminal and not terminal.endswith((".", "...", ":"))):
         return False
     first_word = stripped.split(maxsplit=1)[0]
-    if first_word.casefold() == "it" or first_word.endswith((".", "!", "?")):
+    if first_word.casefold() == "it" or first_word.endswith((".", "!", "?", "-", "–", "—")):
         return False
     return bool(NARRATIVE_ACTION_RE.match(stripped) or NARRATIVE_APPOSITIVE_RE.match(stripped))
 

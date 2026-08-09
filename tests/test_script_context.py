@@ -224,6 +224,8 @@ def test_structure_audit_does_not_reject_spoken_it_or_imperative_dialogue() -> N
     context = _context([
         ("MICHELLE", "It looks - very nice. Thank you."),
         ("MICHELLE", "QUIET. Listen to me. And I will explain."),
+        ("LEOPOLD", "Victor- sit up straight. Elbows off the table."),
+        ("HOST", "Well- sit with us- share some brandy."),
     ])
     audit = audit_screenplay_structure(context)
     assert audit["confirmed_structural_error_count"] == 0
