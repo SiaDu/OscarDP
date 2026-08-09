@@ -11,7 +11,7 @@ from oscardp.script_context.alignment import align_subtitles
 from oscardp.script_context.llm_review import apply_alignment_responses
 from oscardp.script_context.pipeline import ContextOptions, _title_from_path, process_one
 from oscardp.script_context.schema import AlignmentConfig, CleanSubtitle
-from oscardp.script_context.screenplay import audit_screenplay_structure, is_broken_page, normalize_character_cue, parse_layout_pages, stable_scene_id
+from oscardp.script_context.screenplay import PARSER_VERSION, audit_screenplay_structure, is_broken_page, normalize_character_cue, parse_layout_pages, stable_scene_id
 from oscardp.script_context.shot_mapping import map_shots
 from oscardp.script_context.subtitles import load_clean_subtitles
 from oscardp.script_context.validation import validate_data, validate_files
@@ -43,6 +43,14 @@ def test_screenplay_title_removes_any_imdb_prefix() -> None:
 
 def test_scene_ids_character_and_layout_classification() -> None:
     assert [stable_scene_id(value) for value in ("1", "4A", "13B")] == ["scene_001", "scene_004A", "scene_013B"]
+
+
+def test_current_parser_version_is_emitted() -> None:
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. ROOM - DAY", "x0": 108, "y0": 10},
+        {"text": "A room.", "x0": 108, "y0": 30},
+    ]}]
+    assert parse_layout_pages(pages, "tt1", "Test", {})["parser_version"] == PARSER_VERSION
     assert normalize_character_cue("HART (CONT'D)") == "HART"
     pages = [{"page": 1, "width": 612, "lines": [
         {"text": "4A INT. SARDI'S BAR - NIGHT 4A", "x0": 50, "y0": 10},

@@ -10,6 +10,7 @@ from .schema import AlignmentConfig, CleanSubtitle
 
 TOKEN_RE = re.compile(r"[\w]+(?:['’][\w]+)?", re.UNICODE)
 GENERIC_SHORT = {"yes", "no", "what", "okay", "ok", "right", "hey", "hello", "thanks", "thank you"}
+ALIGNMENT_VERSION = "2.2"
 
 
 @dataclass(frozen=True)

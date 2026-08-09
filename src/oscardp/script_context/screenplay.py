@@ -37,6 +37,7 @@ NARRATIVE_APPOSITIVE_RE = re.compile(
     r"^[A-Z][A-ZÀ-Ÿ'’.-]+(?:/[A-Z][A-ZÀ-Ÿ'’.-]+)?,\s+[^.!?]+,\s+(?:adds?|says?|asks?|answers?|continues?|looks?|walks?|turns?)\b",
 )
 INLINE_OPEN_PAREN_RE = re.compile(r"^(?P<speech>.+?\S)\s+(?P<parenthetical>\([^()]*)$")
+PARSER_VERSION = "2.4.2"
 
 
 def stable_scene_id(raw: str) -> str:
@@ -353,7 +354,7 @@ def parse_layout_pages(pages: list[dict[str, Any]], movie_key: str, title: str, 
 
     result = {
         "schema_version": "1.0",
-        "parser_version": "2.4.1",
+        "parser_version": PARSER_VERSION,
         "movie": {"movie_id": movie_key, "title": title},
         "source_files": source_files,
         "summary": {

@@ -10,7 +10,7 @@ from typing import Any
 
 from oscardp.shots.schema import json_dumps
 
-from .alignment import align_subtitles
+from .alignment import ALIGNMENT_VERSION, align_subtitles
 from .llm_review import (
     apply_alignment_responses,
     build_alignment_diagnostics,
@@ -18,7 +18,7 @@ from .llm_review import (
     validate_review_requests,
 )
 from .schema import AlignmentConfig, ContextOptions, read_jsonl
-from .screenplay import audit_screenplay_structure, parse_screenplay
+from .screenplay import PARSER_VERSION, audit_screenplay_structure, parse_screenplay
 from .shot_mapping import map_shots
 from .subtitles import load_clean_subtitles
 from .validation import validate_data, validate_files
@@ -45,7 +45,7 @@ def _input_fingerprint(options: ContextOptions) -> dict[str, Any]:
         return {"path": path.resolve().as_posix(), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
     return {
         "schema_version": "1.0", "movie_key": options.movie_key,
-        "alignment_version": "2.1", "parser_version": "2.4.1",
+        "alignment_version": ALIGNMENT_VERSION, "parser_version": PARSER_VERSION,
         "screenplay": describe(options.screenplay), "subtitle": describe(options.subtitle), "shots": describe(options.shots),
         "subtitle_language": options.subtitle_language, "alignment_threshold": options.alignment_threshold,
         "review_threshold": options.review_threshold,
@@ -116,7 +116,7 @@ def process_one(options: ContextOptions) -> dict[str, Any]:
         context = None
         if not options.overwrite and outputs["context"].is_file():
             existing_context = json.loads(outputs["context"].read_text(encoding="utf-8"))
-            if existing_context.get("parser_version") == "2.4.1" and existing_context.get("movie", {}).get("movie_id") == options.movie_key and existing_context.get("source_files", {}).get("screenplay") == source_files["screenplay"]:
+            if existing_context.get("parser_version") == PARSER_VERSION and existing_context.get("movie", {}).get("movie_id") == options.movie_key and existing_context.get("source_files", {}).get("screenplay") == source_files["screenplay"]:
                 context = existing_context
                 logger.info("Reusing existing movie_script_context.json")
         if context is None:
