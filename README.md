@@ -225,6 +225,40 @@ presence, exact-block, negative-discrimination, and sequence metrics. Its
 numeric gate is necessary but not sufficient: promotion still requires an
 error-class audit showing no unresolved systematic failure.
 
+After a reviewer is globally promoted and frozen, production processing uses a
+separate v3 lifecycle. It partitions pilot and remaining requests, prepares and
+submits only the frozen production schema, revalidates each partition with the
+binary v3 validator, reconstructs full request order, and writes tagged reviewed
+outputs without touching deterministic inputs:
+
+```bash
+python -m oscardp.script_context prepare-openai-production-remaining-v3 \
+  --full-requests /path/to/alignment_requests.jsonl \
+  --pilot-requests /path/to/pilot_requests.jsonl \
+  --output /path/to/remaining_requests.v3_2_production_1.jsonl \
+  --manifest /path/to/remaining_manifest.v3_2_production_1.json \
+  --reviewer-manifest /path/to/stage2_production_reviewer_v3_2.json
+
+python -m oscardp.script_context prepare-openai-production-batch-v3 \
+  --requests /path/to/remaining_requests.v3_2_production_1.jsonl \
+  --reviewer-manifest /path/to/stage2_production_reviewer_v3_2.json \
+  --output /path/to/remaining_batch_input.v3_2_production_1.jsonl
+
+python -m oscardp.script_context submit-openai-production-batch-v3 \
+  --batch-input /path/to/remaining_batch_input.v3_2_production_1.jsonl \
+  --reviewer-manifest /path/to/stage2_production_reviewer_v3_2.json \
+  --job-file /path/to/remaining_batch_job.v3_2_production_1.json \
+  --confirm-submit
+```
+
+Use `merge-openai-production-responses-v3` only after both partitions pass
+v3 hard validation, then `apply-openai-production-responses-v3`. The latter
+preserves each original binary resolution as provenance while emitting only
+`subtitle_script_alignment.llm_reviewed_v3_2_production_1.jsonl` and
+`shot_script_context.llm_reviewed_v3_2_production_1.jsonl`. Existing versioned
+artifacts are never overwritten; a matching completed apply may only resume
+after source hashes and output existence are rechecked.
+
 Candidate-task v3 inputs have an explicit submission command and validator;
 the historical command remains reserved for v1/v2 inputs:
 
