@@ -127,6 +127,21 @@ def build_parser() -> argparse.ArgumentParser:
     production_apply.add_argument("--validated-responses", type=Path, required=True); production_apply.add_argument("--screenplay-context", type=Path, required=True)
     production_apply.add_argument("--shots", type=Path, required=True); production_apply.add_argument("--output-dir", type=Path, required=True)
     production_apply.add_argument("--reviewer-manifest", type=Path, required=True)
+    production_risk = commands.add_parser("build-openai-production-risk-audit-v3")
+    production_risk.add_argument("--requests", type=Path, required=True); production_risk.add_argument("--validated-responses", type=Path, required=True)
+    production_risk.add_argument("--reviewed-alignment", type=Path, required=True); production_risk.add_argument("--reviewed-shot-context", type=Path, required=True)
+    production_risk.add_argument("--screenplay-context", type=Path, required=True); production_risk.add_argument("--output", type=Path, required=True)
+    production_risk.add_argument("--summary", type=Path, required=True); production_risk.add_argument("--low-confidence-threshold", type=float, default=.8)
+    production_finalize = commands.add_parser("finalize-openai-production-movie-v3")
+    production_finalize.add_argument("--movie-key", required=True); production_finalize.add_argument("--inventory", type=Path, required=True)
+    production_finalize.add_argument("--status", type=Path, required=True); production_finalize.add_argument("--screenplay-context", type=Path, required=True)
+    production_finalize.add_argument("--deterministic-alignment", type=Path, required=True); production_finalize.add_argument("--deterministic-shot-context", type=Path, required=True)
+    production_finalize.add_argument("--reviewed-alignment", type=Path, required=True); production_finalize.add_argument("--reviewed-shot-context", type=Path, required=True)
+    production_finalize.add_argument("--shots", type=Path, required=True); production_finalize.add_argument("--requests", type=Path, required=True)
+    production_finalize.add_argument("--validated-responses", type=Path, required=True); production_finalize.add_argument("--reviewer-manifest", type=Path, required=True)
+    production_finalize.add_argument("--lifecycle-report", type=Path, action="append", required=True)
+    production_finalize.add_argument("--risk-audit", type=Path, required=True); production_finalize.add_argument("--risk-summary", type=Path, required=True)
+    production_finalize.add_argument("--qc-report", type=Path, required=True); production_finalize.add_argument("--manifest", type=Path, required=True)
     composite = commands.add_parser("build-openai-composite-audit")
     composite.add_argument("--requests", type=Path, required=True); composite.add_argument("--validated-responses", type=Path, required=True)
     composite.add_argument("--output", type=Path, required=True); composite.add_argument("--summary", type=Path, required=True)
@@ -285,6 +300,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "apply-openai-production-responses-v3":
             from .production_review import apply_production_responses_v3
             print(json_dumps(apply_production_responses_v3(args.alignment, args.requests, args.validated_responses, args.screenplay_context, args.shots, args.output_dir, args.reviewer_manifest), pretty=True)); return 0
+        if args.command == "build-openai-production-risk-audit-v3":
+            from .production_qc import build_production_high_risk_audit_v3
+            result = build_production_high_risk_audit_v3(
+                args.requests, args.validated_responses, args.reviewed_alignment, args.reviewed_shot_context,
+                args.screenplay_context, args.output, args.summary, low_confidence_threshold=args.low_confidence_threshold,
+            )
+            print(json_dumps(result, pretty=True)); return 0
+        if args.command == "finalize-openai-production-movie-v3":
+            from .production_qc import finalize_production_movie_v3
+            result = finalize_production_movie_v3(
+                args.movie_key, args.inventory, args.status, args.screenplay_context,
+                args.deterministic_alignment, args.deterministic_shot_context, args.reviewed_alignment,
+                args.reviewed_shot_context, args.shots, args.requests, args.validated_responses,
+                args.reviewer_manifest, args.lifecycle_report, args.risk_audit, args.risk_summary,
+                args.qc_report, args.manifest,
+            )
+            print(json_dumps(result, pretty=True)); return 0
         if args.command == "build-openai-composite-audit":
             from .stage23 import build_composite_audit
             print(json_dumps(build_composite_audit(args.requests, args.validated_responses, args.output, args.summary), pretty=True)); return 0

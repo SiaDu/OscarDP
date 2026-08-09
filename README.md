@@ -288,6 +288,44 @@ separate `v3_2_production_2` tag. Production.1 chunks can be carried forward
 only when the production.2 manifest records and verifies the exact inherited
 production.1 manifest hash; arbitrary cross-version merging is rejected.
 
+After the full v3 response set is applied, build the self-contained risk audit
+and freeze final per-movie QC. The audit includes request-local candidates,
+selected blocks, screenplay/sequence/subtitle context, shot/keyframe links,
+downstream `no_candidate_match` classification, diagnostics, and empty human
+adjudication fields. The finalizer re-hashes protected source, Stage 1, and
+deterministic Stage 2 files and refuses to emit a `COMPLETE` manifest unless
+response coverage and both deterministic/reviewed validation pass:
+
+```bash
+python -m oscardp.script_context build-openai-production-risk-audit-v3 \
+  --requests /path/to/alignment_requests.jsonl \
+  --validated-responses /path/to/full_validated_responses.v3_2_production_2.jsonl \
+  --reviewed-alignment /path/to/subtitle_script_alignment.llm_reviewed_v3_2_production_2.jsonl \
+  --reviewed-shot-context /path/to/shot_script_context.llm_reviewed_v3_2_production_2.jsonl \
+  --screenplay-context /path/to/movie_script_context.json \
+  --output /path/to/reviewed/v3_2_production_2/high_risk_audit.jsonl \
+  --summary /path/to/reviewed/v3_2_production_2/high_risk_audit_summary.json
+
+python -m oscardp.script_context finalize-openai-production-movie-v3 \
+  --movie-key tt00000000 \
+  --inventory /path/to/stage2_goal_inventory.json \
+  --status /path/to/stage2_goal_status.json \
+  --screenplay-context /path/to/movie_script_context.json \
+  --deterministic-alignment /path/to/subtitle_script_alignment.jsonl \
+  --deterministic-shot-context /path/to/shot_script_context.jsonl \
+  --reviewed-alignment /path/to/subtitle_script_alignment.llm_reviewed_v3_2_production_2.jsonl \
+  --reviewed-shot-context /path/to/shot_script_context.llm_reviewed_v3_2_production_2.jsonl \
+  --shots /path/to/shots.jsonl \
+  --requests /path/to/alignment_requests.jsonl \
+  --validated-responses /path/to/full_validated_responses.v3_2_production_2.jsonl \
+  --reviewer-manifest /path/to/stage2_production_reviewer_v3_2_validation_contract_v2.json \
+  --lifecycle-report /path/to/full_merge_report.v3_2_production_2.json \
+  --risk-audit /path/to/reviewed/v3_2_production_2/high_risk_audit.jsonl \
+  --risk-summary /path/to/reviewed/v3_2_production_2/high_risk_audit_summary.json \
+  --qc-report /path/to/reviewed/v3_2_production_2/qc_report.json \
+  --manifest /path/to/reviewed/v3_2_production_2/manifest.json
+```
+
 Use `merge-openai-production-responses-v3` only after both partitions pass
 v3 hard validation, then `apply-openai-production-responses-v3`. The latter
 preserves each original binary resolution as provenance while emitting only
