@@ -315,12 +315,25 @@ def align_subtitles(subtitles: list[CleanSubtitle], context: dict[str, Any], mov
         for index in range(start_sub, end_sub):
             sub_tokens = tokenize(subtitles[index].cleaned_text).tokens
             exact = local_exact.get(index)
-            if exact is not None and exact[0] >= cursor_block:
+            exact_is_forward = exact is not None and (
+                exact[0] > cursor_block or (exact[0] == cursor_block and exact[1] >= cursor_token)
+            )
+            if exact_is_forward:
                 block_index, token_start, token_end = exact
                 method = "normalized_exact" if len(sub_tokens) == len(units[block_index].token_text.tokens) else "normalized_substring"
                 candidate = SpanMatch((block_index,), ((token_start, token_end),), method, 1.0, 1.0 if method == "normalized_exact" else 0.99, 1.0, 1.0)
             else:
-                future = next((local_exact[future_index] for future_index in range(index + 1, end_sub) if future_index in local_exact and local_exact[future_index][0] >= cursor_block), None)
+                future = next((
+                    local_exact[future_index]
+                    for future_index in range(index + 1, end_sub)
+                    if future_index in local_exact and (
+                        local_exact[future_index][0] > cursor_block
+                        or (
+                            local_exact[future_index][0] == cursor_block
+                            and local_exact[future_index][1] >= cursor_token
+                        )
+                    )
+                ), None)
                 effective_high = min(high, future[0]) if future else high
                 effective_final = future[1] if future and future[0] == effective_high else final_token if effective_high == high else len(units[effective_high].token_text.tokens)
                 candidate = _best_local_match(sub_tokens, units, low, effective_high, cursor_block, cursor_token, effective_final)

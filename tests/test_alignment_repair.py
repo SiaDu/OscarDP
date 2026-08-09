@@ -73,6 +73,21 @@ def test_anchors_split_regions_and_deleted_script_gap_is_allowed() -> None:
     assert diagnostics["monotonicity_violations"] == 0
 
 
+def test_backward_same_block_future_exact_does_not_starve_current_fragment() -> None:
+    context = context_for([["Opening unique anchor has words target fragment has enough words target fragment has enough words"], ["Final reliable anchor has distinct words"]])
+    rows = align_subtitles(subs([
+        "Opening unique anchor has words",
+        "target fragment has enough words",
+        "Opening unique anchor has words",
+        "Final reliable anchor has distinct words",
+    ]), context, "tt1")
+    assert rows[1]["alignment"]["status"] != "no_match"
+    assert rows[1]["script_matches"][0]["block_id"] == "scene_001_dialogue_001"
+    requests = build_review_requests(context, rows)["alignment_requests"]
+    diagnostics = build_alignment_diagnostics(context, rows, requests)
+    assert diagnostics["unresolved_local_substring_false_no_match"] == 0
+
+
 def test_improvised_subtitle_between_anchors_remains_no_match() -> None:
     context = context_for([["First reliable anchor has enough words", "Last reliable anchor also has enough words"]])
     rows = align_subtitles(subs(["First reliable anchor has enough words", "This improvised business is nowhere in the screenplay", "Last reliable anchor also has enough words"]), context, "tt1")
