@@ -268,6 +268,45 @@ def test_bilingual_subtitle_cleaning_and_no_blind_merge(tmp_path: Path) -> None:
     assert [row.cleaned_text for row in rows] == ["Different English line", "Hello there"]
 
 
+def test_bilingual_lines_extract_only_requested_english(tmp_path: Path) -> None:
+    path = tmp_path / "bilingual.srt"
+    path.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\n你好\nHello there\n\n"
+        "2\n00:00:03,000 --> 00:00:04,000\n她回答 Yes, I did\n",
+        encoding="utf-8",
+    )
+    rows = load_clean_subtitles(path, "en")
+    assert [row.cleaned_text for row in rows] == ["Hello there", "Yes, I did"]
+    assert rows[0].original_text == "你好 Hello there"
+
+
+def test_repeated_webvtt_headers_and_duplicate_fragments_are_tolerated(tmp_path: Path) -> None:
+    path = tmp_path / "fragmented.srt"
+    path.write_text(
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nFirst line\n\n"
+        "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nFirst line\n\n"
+        "00:00:03.000 --> 00:00:04.000\nSecond line\n",
+        encoding="utf-8",
+    )
+    rows = load_clean_subtitles(path, "en")
+    assert [(row.start_sec, row.end_sec, row.cleaned_text) for row in rows] == [
+        (1.0, 2.0, "First line"),
+        (3.0, 4.0, "Second line"),
+    ]
+
+
+def test_release_credit_cues_are_removed(tmp_path: Path) -> None:
+    path = tmp_path / "credits.srt"
+    path.write_text(
+        "1\n00:00:01,000 --> 00:00:02,000\nDownloaded from YTS.BZ\n\n"
+        "2\n00:00:03,000 --> 00:00:04,000\nHamiltonShare\n\n"
+        "3\n00:00:05,000 --> 00:00:06,000\nOfficial YIFY movies site: YTS.BZ\n\n"
+        "4\n00:00:07,000 --> 00:00:08,000\nReal dialogue\n",
+        encoding="utf-8",
+    )
+    assert [row.cleaned_text for row in load_clean_subtitles(path, "en")] == ["Real dialogue"]
+
+
 def test_exact_fuzzy_multiblock_and_no_match_alignment() -> None:
     context = _context([("A", "Exact words here"), ("B", "first half"), ("B", "second half"), ("C", "A screenplay line deleted")])
     subtitles = [_sub(1, "Exact words here"), _sub(2, "first half second half"), _sub(3, "This was improvised and unrelated xyz")]

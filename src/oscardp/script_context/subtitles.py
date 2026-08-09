@@ -13,6 +13,15 @@ from .schema import CleanSubtitle
 TAG_RE = re.compile(r"<[^>]+>|\{\\[^}]+\}")
 MUSIC_RE = re.compile(r"[♪♫]+")
 CJK_RE = re.compile(r"[\u3400-\u9fff]")
+WEBVTT_HEADER_RE = re.compile(r"(?mi)^\s*WEBVTT(?:[^\r\n]*)?$")
+WEBVTT_TIMESTAMP_RE = re.compile(
+    r"(?m)^(?P<start>\d{1,2}:\d{2}:\d{2}[,.]\d{3})[ \t]*-->[ \t]*"
+    r"(?P<end>\d{1,2}:\d{2}:\d{2}[,.]\d{3})(?:[ \t]+[^\r\n]*)?$"
+)
+RELEASE_CREDIT_RE = re.compile(
+    r"(?i)^(?:(?:downloaded\s+from|official\s+yify\s+movies\s+site:)\s+)?(?:www\.)?"
+    r"(?:yts\.(?:bz|lt|mx)|opensubtitles(?:\.org)?|hamiltonshare)$"
+)
 
 
 def clean_text(text: str) -> str:
@@ -31,6 +40,56 @@ def detect_language(text: str) -> str:
     return "und"
 
 
+def _timestamp_seconds(value: str) -> float:
+    hours, minutes, seconds = value.replace(",", ".").split(":")
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
+def _parse_webvtt_fragments(raw: str) -> list[tuple[float, float, str]]:
+    matches = list(WEBVTT_TIMESTAMP_RE.finditer(raw))
+    cues: list[tuple[float, float, str]] = []
+    for index, match in enumerate(matches):
+        segment_end = matches[index + 1].start() if index + 1 < len(matches) else len(raw)
+        lines = raw[match.end():segment_end].splitlines()
+        content: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                if content:
+                    break
+                continue
+            if WEBVTT_HEADER_RE.fullmatch(stripped):
+                if content:
+                    break
+                continue
+            if stripped.isdigit() and not content:
+                continue
+            content.append(line)
+        text = "\n".join(content).strip()
+        if text:
+            cues.append((_timestamp_seconds(match["start"]), _timestamp_seconds(match["end"]), text))
+    return cues
+
+
+def _language_text(text: str, language: str) -> str:
+    if not language:
+        return clean_text(text)
+    selected: list[str] = []
+    for raw_line in text.splitlines():
+        line = clean_text(raw_line)
+        if not line:
+            continue
+        if language == "en" and re.search(r"[A-Za-z]", line):
+            line = clean_text(CJK_RE.sub("", line))
+            if re.search(r"[A-Za-z]", line):
+                selected.append(line)
+        elif language == "zh" and CJK_RE.search(line):
+            selected.append(line)
+        elif detect_language(line) == language:
+            selected.append(line)
+    return clean_text(" ".join(selected))
+
+
 def load_clean_subtitles(path: Path, language: str = "en") -> list[CleanSubtitle]:
     try:
         import srt
@@ -38,15 +97,22 @@ def load_clean_subtitles(path: Path, language: str = "en") -> list[CleanSubtitle
         raise RuntimeError('srt is required; install with pip install -e ".[context]"') from exc
     raw = path.read_text(encoding="utf-8-sig", errors="replace")
     candidates: list[tuple[float, float, str, str, str]] = []
-    for item in srt.parse(raw):
-        original = re.sub(r"\s+", " ", item.content).strip()
-        cleaned = clean_text(item.content)
+    if WEBVTT_HEADER_RE.search(raw):
+        parsed = _parse_webvtt_fragments(raw)
+    else:
+        parsed = [
+            (item.start.total_seconds(), item.end.total_seconds(), item.content)
+            for item in srt.parse(raw)
+        ]
+    for start, end, content in parsed:
+        original = re.sub(r"\s+", " ", content).strip()
+        cleaned = _language_text(content, language)
         if not cleaned:
             continue
-        detected = detect_language(cleaned)
-        if language and detected != language:
+        if RELEASE_CREDIT_RE.fullmatch(cleaned):
             continue
-        candidates.append((item.start.total_seconds(), item.end.total_seconds(), original, cleaned, detected))
+        detected = detect_language(cleaned)
+        candidates.append((start, end, original, cleaned, detected))
     candidates.sort(key=lambda row: (row[0], row[1], row[3]))
     seen: set[tuple[float, float, str]] = set()
     rows: list[CleanSubtitle] = []
