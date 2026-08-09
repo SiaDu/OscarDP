@@ -258,6 +258,18 @@ def test_broken_fragment_page_detection() -> None:
     assert not is_broken_page(["This is a normal screenplay line", "Another complete sentence"])
 
 
+def test_dense_revision_asterisks_do_not_make_valid_page_broken() -> None:
+    lines = ["INT. DINING ROOM - MORNING", "A woman plays piano for the residents.", "CLAIRE", "This is so nice, Ma."]
+    assert not is_broken_page(lines + ["*"] * 60)
+    pages = [{"page": 1, "width": 612, "lines": [
+        {"text": "INT. DINING ROOM - MORNING", "x0": 108, "y0": 10},
+        {"text": "A woman plays piano.", "x0": 108, "y0": 30},
+        {"text": "*", "x0": 550, "y0": 30},
+    ]}]
+    blocks = parse_layout_pages(pages, "tt1", "Test", {})["script_scenes"][0]["script_blocks"]
+    assert [block["text"] for block in blocks] == ["A woman plays piano."]
+
+
 def test_more_marker_is_ignored_but_dialogue_with_more_is_preserved() -> None:
     pages = [{"page": 1, "width": 612, "lines": [
         {"text": "1 INT. ROOM - NIGHT 1", "x0": 50, "y0": 10},

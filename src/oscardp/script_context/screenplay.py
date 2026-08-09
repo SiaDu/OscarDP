@@ -14,7 +14,7 @@ TIME_WORDS = {
     "SUNRISE", "SUNSET", "LATER", "CONTINUOUS", "MOMENTS LATER", "SAME TIME",
 }
 CUE_SUFFIX_RE = re.compile(r"\s*\((?:CONT['’]?D|CONTINUED|V\.?O\.?|O\.?S\.?|OFF)\)\s*$", re.I)
-PAGE_NOISE_RE = re.compile(r"^(?:CONTINUED:?|\"?BLUE MOON\"?\s+CONFORMED SCRIPT.*|\d+[A-Z]?\.?)$", re.I)
+PAGE_NOISE_RE = re.compile(r"^(?:CONTINUED:?|\"?BLUE MOON\"?\s+CONFORMED SCRIPT.*|\d+[A-Z]?\.?|[*#]+)$", re.I)
 MORE_MARKER_RE = re.compile(r"^\(?\s*MORE\s*\)?$", re.I)
 SECTION_MARKER_RE = re.compile(r"^(?:PT|PART)\s+\d+\s*:$", re.I)
 TRANSITION_RE = re.compile(
@@ -53,7 +53,10 @@ def normalize_character_cue(cue: str) -> str:
 
 
 def is_broken_page(lines: Iterable[str]) -> bool:
-    material = [line.strip() for line in lines if line.strip()]
+    material = [
+        line.strip() for line in lines
+        if line.strip() and not re.fullmatch(r"[*#]+", line.strip())
+    ]
     if not material:
         return True
     single = sum(len(re.sub(r"\W", "", line)) <= 1 for line in material)
