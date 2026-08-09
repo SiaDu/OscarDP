@@ -68,6 +68,7 @@ def test_production_risk_audit_is_self_contained_and_covers_required_risks(tmp_p
         "script_blocks": [
             {"block_type": "dialogue", "block_id": "scene_001_dialogue_001", "speaker": "A", "text": "Hi."},
             {"block_type": "dialogue", "block_id": "scene_001_dialogue_002", "speaker": "B", "text": "Go."},
+            {"block_type": "dialogue", "block_id": "scene_001_dialogue_003", "speaker": "C", "text": "Sign exit elsewhere."},
         ],
     }]}), encoding="utf-8")
     output = tmp_path / "audit.jsonl"; summary = tmp_path / "summary.json"
@@ -78,8 +79,9 @@ def test_production_risk_audit_is_self_contained_and_covers_required_risks(tmp_p
     assert result["record_count"] == 2 and result["required_fields_present"]
     first, second = rows
     assert {"low_confidence", "multi_block_selection", "multi_speaker_subtitle", "candidate_limit_saturated", "fallback_retrieval", "parser_structural_warning"} <= set(first["inclusion_reasons"])
-    assert {"graphic_or_insert_like_text", "strong_lexical_overlap_no_candidate_match", "candidate_recall_risk", "cross_scene_sequence_event"} <= set(second["inclusion_reasons"])
+    assert {"graphic_or_insert_like_text", "strong_lexical_overlap_no_candidate_match", "strong_screenplay_text_outside_candidate_window", "candidate_recall_risk", "cross_scene_sequence_event"} <= set(second["inclusion_reasons"])
     assert second["diagnostics"]["no_candidate_match_classification"] == "candidate_recall_risk"
+    assert second["diagnostics"]["strong_screenplay_matches_outside_candidates"][0]["block_id"] == "scene_001_dialogue_003"
     assert second["human_decision"] is None and second["review_status"] == "pending"
     assert second["dialogue_candidates"] and second["screenplay_local_context"] and second["matched_shots"]
 

@@ -15,6 +15,14 @@ from .stage253 import validate_resolution_v3
 from .validation import validate_files
 
 
+_LEXICAL_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "do", "for", "from", "got",
+    "had", "has", "have", "he", "her", "here", "him", "his", "i", "in", "is", "it", "just", "me",
+    "my", "of", "on", "or", "our", "out", "she", "so", "that", "the", "their", "them", "there",
+    "they", "this", "to", "up", "us", "was", "we", "were", "what", "when", "with", "you", "your",
+}
+
+
 def _sha(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -41,11 +49,22 @@ def _insert_like(text: str) -> bool:
     return bool(re.match(r"^(?:\[.*\]|(?:title|card|super|sign|chapter|telegram|letter|text)\s*:)", stripped, re.I))
 
 
-def _target_lexical_overlap(text: str, candidates: list[dict[str, Any]]) -> float:
-    target = set(tokenize(text).tokens)
-    if not target:
-        return 0.0
-    return max((len(target & set(tokenize(row.get("text", "")).tokens)) / len(target) for row in candidates), default=0.0)
+def _target_lexical_evidence(text: str, candidates: list[dict[str, Any]]) -> tuple[float, int, bool]:
+    target_tokens = tokenize(text).tokens
+    target_content = {token for token in target_tokens if token not in _LEXICAL_STOPWORDS}
+    if not target_tokens:
+        return 0.0, 0, False
+    normalized_target = " ".join(target_tokens)
+    best_score, best_count, exact_phrase = 0.0, 0, False
+    for row in candidates:
+        candidate_tokens = tokenize(row.get("text", "")).tokens
+        normalized_candidate = " ".join(candidate_tokens)
+        phrase = len(target_tokens) >= 2 and normalized_target in normalized_candidate
+        candidate_content = {token for token in candidate_tokens if token not in _LEXICAL_STOPWORDS}
+        count = len(target_content & candidate_content)
+        score = count / len(target_content) if target_content else 0.0
+        best_score, best_count, exact_phrase = max(best_score, score), max(best_count, count), exact_phrase or phrase
+    return best_score, best_count, exact_phrase
 
 
 def build_production_high_risk_audit_v3(
@@ -125,23 +144,36 @@ def build_production_high_risk_audit_v3(
                 if reason == "repeated_block_mapping": reasons.append("repeated_or_reordered_mapping")
             no_match_classification = None
             no_match_evidence: list[str] = []
+            outside_matches: list[dict[str, Any]] = []
             if resolution["decision"] == "no_candidate_match":
                 automatic_matches = automatic_by_id.get(subtitle_id, {}).get("matches", [])
-                lexical = max(
-                    _target_lexical_overlap(text, candidates),
-                    max((float(row.get("lexical_score") or 0.0) for row in automatic_matches), default=0.0),
-                )
+                lexical, lexical_overlap_count, lexical_phrase = _target_lexical_evidence(text, candidates)
+                automatic_lexical = max((float(row.get("lexical_score") or 0.0) for row in automatic_matches), default=0.0)
                 semantic = max((float(row.get("semantic_score") or 0.0) for row in automatic_matches), default=0.0)
-                if lexical >= 0.75:
+                strong_lexical = lexical_phrase or (lexical_overlap_count >= 2 and lexical >= 0.75) or automatic_lexical >= 0.75
+                moderate_lexical = lexical_overlap_count >= 2 and lexical >= 0.50
+                supplied_ids = set(candidate_by_id)
+                for block in dialogue:
+                    if block["block_id"] in supplied_ids:
+                        continue
+                    score, count, phrase = _target_lexical_evidence(text, [block])
+                    if phrase or (count >= 2 and score >= 0.75):
+                        outside_matches.append({**block, "target_content_overlap": score, "exact_phrase": phrase})
+                outside_matches.sort(key=lambda row: (not row["exact_phrase"], -row["target_content_overlap"], row["screenplay_order"]))
+                outside_matches = outside_matches[:5]
+                if strong_lexical:
                     reasons.append("strong_lexical_overlap_no_candidate_match"); no_match_evidence.append("strong_lexical_overlap")
                 if semantic >= 0.75:
                     reasons.append("high_semantic_score_no_candidate_match"); no_match_evidence.append("high_semantic_score")
                 if automatic_matches:
                     no_match_evidence.append("automatic_mapping_present")
+                if outside_matches:
+                    reasons.append("strong_screenplay_text_outside_candidate_window")
+                    no_match_evidence.append("strong_screenplay_text_outside_candidate_window")
                 if no_match_evidence:
                     no_match_classification = "candidate_recall_risk"
                     reasons.append("candidate_recall_risk")
-                elif (lexical >= 0.50 or semantic >= 0.50) and (
+                elif (moderate_lexical or semantic >= 0.50) and (
                     saturated or request.get("fallback_used") or _multi_speaker(text) or parser_warning
                 ):
                     no_match_classification = "ambiguous_needs_review"
@@ -181,6 +213,7 @@ def build_production_high_risk_audit_v3(
                     "candidate_count": len(candidates), "candidate_limit_saturated": saturated,
                     "no_candidate_match_classification": no_match_classification,
                     "no_candidate_match_evidence": no_match_evidence, "parser_structural_warning": parser_warning,
+                    "strong_screenplay_matches_outside_candidates": outside_matches,
                 },
                 "human_decision": None, "human_block_ids": None, "reviewer_notes": None, "review_status": "pending",
             })
