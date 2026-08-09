@@ -220,6 +220,15 @@ def test_structure_audit_reports_action_editorial_and_fragmented_dialogue() -> N
     assert len(audit["affected_blocks"]) == 3
 
 
+def test_structure_audit_does_not_reject_spoken_it_or_imperative_dialogue() -> None:
+    context = _context([
+        ("MICHELLE", "It looks - very nice. Thank you."),
+        ("MICHELLE", "QUIET. Listen to me. And I will explain."),
+    ])
+    audit = audit_screenplay_structure(context)
+    assert audit["confirmed_structural_error_count"] == 0
+
+
 def test_validation_fails_pre_openai_structure_gate() -> None:
     context = _context([("HART", "A normal spoken line.")])
     context["parsing_audit"] = {
