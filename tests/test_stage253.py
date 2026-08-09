@@ -117,6 +117,42 @@ def test_v3_decision_block_contract_is_enforced_locally() -> None:
     assert any("requires empty" in error for error in validate_resolution_v3(selecting_non_match, req)[0])
 
 
+def test_v3_non_adjacent_same_scene_selection_is_quality_risk_not_malformed() -> None:
+    req = request()
+    response = {"request_id": "r1", "resolutions": [
+        resolution("s1", "match", ["A", "C"], "expanded_or_contracted_turn"),
+    ]}
+    errors, diagnostics = validate_resolution_v3(response, req)
+    assert errors == []
+    quality = diagnostics["sequence_quality"]
+    assert quality["non_adjacent_resolution_count"] == 1
+    assert quality["cross_scene_resolution_count"] == 0
+    assert any(event["reason"] == "non_adjacent_blocks_within_resolution" for event in quality["events"])
+
+
+def test_v3_ordered_cross_scene_selection_is_quality_risk_not_malformed() -> None:
+    req = request()
+    req["dialogue_candidates"][2]["scene_id"] = "scene_2"
+    response = {"request_id": "r1", "resolutions": [
+        resolution("s1", "match", ["A", "C"], "expanded_or_contracted_turn"),
+    ]}
+    errors, diagnostics = validate_resolution_v3(response, req)
+    assert errors == []
+    quality = diagnostics["sequence_quality"]
+    assert quality["non_adjacent_resolution_count"] == 1
+    assert quality["cross_scene_resolution_count"] == 1
+    assert quality["high_risk_sequence_event_count"] == 2
+
+
+def test_v3_multi_block_selection_must_preserve_candidate_order() -> None:
+    req = request()
+    response = {"request_id": "r1", "resolutions": [
+        resolution("s1", "match", ["C", "A"], "repeated_or_reordered_dialogue"),
+    ]}
+    errors, _diagnostics = validate_resolution_v3(response, req)
+    assert any("preserve request candidate order" in error for error in errors)
+
+
 def test_prepare_v3_batch_preserves_payload_and_policy_manifest(tmp_path: Path) -> None:
     requests = tmp_path / "requests.jsonl"; policy = tmp_path / "policy.md"; output = tmp_path / "batch.jsonl"
     req = request(); write_jsonl(requests, [req]); policy.write_text("frozen policy", encoding="utf-8")

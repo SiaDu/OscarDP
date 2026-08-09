@@ -336,8 +336,12 @@ OpenAI pilot review uses three deliberately separate checks:
 - **Hard validation** asks whether the response is a structurally legal,
   request-constrained response. It rejects malformed output, missing or
   reordered subtitle resolutions, invalid enums/confidence, foreign candidate
-  IDs, invalid block arrays, and multi-block selections that are internally
-  unordered, non-adjacent, or cross scenes.
+  IDs, invalid block arrays, and internally unordered multi-block selections.
+  The historical v1/v2 three-way contract additionally requires adjacent,
+  same-scene blocks. Candidate-task v3 keeps ordered non-adjacent or cross-scene
+  selections structurally valid because a single final-film subtitle can omit
+  an intervening screenplay turn or span a scene cut; both patterns are
+  explicit high-risk diagnostics and must enter the audit package.
 - **Sequence-quality diagnostics** ask whether the alignment behavior looks
   suspicious. Backward mappings, missing `repeated_or_reordered_dialogue`
   basis, large jumps, and repeated block use are retained as warnings or
