@@ -128,6 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_v3.add_argument("--gold", type=Path, required=True); evaluate_v3.add_argument("--validated-responses", type=Path, required=True)
     evaluate_v3.add_argument("--manifest", type=Path, required=True); evaluate_v3.add_argument("--adjudication", type=Path, required=True)
     evaluate_v3.add_argument("--output", type=Path, required=True)
+    validate_calibration = commands.add_parser("validate-independent-calibration-reference")
+    validate_calibration.add_argument("--reference", type=Path, required=True); validate_calibration.add_argument("--requests", type=Path, required=True)
+    validate_calibration.add_argument("--reference-manifest", type=Path, required=True); validate_calibration.add_argument("--output", type=Path, required=True)
+    evaluate_calibration = commands.add_parser("evaluate-independent-calibration-v3")
+    evaluate_calibration.add_argument("--reference", type=Path, required=True); evaluate_calibration.add_argument("--validated-responses", type=Path, required=True)
+    evaluate_calibration.add_argument("--pilot-manifest", type=Path, required=True); evaluate_calibration.add_argument("--response-validation", type=Path, required=True)
+    evaluate_calibration.add_argument("--output", type=Path, required=True)
     adjudication = commands.add_parser("build-openai-gold-adjudication")
     adjudication_validate = commands.add_parser("validate-openai-gold-adjudication")
     for command in (adjudication, adjudication_validate):
@@ -246,6 +253,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "evaluate-openai-pilot-v3":
             from .stage253 import evaluate_pilot_v3
             print(json_dumps(evaluate_pilot_v3(args.gold, args.validated_responses, args.manifest, args.adjudication, args.output), pretty=True)); return 0
+        if args.command == "validate-independent-calibration-reference":
+            from .stage253 import validate_independent_calibration_reference
+            report = validate_independent_calibration_reference(args.reference, args.requests, args.reference_manifest, args.output)
+            print(json_dumps(report, pretty=True)); return 0 if report["passed"] else 1
+        if args.command == "evaluate-independent-calibration-v3":
+            from .stage253 import evaluate_independent_calibration_v3
+            print(json_dumps(evaluate_independent_calibration_v3(args.reference, args.validated_responses, args.pilot_manifest, args.response_validation, args.output), pretty=True)); return 0
         if args.command == "build-openai-gold-adjudication":
             from .stage252 import build_gold_adjudication
             result = build_gold_adjudication(args.gold, args.validated_responses, args.requests, args.manifest, args.screenplay_context, args.alignment, args.evaluation, args.disagreements, args.output_dir)

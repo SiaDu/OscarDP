@@ -20,6 +20,7 @@ from oscardp.script_context.stage253 import (
     batch_line_v32_policy,
     batch_line_v33_action_context,
     evaluate_pilot_v3,
+    evaluate_independent_calibration_v3,
     prepare_batch_v3,
     prepare_batch_v32_policy,
     prepare_batch_v33_action_context,
@@ -31,6 +32,7 @@ from oscardp.script_context.stage253 import (
     validate_batch_lines_v3,
     validate_batch_lines_v32_policy,
     validate_batch_lines_v33_action_context,
+    validate_independent_calibration_reference,
     validate_resolution_v3,
 )
 
@@ -229,6 +231,52 @@ def test_v33_submit_mocked_lifecycle_uses_own_validator(tmp_path: Path, monkeypa
     assert result["reviewer_version"] == "v3.3-action-context"
     assert result["request_context_version"] == "v3.3_nearby_screenplay_actions"
     files.create.assert_called_once(); batches.create.assert_called_once()
+
+
+def test_independent_calibration_reference_is_self_contained_and_hash_validated(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"; reference = tmp_path / "reference.jsonl"
+    manifest = tmp_path / "reference-manifest.json"; report = tmp_path / "reference-validation.json"
+    req = request(); write_jsonl(requests, [req])
+    row = {
+        "schema_version": "1.0", "reference_type": "codex_provisional_independent_calibration_reference",
+        "human_gold": False, "movie_id": "movie", "request_id": "r1", "request": req,
+        "reference_resolutions": [{
+            "subtitle_id": "s1", "subtitle_text": "s1", "decision": "match", "block_ids": ["A"],
+            "reference_status": "resolved", "reviewer_notes": "evidence",
+        }],
+    }
+    write_jsonl(reference, [row])
+    manifest.write_text(json.dumps({
+        "human_gold": False, "frozen_before_reviewer_output": True,
+        "reference_sha256": hashlib.sha256(reference.read_bytes()).hexdigest(),
+        "source_requests_sha256": hashlib.sha256(requests.read_bytes()).hexdigest(),
+        "request_count": 1, "subtitle_resolution_count": 1,
+        "decision_counts": {"match": 1, "no_candidate_match": 0},
+    }), encoding="utf-8")
+    result = validate_independent_calibration_reference(reference, requests, manifest, report)
+    assert result["passed"] and result["resolution_count"] == 1
+    row["reference_resolutions"][0]["block_ids"] = ["foreign"]
+    write_jsonl(reference, [row])
+    result = validate_independent_calibration_reference(reference, requests, manifest, report)
+    assert not result["passed"]
+    assert any("SHA-256" in error for error in result["errors"])
+    assert any("foreign candidate" in error for error in result["errors"])
+
+
+def test_independent_calibration_evaluator_reports_numeric_gate_and_not_human_gold(tmp_path: Path) -> None:
+    reference = tmp_path / "reference.jsonl"; responses = tmp_path / "validated.jsonl"
+    pilot_manifest = tmp_path / "pilot-manifest.json"; validation = tmp_path / "response-validation.json"; output = tmp_path / "evaluation.json"
+    req = request(); write_jsonl(reference, [{
+        "request_id": "r1", "reference_resolutions": [{"subtitle_id": "s1", "decision": "match", "block_ids": ["A"]}],
+    }])
+    write_jsonl(responses, [{"request_id": "r1", "resolutions": [resolution("s1", "match", ["A"], "exact_or_near_exact")]}])
+    pilot_manifest.write_text(json.dumps({"requests": [{"request_id": "r1", "stratum": "easy", "timeline_region": "early"}]}), encoding="utf-8")
+    validation.write_text(json.dumps({"valid_count": 30, "invalid_count": 0, "foreign_candidate_output_count": 0, "sequence_quality": {}}), encoding="utf-8")
+    result = evaluate_independent_calibration_v3(reference, responses, pilot_manifest, validation, output)
+    assert result["human_gold"] is False
+    assert result["metrics"]["candidate_task_accuracy"] == 1.0
+    assert result["numeric_acceptance_gate"]["passed"] is True
+    assert result["promotion_requires_error_class_audit"] is True
 
 
 def test_v32_submit_mocked_lifecycle_uses_its_own_validator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

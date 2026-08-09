@@ -206,6 +206,25 @@ candidate IDs are unchanged and that no reference or gold labels were added.
 Use `submit-openai-batch-v3-3-action-context` only for this versioned input;
 the version-specific validator rejects historical v3/v3.1/v3.2 payloads.
 
+Independent calibration references are frozen before reviewer output and are
+explicitly identified as provisional evidence rather than human gold. Validate
+the self-contained reference, its exact source request projection, candidate
+IDs, decision contracts, and frozen hashes before preparing a paid Batch:
+
+```bash
+python -m oscardp.script_context validate-independent-calibration-reference \
+  --reference /path/to/calibration_reference_frozen.jsonl \
+  --requests /path/to/pilot_requests.jsonl \
+  --reference-manifest /path/to/calibration_reference_manifest.json \
+  --output /path/to/calibration_reference_validation.json
+```
+
+After version-specific response validation, use
+`evaluate-independent-calibration-v3` to report candidate-task, candidate
+presence, exact-block, negative-discrimination, and sequence metrics. Its
+numeric gate is necessary but not sufficient: promotion still requires an
+error-class audit showing no unresolved systematic failure.
+
 Candidate-task v3 inputs have an explicit submission command and validator;
 the historical command remains reserved for v1/v2 inputs:
 

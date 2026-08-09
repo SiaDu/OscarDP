@@ -749,3 +749,129 @@ def evaluate_pilot_v3(
     }
     _write_json(output_path, result)
     return result
+
+
+def validate_independent_calibration_reference(
+    reference_path: Path, requests_path: Path, reference_manifest_path: Path, output_path: Path,
+) -> dict[str, Any]:
+    references = read_jsonl(reference_path)
+    requests = read_jsonl(requests_path)
+    manifest = json.loads(reference_manifest_path.read_text(encoding="utf-8"))
+    errors: list[str] = []
+    if manifest.get("human_gold") is not False:
+        errors.append("reference manifest must explicitly set human_gold=false")
+    if manifest.get("frozen_before_reviewer_output") is not True:
+        errors.append("reference was not frozen before reviewer output")
+    if manifest.get("reference_sha256") != hashlib.sha256(reference_path.read_bytes()).hexdigest():
+        errors.append("reference SHA-256 does not match its frozen manifest")
+    if manifest.get("source_requests_sha256") != hashlib.sha256(requests_path.read_bytes()).hexdigest():
+        errors.append("request SHA-256 does not match the reference manifest")
+    by_request = {row.get("request_id"): row for row in requests}
+    if len(by_request) != len(requests) or None in by_request:
+        errors.append("requests require unique non-empty request IDs")
+    seen_requests: set[str] = set()
+    resolution_count = 0
+    decision_counts = {"match": 0, "no_candidate_match": 0}
+    for row in references:
+        request_id = row.get("request_id")
+        if request_id in seen_requests:
+            errors.append(f"duplicate reference request {request_id}")
+        seen_requests.add(request_id)
+        request = by_request.get(request_id)
+        if request is None:
+            errors.append(f"reference request {request_id!r} is outside source requests")
+            continue
+        if row.get("human_gold") is not False:
+            errors.append(f"{request_id}: reference must explicitly set human_gold=false")
+        if row.get("request") != request:
+            errors.append(f"{request_id}: self-contained request differs from frozen source request")
+        resolutions = row.get("reference_resolutions")
+        if not isinstance(resolutions, list):
+            errors.append(f"{request_id}: reference_resolutions must be a list")
+            continue
+        expected_subtitles = list(request.get("subtitles", []))
+        if [item.get("subtitle_id") for item in resolutions] != [item.get("subtitle_id") for item in expected_subtitles]:
+            errors.append(f"{request_id}: subtitle IDs are missing, duplicated, or reordered")
+        allowed = {item.get("block_id") for item in request.get("dialogue_candidates", [])}
+        for index, resolution in enumerate(resolutions):
+            resolution_count += 1
+            decision = resolution.get("decision")
+            block_ids = resolution.get("block_ids")
+            if decision not in decision_counts:
+                errors.append(f"{request_id}: invalid reference decision {decision!r}")
+                continue
+            decision_counts[decision] += 1
+            if not isinstance(block_ids, list) or len(block_ids) != len(set(block_ids)):
+                errors.append(f"{request_id}: block IDs must be a unique list")
+                continue
+            foreign = sorted(set(block_ids) - allowed)
+            if foreign:
+                errors.append(f"{request_id}: foreign candidate IDs {foreign}")
+            if decision == "match" and not block_ids:
+                errors.append(f"{request_id}: match requires at least one block ID")
+            if decision == "no_candidate_match" and block_ids:
+                errors.append(f"{request_id}: no_candidate_match requires empty block IDs")
+            if index < len(expected_subtitles) and resolution.get("subtitle_text") != expected_subtitles[index].get("text"):
+                errors.append(f"{request_id}: subtitle text differs from frozen request")
+    missing = sorted(set(by_request) - seen_requests)
+    if missing:
+        errors.append(f"missing reference requests: {missing}")
+    if len(references) != manifest.get("request_count"):
+        errors.append("reference request count differs from manifest")
+    if resolution_count != manifest.get("subtitle_resolution_count"):
+        errors.append("reference resolution count differs from manifest")
+    if decision_counts != manifest.get("decision_counts"):
+        errors.append("reference decision counts differ from manifest")
+    result = {
+        "schema_version": "1.0", "validation_policy": "independent_calibration_reference_v1",
+        "request_count": len(references), "resolution_count": resolution_count,
+        "decision_counts": decision_counts, "error_count": len(errors), "errors": errors,
+        "reference_sha256": hashlib.sha256(reference_path.read_bytes()).hexdigest(),
+        "requests_sha256": hashlib.sha256(requests_path.read_bytes()).hexdigest(),
+        "passed": not errors,
+    }
+    _write_json(output_path, result)
+    return result
+
+
+def evaluate_independent_calibration_v3(
+    reference_path: Path, validated_path: Path, pilot_manifest_path: Path,
+    response_validation_path: Path, output_path: Path,
+) -> dict[str, Any]:
+    references = read_jsonl(reference_path)
+    responses = read_jsonl(validated_path)
+    pilot_manifest = json.loads(pilot_manifest_path.read_text(encoding="utf-8"))
+    validation = json.loads(response_validation_path.read_text(encoding="utf-8"))
+    predicted = {(row["request_id"], item["subtitle_id"]): item for row in responses for item in row["resolutions"]}
+    selection = {row["request_id"]: row for row in pilot_manifest["requests"]}
+    records: list[dict[str, Any]] = []
+    for row in references:
+        for expected in row["reference_resolutions"]:
+            records.append({
+                "request_id": row["request_id"], "expected": expected,
+                "actual": predicted.get((row["request_id"], expected["subtitle_id"])),
+                **selection[row["request_id"]],
+            })
+    metrics = _binary_metrics(records)
+    missing_count = sum(record["actual"] is None for record in records)
+    checks = {
+        "all_30_requests_structurally_valid": validation.get("valid_count") == 30 and validation.get("invalid_count") == 0,
+        "zero_missing_predictions": missing_count == 0,
+        "zero_foreign_candidates": int(validation.get("foreign_candidate_output_count", 0)) == 0,
+        "candidate_task_accuracy_at_least_0_90": metrics["candidate_task_accuracy"] >= 0.90,
+        "candidate_presence_accuracy_at_least_0_90": metrics["candidate_presence_decision_accuracy"] >= 0.90,
+    }
+    result = {
+        "schema_version": "1.0", "decision_schema_version": "candidate_task_v3",
+        "evaluation_role": "independent_calibration", "human_gold": False,
+        "reference_sha256": hashlib.sha256(reference_path.read_bytes()).hexdigest(),
+        "reference_resolution_count": len(records), "metrics": metrics,
+        "structural_invalid_request_count": int(validation.get("invalid_count", 0)),
+        "missing_prediction_count": missing_count,
+        "foreign_candidate_output_count": int(validation.get("foreign_candidate_output_count", 0)),
+        "sequence_quality": validation.get("sequence_quality", {}),
+        "numeric_acceptance_gate": {"checks": checks, "passed": all(checks.values())},
+        "promotion_requires_error_class_audit": True,
+    }
+    _write_json(output_path, result)
+    return result
