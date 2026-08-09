@@ -280,6 +280,14 @@ measurement. Each chunk still passes the normal version-aware local Batch QA;
 do not resubmit a failed oversized input or run historical v1/v2 validation on
 these binary candidate-task responses.
 
+The production lifecycle also supports the frozen `v3.2-production.2`
+manifest. That version keeps the production.1 model, prompt, request context,
+and response JSON schema, but binds responses to the independently calibrated
+`candidate_task_v3_structure_v2` hard-validation contract. Its outputs use the
+separate `v3_2_production_2` tag. Production.1 chunks can be carried forward
+only when the production.2 manifest records and verifies the exact inherited
+production.1 manifest hash; arbitrary cross-version merging is rejected.
+
 Use `merge-openai-production-responses-v3` only after both partitions pass
 v3 hard validation, then `apply-openai-production-responses-v3`. The latter
 preserves each original binary resolution as provenance while emitting only

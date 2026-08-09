@@ -35,6 +35,19 @@ def reviewer_manifest(path: Path) -> None:
     }), encoding="utf-8")
 
 
+def reviewer_manifest_v2(path: Path, inherited: Path) -> None:
+    path.write_text(json.dumps({
+        "production_reviewer_version": "v3.2-production.2",
+        "parent_reviewer_version": "v3.2-production.1",
+        "status": "promoted_frozen", "model": "gpt-5.6-terra",
+        "decision_schema_version": "candidate_task_v3",
+        "hard_validation_contract_version": "candidate_task_v3_structure_v2",
+        "prompt_sha256": hashlib.sha256(V32_POLICY_SYSTEM_INSTRUCTIONS.encode()).hexdigest(),
+        "inherited_production_1_evidence_manifest": inherited.resolve().as_posix(),
+        "inherited_production_1_evidence_manifest_sha256": hashlib.sha256(inherited.read_bytes()).hexdigest(),
+    }), encoding="utf-8")
+
+
 def request(index: int, subtitle_ids: list[str] | None = None) -> dict:
     ids = subtitle_ids or [f"subtitle_{index:06d}"]
     return {
@@ -93,6 +106,25 @@ def test_production_submit_revalidates_hash_and_uses_no_network_on_tamper(tmp_pa
     files.create.assert_called_once()
 
 
+def test_production_2_preparation_is_versioned_and_bound_to_inherited_manifest(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"
+    inherited = tmp_path / "reviewer-v1.json"
+    reviewer = tmp_path / "reviewer-v2.json"
+    batch = tmp_path / "batch.v3_2_production_2.jsonl"
+    write_jsonl(requests, [request(1)])
+    reviewer_manifest(inherited)
+    reviewer_manifest_v2(reviewer, inherited)
+
+    result = prepare_production_batch_v3(requests, reviewer, batch)
+
+    assert result["production_reviewer_version"] == "v3.2-production.2"
+    assert result["lifecycle_schema_version"] == "v3_production_2"
+    assert result["reviewer_manifest_sha256"] == hashlib.sha256(reviewer.read_bytes()).hexdigest()
+    inherited.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="inherited production.1 evidence hash differs"):
+        prepare_production_batch_v3(requests, reviewer, tmp_path / "other.jsonl")
+
+
 def test_production_chunk_packing_is_exact_ordered_bounded_and_write_once(tmp_path: Path) -> None:
     rows = [request(i) for i in range(1, 6)]
     requests = tmp_path / "requests.jsonl"
@@ -146,6 +178,16 @@ def test_production_chunk_response_merge_validates_coverage_and_v3_schema(tmp_pa
     assert [json.loads(line)["request_id"] for line in output.read_text().splitlines()] == [
         row["request_id"] for row in rows
     ]
+
+    reviewer_v2 = tmp_path / "reviewer-v2.json"
+    reviewer_manifest_v2(reviewer_v2, reviewer)
+    inherited_result = merge_production_response_chunks_v3(
+        tmp_path / "chunks/chunk_manifest.v3_2_production_1.json",
+        response_paths, reviewer_v2, tmp_path / "merged-v2.jsonl", tmp_path / "report-v2.json",
+    )
+    assert inherited_result["production_reviewer_version"] == "v3.2-production.2"
+    assert inherited_result["source_production_reviewer_version"] == "v3.2-production.1"
+    assert inherited_result["lifecycle_schema_version"] == "v3_production_2_chunked"
 
     missing = tmp_path / "missing.jsonl"
     write_jsonl(missing, [])
@@ -204,3 +246,9 @@ def test_production_apply_translates_binary_decision_and_preserves_provenance(tm
     assert reviewed[1]["alignment"]["llm_resolution"]["original_openai_resolution"]["decision"] == "no_candidate_match"
     resumed = apply_production_responses_v3(alignment, requests, responses, context, shots, tmp_path, reviewer)
     assert resumed["resumed"] is True
+    reviewer_v2 = tmp_path / "reviewer-v2.json"
+    reviewer_manifest_v2(reviewer_v2, reviewer)
+    v2 = apply_production_responses_v3(alignment, requests, responses, context, shots, tmp_path, reviewer_v2)
+    assert v2["production_reviewer_version"] == "v3.2-production.2"
+    assert v2["alignment_output"].endswith("subtitle_script_alignment.llm_reviewed_v3_2_production_2.jsonl")
+    assert v2["shot_output"].endswith("shot_script_context.llm_reviewed_v3_2_production_2.jsonl")
