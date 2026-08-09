@@ -80,6 +80,16 @@ PRODUCTION_REVIEWER_VERSIONS = {
         "retrieval_version": "global_lexical_rescue_v3",
         "review_policy_version": "annotation_policy_v1_plus_generic_v3.2.1_vocative_instructions",
     },
+    "v3.2.1-production.4-retrieval-v4-validator-v3": {
+        "output_tag": "v3_2_1_production_4_retrieval_v4_validator_v3",
+        "lifecycle_schema_version": "v3_2_1_production_4_retrieval_v4_validator_v3",
+        "hard_validation_contract_version": "candidate_task_v3_structure_v3",
+        "instructions": V321_VOCATIVE_SYSTEM_INSTRUCTIONS,
+        "batch_line": batch_line_v321_vocative,
+        "batch_validator": validate_batch_lines_v321_vocative,
+        "retrieval_version": "global_lexical_rescue_v4",
+        "review_policy_version": "annotation_policy_v1_plus_generic_v3.2.1_vocative_instructions",
+    },
 }
 
 

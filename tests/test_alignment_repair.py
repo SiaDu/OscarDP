@@ -190,6 +190,56 @@ def test_global_lexical_rescue_v3_partial_fragment_requires_content_overlap(tmp_
     assert "scene_002_dialogue_001" not in block_ids
 
 
+def test_global_lexical_rescue_v4_recovers_distinctive_contraction_and_neighbor_fragment(tmp_path) -> None:
+    import json
+    context = context_for([[
+        "Unrelated local candidate",
+        "Go back to London. We get along well enough without you.",
+        "To be, or not to be. That is the question.",
+        "You.",
+    ]])
+    context_path = tmp_path / "context.json"; context_path.write_text(json.dumps(context), encoding="utf-8")
+    base_candidate = {"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "HART", "text": "Unrelated local candidate", "parenthetical": None, "retrieval_methods": ["anchor_window"], "lexical_score": None, "semantic_score": None, "retrieval_score": None}
+    requests_rows = [
+        {"request_id": "alignment_review_000001", "subtitle_ids": ["subtitle_000002"], "subtitles": [{"subtitle_id": "subtitle_000002", "text": "Get along just fine without you.", "time": {"start_sec": 1, "end_sec": 2}}], "dialogue_candidates": [base_candidate], "candidate_scenes": ["scene_001"], "candidate_limit": 6},
+        {"request_id": "alignment_review_000002", "subtitle_ids": ["subtitle_000005"], "subtitles": [{"subtitle_id": "subtitle_000005", "text": "To be...", "time": {"start_sec": 4, "end_sec": 5}}], "dialogue_candidates": [base_candidate], "candidate_scenes": ["scene_001"], "candidate_limit": 6},
+    ]
+    requests = tmp_path / "requests.jsonl"; requests.write_text("".join(json.dumps(row) + "\n" for row in requests_rows), encoding="utf-8")
+    alignment_rows = [
+        {"subtitle_id": f"subtitle_{index:06d}", "text": text, "time": {"start_sec": index, "end_sec": index + 1}}
+        for index, text in enumerate(["Before", "Before two", "Get along just fine without you.", "Bridge", "Lead", "To be...", "that is the question", "After"], 1)
+    ]
+    alignment = tmp_path / "alignment.jsonl"; alignment.write_text("".join(json.dumps(row) + "\n" for row in alignment_rows), encoding="utf-8")
+    output = tmp_path / "rescued.jsonl"
+
+    result = augment_review_requests_global_lexical(
+        requests, context_path, output, retrieval_version="global_lexical_rescue_v4",
+        alignment_path=alignment, context_radius=2,
+    )
+
+    first, second = [json.loads(line) for line in output.read_text().splitlines()]
+    first_candidate = next(row for row in first["dialogue_candidates"] if row["block_id"] == "scene_001_dialogue_002")
+    second_candidate = next(row for row in second["dialogue_candidates"] if row["block_id"] == "scene_001_dialogue_003")
+    assert "global_relaxed_distinctive_fragment" in first_candidate["retrieval_methods"]
+    assert "target_subtitle" in first_candidate["retrieval_methods"]
+    assert "nearby_subtitle_context" in second_candidate["retrieval_methods"]
+    assert "scene_001_dialogue_004" not in {row["block_id"] for row in first["dialogue_candidates"]}
+    assert second["subtitle_ids"] == ["subtitle_000005"]
+    assert result["retrieval_version"] == "global_lexical_rescue_v4"
+    assert result["nearby_context_added_candidate_count"] > 0
+
+
+def test_global_lexical_rescue_v4_requires_deterministic_alignment(tmp_path) -> None:
+    import json
+    context_path = tmp_path / "context.json"; context_path.write_text(json.dumps(context_for([["Some dialogue"]])), encoding="utf-8")
+    requests = tmp_path / "requests.jsonl"; requests.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="requires deterministic alignment"):
+        augment_review_requests_global_lexical(
+            requests, context_path, tmp_path / "rescued.jsonl",
+            retrieval_version="global_lexical_rescue_v4",
+        )
+
+
 def test_anchors_split_regions_and_deleted_script_gap_is_allowed() -> None:
     context = context_for([["First reliable anchor has enough words", "This deleted screenplay dialogue never appears", "Last reliable anchor also has enough words"]])
     rows = align_subtitles(subs(["First reliable anchor has enough words", "Last reliable anchor also has enough words"]), context, "tt1")

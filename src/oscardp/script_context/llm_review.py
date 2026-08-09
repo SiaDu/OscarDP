@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .alignment import _fuzzy, build_script_units, tokenize
+from .schema import read_jsonl
 
 
 class LLMResolver(Protocol):
@@ -137,6 +138,36 @@ def _global_rescue_evidence_v3(subtitle_text: str, unit: Any) -> tuple[float, st
 
     if len(set(content_tokens)) >= 2 and content_coverage == 1.0:
         return 0.92, "global_content_token_coverage"
+    return 0.0, "none"
+
+
+def _global_rescue_evidence_v4(subtitle_text: str, unit: Any) -> tuple[float, str]:
+    """Recover distinctive contracted fragments without admitting generic short replies."""
+    score, method = _global_rescue_evidence_v3(subtitle_text, unit)
+    block_content = {
+        token for token in unit.token_text.tokens
+        if token not in _GLOBAL_RESCUE_FUNCTION_WORDS and token != "s"
+    }
+    generic_script_substring = method == "script_substring" and (
+        len(unit.token_text.tokens) < 2 or not block_content
+    )
+    if method != "none" and not generic_script_substring:
+        return score, method
+    subtitle_tokens = tokenize(subtitle_text).tokens
+    block_tokens = unit.token_text.tokens
+    content_tokens = tuple(
+        token for token in subtitle_tokens
+        if token not in _GLOBAL_RESCUE_FUNCTION_WORDS and token != "s"
+    )
+    if len(subtitle_tokens) < 4 or len(set(content_tokens)) < 4 or not block_tokens:
+        return 0.0, "none"
+    from rapidfuzz.fuzz import partial_ratio
+
+    block_token_set = set(block_tokens)
+    coverage = sum(token in block_token_set for token in content_tokens) / len(content_tokens)
+    partial_score = partial_ratio(" ".join(subtitle_tokens), " ".join(block_tokens)) / 100.0
+    if coverage >= 0.60 and partial_score >= 0.70:
+        return min(0.94, max(0.86, partial_score)), "global_relaxed_distinctive_fragment"
     return 0.0, "none"
 
 
@@ -357,7 +388,8 @@ def validate_review_requests(requests: list[dict[str, Any]], context: dict[str, 
 
 def augment_review_requests_global_lexical(
     requests_path: Path, context_path: Path, output_path: Path, *, max_rescue_candidates: int = 12,
-    retrieval_version: str = "global_lexical_rescue_v2",
+    retrieval_version: str = "global_lexical_rescue_v2", alignment_path: Path | None = None,
+    context_radius: int = 2,
 ) -> dict[str, Any]:
     """Write a versioned request set with strong screenplay-wide lexical rescue candidates."""
     manifest_path = output_path.with_suffix(output_path.suffix + ".manifest.json")
@@ -365,51 +397,88 @@ def augment_review_requests_global_lexical(
         raise FileExistsError("refusing to overwrite global lexical rescue requests")
     if not 1 <= max_rescue_candidates <= 36:
         raise ValueError("max_rescue_candidates must be between 1 and 36")
-    if retrieval_version not in {"global_lexical_rescue_v2", "global_lexical_rescue_v3"}:
+    if retrieval_version not in {"global_lexical_rescue_v2", "global_lexical_rescue_v3", "global_lexical_rescue_v4"}:
         raise ValueError("unsupported global lexical rescue version")
+    if retrieval_version == "global_lexical_rescue_v4" and alignment_path is None:
+        raise ValueError("global lexical rescue v4 requires deterministic alignment for nearby subtitle retrieval")
+    if not 1 <= context_radius <= 10:
+        raise ValueError("context_radius must be between 1 and 10")
     context = json.loads(context_path.read_text(encoding="utf-8"))
     requests = [json.loads(line) for line in requests_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     units = build_script_units(context)
-    rescued_requests = rescued_targets = added_total = 0
+    alignments = read_jsonl(alignment_path) if alignment_path is not None else []
+    alignment_positions = {row.get("subtitle_id"): index for index, row in enumerate(alignments)}
+    if alignment_path is not None and (None in alignment_positions or len(alignment_positions) != len(alignments)):
+        raise ValueError("alignment must contain unique non-empty subtitle IDs")
+    rescued_requests = rescued_targets = added_total = context_added_total = 0
     output: list[dict[str, Any]] = []
     for source in requests:
         request = json.loads(json.dumps(source))
         existing = {row["block_id"]: row for row in request.get("dialogue_candidates", [])}
-        rescue: dict[int, tuple[float, str]] = {}
+        rescue: dict[int, tuple[float, str, str]] = {}
         target_hits: set[str] = set()
-        for subtitle in request.get("subtitles", []):
+        query_subtitles = [(subtitle, "target_subtitle") for subtitle in request.get("subtitles", [])]
+        context_ids: set[str] = set()
+        if retrieval_version == "global_lexical_rescue_v4":
+            target_ids = list(request.get("subtitle_ids", []))
+            if not target_ids or any(subtitle_id not in alignment_positions for subtitle_id in target_ids):
+                raise ValueError(f"{request.get('request_id')} target subtitle is absent from alignment")
+            positions = [alignment_positions[subtitle_id] for subtitle_id in target_ids]
+            first, last = min(positions), max(positions)
+            nearby = alignments[max(0, first - context_radius):first] + alignments[last + 1:last + 1 + context_radius]
+            context_ids = {row["subtitle_id"] for row in nearby}
+            query_subtitles.extend((row, "nearby_subtitle_context") for row in nearby)
+        anchor_orders = [
+            order
+            for anchor_name in ("previous_anchor", "next_anchor")
+            for order in ((request.get(anchor_name) or {}).get("screenplay_order") or [])
+            if isinstance(order, int)
+        ]
+        for subtitle, query_source in query_subtitles:
+            if query_source == "nearby_subtitle_context" and target_hits:
+                continue
             tokens = tokenize(subtitle.get("text", "")).tokens
             content_tokens = {token for token in tokens if token not in _GLOBAL_RESCUE_FUNCTION_WORDS}
             if not content_tokens or (retrieval_version == "global_lexical_rescue_v2" and len(tokens) < 3):
                 continue
-            ranked: list[tuple[float, int, str]] = []
+            ranked: list[tuple[float, float, int, str]] = []
             for index, unit in enumerate(units):
                 if unit.block["block_id"] in existing:
                     continue
-                if retrieval_version == "global_lexical_rescue_v3":
+                if retrieval_version == "global_lexical_rescue_v4":
+                    score, method = _global_rescue_evidence_v4(subtitle["text"], unit)
+                    accepted = method != "none"
+                elif retrieval_version == "global_lexical_rescue_v3":
                     score, method = _global_rescue_evidence_v3(subtitle["text"], unit)
                     accepted = method != "none"
                 else:
                     score, method = _lexical_evidence(subtitle["text"], unit)
                     accepted = method != "rapidfuzz" or score >= 0.80
                 if accepted:
-                    ranked.append((score, index, method))
-            ranked.sort(key=lambda item: (-item[0], item[1]))
-            if ranked:
+                    anchor_bonus = (
+                        0.12 if retrieval_version == "global_lexical_rescue_v4"
+                        and anchor_orders and min(abs(index - order) for order in anchor_orders) <= 8
+                        else 0.0
+                    )
+                    ranked.append((score + anchor_bonus, score, index, method))
+            ranked.sort(key=lambda item: (-item[0], -item[1], item[2]))
+            if ranked and query_source == "target_subtitle":
                 target_hits.add(subtitle["subtitle_id"])
-            for score, index, method in ranked[:2]:
+            for _selection_score, score, index, method in ranked[:2]:
                 previous = rescue.get(index)
-                if previous is None or score > previous[0]:
-                    rescue[index] = (score, method)
+                ranking_score = score + (0.1 if query_source == "target_subtitle" else 0.0)
+                if previous is None or ranking_score > previous[0]:
+                    rescue[index] = (ranking_score, method, query_source)
         ranked_rescue = sorted(rescue.items(), key=lambda item: (-item[1][0], item[0]))[:max_rescue_candidates]
         additions = []
-        for index, (score, method) in ranked_rescue:
+        for index, (ranking_score, method, query_source) in ranked_rescue:
             unit = units[index]
+            score = ranking_score - (0.1 if query_source == "target_subtitle" else 0.0)
             additions.append({
                 "scene_id": unit.block["scene_id"], "block_id": unit.block["block_id"],
                 "screenplay_order": unit.block_index, "speaker": unit.block.get("speaker"),
                 "text": unit.block["text"], "parenthetical": unit.block.get("parenthetical"),
-                "retrieval_methods": ["global_lexical_rescue", method],
+                "retrieval_methods": ["global_lexical_rescue", method, query_source],
                 "lexical_score": round(score, 6), "semantic_score": None, "retrieval_score": round(score, 6),
             })
         limit = int(request.get("candidate_limit") or 36)
@@ -430,10 +499,13 @@ def augment_review_requests_global_lexical(
                     "end_scene_id": request["dialogue_candidates"][-1]["scene_id"],
                 }
             rescued_requests += 1; rescued_targets += len(target_hits); added_total += len(additions)
+            context_added_total += sum("nearby_subtitle_context" in row["retrieval_methods"] for row in additions)
         if additions:
             request["retrieval_version"] = retrieval_version
             request["global_lexical_rescue_target_ids"] = sorted(target_hits)
             request["global_lexical_rescue_candidate_count"] = len(additions)
+            if retrieval_version == "global_lexical_rescue_v4":
+                request["global_lexical_rescue_context_subtitle_ids"] = sorted(context_ids)
         output.append(request)
     errors = validate_review_requests(output, context)
     if errors:
@@ -452,11 +524,15 @@ def augment_review_requests_global_lexical(
     result = {"schema_version": "1.0", "request_count": len(output),
               "rescued_request_count": rescued_requests,
               "rescued_target_count": rescued_targets, "added_candidate_count": added_total,
+              "nearby_context_added_candidate_count": context_added_total,
               "retrieval_version": retrieval_version, "max_rescue_candidates": max_rescue_candidates,
+              "context_radius": context_radius if retrieval_version == "global_lexical_rescue_v4" else None,
               "source_requests": requests_path.resolve().as_posix(),
               "source_requests_sha256": hashlib.sha256(requests_path.read_bytes()).hexdigest(),
               "screenplay_context": context_path.resolve().as_posix(),
               "screenplay_context_sha256": hashlib.sha256(context_path.read_bytes()).hexdigest(),
+              "source_alignment": alignment_path.resolve().as_posix() if alignment_path is not None else None,
+              "source_alignment_sha256": hashlib.sha256(alignment_path.read_bytes()).hexdigest() if alignment_path is not None else None,
               "function_word_policy_sha256": hashlib.sha256(
                   json.dumps(sorted(_GLOBAL_RESCUE_FUNCTION_WORDS), separators=(",", ":")).encode("utf-8")
               ).hexdigest(),

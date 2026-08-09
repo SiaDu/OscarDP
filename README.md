@@ -232,6 +232,27 @@ python -m oscardp.script_context augment-review-requests-global-lexical \
   --retrieval-version global_lexical_rescue_v3
 ```
 
+Retrieval v4 is a descendant retrieval-only experiment. It removes generic
+one-word screenplay substrings, admits distinctive contracted fragments, and
+uses a bounded deterministic subtitle neighborhood only when the target itself
+has no screenplay-wide lexical hit. The nearby rows influence candidate
+retrieval only; they never become resolution targets. V4 therefore requires
+the immutable deterministic alignment explicitly:
+
+```bash
+python -m oscardp.script_context augment-review-requests-global-lexical \
+  --requests /path/to/alignment_requests.jsonl \
+  --screenplay-context /path/to/movie_script_context.json \
+  --alignment /path/to/subtitle_script_alignment.jsonl \
+  --output /path/to/requests.full.global_lexical_rescue_v4.jsonl \
+  --retrieval-version global_lexical_rescue_v4 \
+  --context-radius 2
+```
+
+Its manifest hashes the deterministic alignment and records how many additions
+came from nearby context. As with every retrieval revision, v4 must pass a
+previously unused independent calibration movie before production promotion.
+
 The output and manifest are immutable/version-tagged. A reviewer bundle that
 changes from retrieval v2 to v3 is a descendant experiment and requires a new,
 previously unused independent calibration movie before production promotion.
