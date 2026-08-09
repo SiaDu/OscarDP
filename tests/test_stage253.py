@@ -18,14 +18,19 @@ from oscardp.script_context.openai_review import batch_line, submit_batch
 from oscardp.script_context.stage253 import (
     batch_line_v3,
     batch_line_v32_policy,
+    batch_line_v33_action_context,
     evaluate_pilot_v3,
     prepare_batch_v3,
     prepare_batch_v32_policy,
+    prepare_batch_v33_action_context,
+    prepare_review_action_context_v33,
     prepare_review_context_v31,
     submit_batch_v3,
     submit_batch_v32_policy,
+    submit_batch_v33_action_context,
     validate_batch_lines_v3,
     validate_batch_lines_v32_policy,
+    validate_batch_lines_v33_action_context,
     validate_resolution_v3,
 )
 
@@ -166,6 +171,64 @@ def test_prepare_v32_changes_only_policy_and_preserves_v3_schema(tmp_path: Path)
     assert rows[0]["body"]["instructions"] == V32_POLICY_SYSTEM_INSTRUCTIONS
     assert rows[0]["body"]["text"]["format"]["schema"] == alignment_response_schema_v3(request())
     assert validate_batch_lines_v3(rows)
+
+
+def screenplay_context() -> dict:
+    return {"script_scenes": [{
+        "scene_id": "scene_1", "script_blocks": [
+            {"block_id": "act_1", "block_type": "action", "source_order": 1, "text": "She remains outside."},
+            {"block_id": "A", "block_type": "dialogue", "source_order": 2, "text": "The exact turn", "speaker": "A"},
+            {"block_id": "act_2", "block_type": "action", "source_order": 3, "text": "He pounds on the door."},
+            {"block_id": "B", "block_type": "dialogue", "source_order": 4, "text": "A related turn", "speaker": "A"},
+            {"block_id": "act_3", "block_type": "action", "source_order": 5, "text": "She opens it."},
+            {"block_id": "C", "block_type": "dialogue", "source_order": 6, "text": "A repeated turn", "speaker": "A"},
+        ],
+    }]}
+
+
+def test_v33_action_context_is_bounded_non_selectable_and_preserves_task(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"; screenplay = tmp_path / "screenplay.json"; output = tmp_path / "requests-v33.jsonl"
+    req = request(); write_jsonl(requests, [req]); screenplay.write_text(json.dumps(screenplay_context()), encoding="utf-8")
+    manifest = prepare_review_action_context_v33(requests, screenplay, output, radius=2, max_actions=2)
+    augmented = json.loads(output.read_text(encoding="utf-8"))
+    assert augmented["subtitle_ids"] == req["subtitle_ids"]
+    assert augmented["dialogue_candidates"] == req["dialogue_candidates"]
+    actions = augmented["review_context"]["screenplay_action_blocks"]
+    assert len(actions) == 2
+    assert all(row["block_type"] == "action" and row["selectable"] is False for row in actions)
+    assert all(set(row) == {"block_id", "scene_id", "source_order", "text", "block_type", "selectable"} for row in actions)
+    assert manifest["changed_layer"] == "request_context_only"
+    assert manifest["gold_labels_included"] is False
+
+
+def test_v33_batch_keeps_v32_policy_and_v3_candidate_enum(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"; screenplay = tmp_path / "screenplay.json"; augmented = tmp_path / "requests-v33.jsonl"
+    policy = tmp_path / "policy.md"; batch = tmp_path / "batch-v33.jsonl"
+    write_jsonl(requests, [request()]); screenplay.write_text(json.dumps(screenplay_context()), encoding="utf-8"); policy.write_text("frozen", encoding="utf-8")
+    prepare_review_action_context_v33(requests, screenplay, augmented)
+    manifest = prepare_batch_v33_action_context(augmented, policy, batch, "test-model")
+    row = json.loads(batch.read_text(encoding="utf-8"))
+    assert validate_batch_lines_v33_action_context([row]) == []
+    assert row["body"]["instructions"] == V32_POLICY_SYSTEM_INSTRUCTIONS
+    enum = row["body"]["text"]["format"]["schema"]["properties"]["resolutions"]["items"]["properties"]["block_ids"]["items"]["enum"]
+    assert enum == ["A", "B", "C"] and "act_1" not in enum
+    assert manifest["decision_schema_version"] == "candidate_task_v3"
+    assert validate_batch_lines_v32_policy([row])
+
+
+def test_v33_submit_mocked_lifecycle_uses_own_validator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    requests = tmp_path / "requests.jsonl"; screenplay = tmp_path / "screenplay.json"; augmented = tmp_path / "requests-v33.jsonl"
+    batch = tmp_path / "batch-v33.jsonl"; job = tmp_path / "job-v33.json"
+    write_jsonl(requests, [request()]); screenplay.write_text(json.dumps(screenplay_context()), encoding="utf-8")
+    prepare_review_action_context_v33(requests, screenplay, augmented)
+    write_jsonl(batch, [batch_line_v33_action_context(json.loads(augmented.read_text()), "test-model")])
+    files = SimpleNamespace(create=Mock(return_value=SimpleNamespace(id="file-v33")))
+    batches = SimpleNamespace(create=Mock(return_value=SimpleNamespace(id="batch-v33", status="validating")))
+    monkeypatch.setattr("oscardp.script_context.openai_review._client", lambda: SimpleNamespace(files=files, batches=batches))
+    result = submit_batch_v33_action_context(batch, job, confirm_submit=True)
+    assert result["reviewer_version"] == "v3.3-action-context"
+    assert result["request_context_version"] == "v3.3_nearby_screenplay_actions"
+    files.create.assert_called_once(); batches.create.assert_called_once()
 
 
 def test_v32_submit_mocked_lifecycle_uses_its_own_validator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

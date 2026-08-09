@@ -62,9 +62,16 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_batch_v32 = commands.add_parser("prepare-openai-batch-v3-2-policy")
     prepare_batch_v32.add_argument("--requests", type=Path, required=True); prepare_batch_v32.add_argument("--annotation-policy", type=Path, required=True)
     prepare_batch_v32.add_argument("--output", type=Path, required=True); prepare_batch_v32.add_argument("--model", required=True)
+    prepare_batch_v33 = commands.add_parser("prepare-openai-batch-v3-3-action-context")
+    prepare_batch_v33.add_argument("--requests", type=Path, required=True); prepare_batch_v33.add_argument("--annotation-policy", type=Path, required=True)
+    prepare_batch_v33.add_argument("--output", type=Path, required=True); prepare_batch_v33.add_argument("--model", required=True)
     context_v31 = commands.add_parser("prepare-review-context-v3-1")
     context_v31.add_argument("--requests", type=Path, required=True); context_v31.add_argument("--alignment", type=Path, required=True)
     context_v31.add_argument("--output", type=Path, required=True); context_v31.add_argument("--radius", type=int, default=2)
+    context_v33 = commands.add_parser("prepare-review-action-context-v3-3")
+    context_v33.add_argument("--requests", type=Path, required=True); context_v33.add_argument("--screenplay-context", type=Path, required=True)
+    context_v33.add_argument("--output", type=Path, required=True); context_v33.add_argument("--radius", type=int, default=8)
+    context_v33.add_argument("--max-actions", type=int, default=24)
     remaining = commands.add_parser("prepare-openai-remaining")
     remaining.add_argument("--full-requests", type=Path, required=True); remaining.add_argument("--pilot-requests", type=Path, required=True)
     remaining.add_argument("--output", type=Path, required=True); remaining.add_argument("--manifest", type=Path, required=True); remaining.add_argument("--model", required=True)
@@ -74,6 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
     submit_v3.add_argument("--batch-input", type=Path, required=True); submit_v3.add_argument("--job-file", type=Path, required=True); submit_v3.add_argument("--confirm-submit", action="store_true")
     submit_v32 = commands.add_parser("submit-openai-batch-v3-2-policy")
     submit_v32.add_argument("--batch-input", type=Path, required=True); submit_v32.add_argument("--job-file", type=Path, required=True); submit_v32.add_argument("--confirm-submit", action="store_true")
+    submit_v33 = commands.add_parser("submit-openai-batch-v3-3-action-context")
+    submit_v33.add_argument("--batch-input", type=Path, required=True); submit_v33.add_argument("--job-file", type=Path, required=True); submit_v33.add_argument("--confirm-submit", action="store_true")
     check = commands.add_parser("check-openai-batch"); check.add_argument("--job-file", type=Path, required=True)
     fetch = commands.add_parser("fetch-openai-batch"); fetch.add_argument("--job-file", type=Path, required=True); fetch.add_argument("--output-dir", type=Path, required=True)
     validate_openai = commands.add_parser("validate-openai-responses")
@@ -165,9 +174,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-openai-batch-v3-2-policy":
             from .stage253 import prepare_batch_v32_policy
             print(json_dumps(prepare_batch_v32_policy(args.requests, args.annotation_policy, args.output, args.model), pretty=True)); return 0
+        if args.command == "prepare-openai-batch-v3-3-action-context":
+            from .stage253 import prepare_batch_v33_action_context
+            print(json_dumps(prepare_batch_v33_action_context(args.requests, args.annotation_policy, args.output, args.model), pretty=True)); return 0
         if args.command == "prepare-review-context-v3-1":
             from .stage253 import prepare_review_context_v31
             print(json_dumps(prepare_review_context_v31(args.requests, args.alignment, args.output, args.radius), pretty=True)); return 0
+        if args.command == "prepare-review-action-context-v3-3":
+            from .stage253 import prepare_review_action_context_v33
+            print(json_dumps(prepare_review_action_context_v33(args.requests, args.screenplay_context, args.output, args.radius, args.max_actions), pretty=True)); return 0
         if args.command == "prepare-openai-remaining":
             from .stage23 import prepare_remaining_requests
             print(json_dumps(prepare_remaining_requests(args.full_requests, args.pilot_requests, args.output, args.manifest, args.model), pretty=True)); return 0
@@ -180,6 +195,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "submit-openai-batch-v3-2-policy":
             from .stage253 import submit_batch_v32_policy
             print(json_dumps(submit_batch_v32_policy(args.batch_input, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
+        if args.command == "submit-openai-batch-v3-3-action-context":
+            from .stage253 import submit_batch_v33_action_context
+            print(json_dumps(submit_batch_v33_action_context(args.batch_input, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
         if args.command == "check-openai-batch":
             from .openai_review import check_batch
             print(json_dumps(check_batch(args.job_file), pretty=True)); return 0

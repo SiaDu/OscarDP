@@ -182,6 +182,30 @@ python -m oscardp.script_context prepare-openai-batch-v3-2-policy \
 Use `submit-openai-batch-v3-2-policy` for that exact artifact. Historical v3
 and v3.1 Batch inputs retain their original validators and instructions.
 
+A v3.3 request-context experiment can keep the v3.2 instructions and binary
+candidate schema frozen while adding bounded screenplay action around supplied
+dialogue candidates:
+
+```bash
+python -m oscardp.script_context prepare-review-action-context-v3-3 \
+  --requests /path/to/frozen_pilot_requests.jsonl \
+  --screenplay-context /path/to/movie_script_context.json \
+  --output /path/to/pilot_requests.v3_3_action_context.jsonl \
+  --radius 8 --max-actions 24
+
+python -m oscardp.script_context prepare-openai-batch-v3-3-action-context \
+  --requests /path/to/pilot_requests.v3_3_action_context.jsonl \
+  --annotation-policy /path/to/frozen_annotation_policy.md \
+  --output /path/to/pilot_batch_input.v3_3_action_context.jsonl \
+  --model "$OPENAI_MODEL"
+```
+
+Action rows are explicitly non-selectable and never enter the response block-ID
+enum. The augmentation manifest proves that subtitle targets and dialogue
+candidate IDs are unchanged and that no reference or gold labels were added.
+Use `submit-openai-batch-v3-3-action-context` only for this versioned input;
+the version-specific validator rejects historical v3/v3.1/v3.2 payloads.
+
 Candidate-task v3 inputs have an explicit submission command and validator;
 the historical command remains reserved for v1/v2 inputs:
 
