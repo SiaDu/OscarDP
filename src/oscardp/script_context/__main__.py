@@ -132,6 +132,9 @@ def build_parser() -> argparse.ArgumentParser:
     production_risk.add_argument("--reviewed-alignment", type=Path, required=True); production_risk.add_argument("--reviewed-shot-context", type=Path, required=True)
     production_risk.add_argument("--screenplay-context", type=Path, required=True); production_risk.add_argument("--output", type=Path, required=True)
     production_risk.add_argument("--summary", type=Path, required=True); production_risk.add_argument("--low-confidence-threshold", type=float, default=.8)
+    lexical_rescue = commands.add_parser("augment-review-requests-global-lexical")
+    lexical_rescue.add_argument("--requests", type=Path, required=True); lexical_rescue.add_argument("--screenplay-context", type=Path, required=True)
+    lexical_rescue.add_argument("--output", type=Path, required=True); lexical_rescue.add_argument("--max-rescue-candidates", type=int, default=12)
     production_finalize = commands.add_parser("finalize-openai-production-movie-v3")
     production_finalize.add_argument("--movie-key", required=True); production_finalize.add_argument("--inventory", type=Path, required=True)
     production_finalize.add_argument("--status", type=Path, required=True); production_finalize.add_argument("--screenplay-context", type=Path, required=True)
@@ -309,6 +312,12 @@ def main(argv: list[str] | None = None) -> int:
                 args.screenplay_context, args.output, args.summary, low_confidence_threshold=args.low_confidence_threshold,
             )
             print(json_dumps(result, pretty=True)); return 0
+        if args.command == "augment-review-requests-global-lexical":
+            from .llm_review import augment_review_requests_global_lexical
+            print(json_dumps(augment_review_requests_global_lexical(
+                args.requests, args.screenplay_context, args.output,
+                max_rescue_candidates=args.max_rescue_candidates,
+            ), pretty=True)); return 0
         if args.command == "finalize-openai-production-movie-v3":
             from .production_qc import finalize_production_movie_v3
             result = finalize_production_movie_v3(

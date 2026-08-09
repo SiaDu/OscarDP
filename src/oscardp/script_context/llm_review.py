@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any, Protocol
 
 from .alignment import _fuzzy, build_script_units, tokenize
@@ -302,6 +306,94 @@ def validate_review_requests(requests: list[dict[str, Any]], context: dict[str, 
         if request.get("insufficient_candidates") and request.get("dialogue_candidates"):
             errors.append(f"{request.get('request_id')} insufficient request has candidates")
     return errors
+
+
+def augment_review_requests_global_lexical(
+    requests_path: Path, context_path: Path, output_path: Path, *, max_rescue_candidates: int = 12,
+) -> dict[str, Any]:
+    """Write a versioned request set with strong screenplay-wide lexical rescue candidates."""
+    if output_path.exists():
+        raise FileExistsError("refusing to overwrite global lexical rescue requests")
+    if not 1 <= max_rescue_candidates <= 36:
+        raise ValueError("max_rescue_candidates must be between 1 and 36")
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    requests = [json.loads(line) for line in requests_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    units = build_script_units(context)
+    rescued_requests = rescued_targets = added_total = 0
+    output: list[dict[str, Any]] = []
+    for source in requests:
+        request = json.loads(json.dumps(source))
+        existing = {row["block_id"]: row for row in request.get("dialogue_candidates", [])}
+        rescue: dict[int, tuple[float, str]] = {}
+        target_hits: set[str] = set()
+        for subtitle in request.get("subtitles", []):
+            tokens = tokenize(subtitle.get("text", "")).tokens
+            if len(tokens) < 3:
+                continue
+            ranked: list[tuple[float, int, str]] = []
+            for index, unit in enumerate(units):
+                if unit.block["block_id"] in existing:
+                    continue
+                score, method = _lexical_evidence(subtitle["text"], unit)
+                if method != "rapidfuzz" or score >= 0.80:
+                    ranked.append((score, index, method))
+            ranked.sort(key=lambda item: (-item[0], item[1]))
+            if ranked:
+                target_hits.add(subtitle["subtitle_id"])
+            for score, index, method in ranked[:2]:
+                previous = rescue.get(index)
+                if previous is None or score > previous[0]:
+                    rescue[index] = (score, method)
+        ranked_rescue = sorted(rescue.items(), key=lambda item: (-item[1][0], item[0]))[:max_rescue_candidates]
+        additions = []
+        for index, (score, method) in ranked_rescue:
+            unit = units[index]
+            additions.append({
+                "scene_id": unit.block["scene_id"], "block_id": unit.block["block_id"],
+                "screenplay_order": unit.block_index, "speaker": unit.block.get("speaker"),
+                "text": unit.block["text"], "parenthetical": unit.block.get("parenthetical"),
+                "retrieval_methods": ["global_lexical_rescue", method],
+                "lexical_score": round(score, 6), "semantic_score": None, "retrieval_score": round(score, 6),
+            })
+        limit = int(request.get("candidate_limit") or 36)
+        if additions:
+            protected = [row for row in existing.values() if "automatic_mapping" in row.get("retrieval_methods", [])]
+            optional = [row for row in existing.values() if row not in protected]
+            optional.sort(key=lambda row: (float(row.get("retrieval_score") or 0.0), -int(row["screenplay_order"])), reverse=True)
+            keep_count = max(0, limit - len(protected) - len(additions))
+            combined = protected + optional[:keep_count] + additions
+            by_id = {row["block_id"]: row for row in combined}
+            request["dialogue_candidates"] = sorted(by_id.values(), key=lambda row: int(row["screenplay_order"]))[:limit]
+            request["candidate_scenes"] = list(dict.fromkeys(row["scene_id"] for row in request["dialogue_candidates"]))
+            orders = [int(row["screenplay_order"]) for row in request["dialogue_candidates"]]
+            if orders:
+                request["estimated_screenplay_range"] = {
+                    "start_screenplay_order": min(orders), "end_screenplay_order": max(orders),
+                    "start_scene_id": request["dialogue_candidates"][0]["scene_id"],
+                    "end_scene_id": request["dialogue_candidates"][-1]["scene_id"],
+                }
+            request["retrieval_version"] = "global_lexical_rescue_v1"
+            request["global_lexical_rescue_target_ids"] = sorted(target_hits)
+            request["global_lexical_rescue_candidate_count"] = len(additions)
+            rescued_requests += 1; rescued_targets += len(target_hits); added_total += len(additions)
+        output.append(request)
+    errors = validate_review_requests(output, context)
+    if errors:
+        raise ValueError("invalid augmented review requests: " + "; ".join(errors[:20]))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=output_path.name + ".", suffix=".tmp", dir=output_path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            for row in output:
+                handle.write(json.dumps(row, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n")
+            handle.flush(); os.fsync(handle.fileno())
+        os.replace(temporary, output_path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return {"request_count": len(output), "rescued_request_count": rescued_requests,
+            "rescued_target_count": rescued_targets, "added_candidate_count": added_total,
+            "retrieval_version": "global_lexical_rescue_v1", "output": output_path.as_posix()}
 
 
 def build_alignment_diagnostics(context: dict[str, Any], alignments: list[dict[str, Any]], requests: list[dict[str, Any]]) -> dict[str, Any]:

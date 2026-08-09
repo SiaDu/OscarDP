@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from oscardp.script_context.alignment import align_subtitles, build_anchors, build_script_units, tokenize
-from oscardp.script_context.llm_review import build_alignment_diagnostics, build_review_requests, validate_review_requests
+from oscardp.script_context.llm_review import augment_review_requests_global_lexical, build_alignment_diagnostics, build_review_requests, validate_review_requests
 from oscardp.script_context.schema import AlignmentConfig, CleanSubtitle
 
 
@@ -62,6 +62,28 @@ def test_ambiguous_short_phrase_is_not_global_anchor() -> None:
     context = context_for([["Yes", "A sufficiently long unique sentence appears here"]])
     anchors = build_anchors(subs(["Yes", "A sufficiently long unique sentence appears here"]), build_script_units(context))
     assert [anchor.subtitle_index for anchor in anchors] == [1]
+
+
+def test_versioned_global_lexical_rescue_adds_outside_candidate_without_overwriting(tmp_path) -> None:
+    import json
+    context = context_for([["Local unrelated dialogue"], ["I got gold and they did not get all of it"]])
+    context_path = tmp_path / "context.json"; context_path.write_text(json.dumps(context), encoding="utf-8")
+    request = {
+        "request_id": "alignment_review_000001", "subtitle_ids": ["subtitle_000001"],
+        "subtitles": [{"subtitle_id": "subtitle_000001", "text": "I got gold", "time": {"start_sec": 1, "end_sec": 2}}],
+        "dialogue_candidates": [{"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "HART", "text": "Local unrelated dialogue", "parenthetical": None, "retrieval_methods": ["anchor_window"], "lexical_score": None, "semantic_score": None, "retrieval_score": None}],
+        "candidate_scenes": ["scene_001"], "candidate_limit": 2, "estimated_screenplay_range": {"start_screenplay_order": 0, "end_screenplay_order": 0, "start_scene_id": "scene_001", "end_scene_id": "scene_001"},
+    }
+    requests = tmp_path / "requests.jsonl"; requests.write_text(json.dumps(request) + "\n", encoding="utf-8")
+    output = tmp_path / "rescued.jsonl"
+    result = augment_review_requests_global_lexical(requests, context_path, output)
+    row = json.loads(output.read_text())
+    assert result["rescued_target_count"] == 1
+    assert [item["block_id"] for item in row["dialogue_candidates"]] == ["scene_001_dialogue_001", "scene_002_dialogue_001"]
+    assert row["retrieval_version"] == "global_lexical_rescue_v1"
+    assert requests.read_text() == json.dumps(request) + "\n"
+    with pytest.raises(FileExistsError):
+        augment_review_requests_global_lexical(requests, context_path, output)
 
 
 def test_anchors_split_regions_and_deleted_script_gap_is_allowed() -> None:
