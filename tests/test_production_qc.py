@@ -131,3 +131,37 @@ def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path,
             tmp_path / "qc-too-ambiguous.json", tmp_path / "manifest-too-ambiguous.json",
         )
     assert not (tmp_path / "manifest-too-ambiguous.json").exists()
+
+
+def test_finalizer_rejects_unresolved_candidate_recall_risks(tmp_path: Path, monkeypatch) -> None:
+    movie = "tt1"
+    source_dir = tmp_path / "sources"; source_dir.mkdir()
+    video = source_dir / "movie.mkv"; subtitle = source_dir / "movie.srt"; screenplay = source_dir / "movie.pdf"
+    for path, data in ((video, b"video"), (subtitle, b"subtitle"), (screenplay, b"screenplay")): path.write_bytes(data)
+    context = tmp_path / "context.json"; deterministic = tmp_path / "alignment.jsonl"; deterministic_shots = tmp_path / "shot-context.jsonl"
+    reviewed = tmp_path / "reviewed.jsonl"; reviewed_shots = tmp_path / "reviewed-shots.jsonl"; shots = tmp_path / "shots.jsonl"
+    requests = tmp_path / "requests.jsonl"; responses = tmp_path / "responses.jsonl"; reviewer = tmp_path / "reviewer.json"
+    context.write_text(json.dumps({"source_files": {"subtitle": str(subtitle)}, "script_scenes": []}), encoding="utf-8")
+    write_jsonl(deterministic, []); write_jsonl(deterministic_shots, []); write_jsonl(shots, [])
+    write_jsonl(reviewed, [{"subtitle_id": "subtitle_000001", "alignment": {"status": "llm_aligned"}}]); write_jsonl(reviewed_shots, [])
+    req = request(); req["subtitle_ids"] = ["subtitle_000001"]; req["subtitles"] = [req["subtitles"][0]]
+    res = response(); res["resolutions"] = [res["resolutions"][0]]
+    write_jsonl(requests, [req]); write_jsonl(responses, [res])
+    reviewer.write_text(json.dumps({"production_reviewer_version": "v3.2-production.2", "hard_validation_contract_version": "candidate_task_v3_structure_v2"}), encoding="utf-8")
+    inventory = tmp_path / "inventory.json"; status = tmp_path / "status.json"
+    hashes = {"video": sha(video), "subtitle": sha(subtitle), "screenplay": sha(screenplay), "shots": sha(shots)}
+    inventory.write_text(json.dumps({"movies": [{"movie_id": movie, "video": {"path": str(video), "sha256": hashes["video"]}, "subtitle": {"path": str(subtitle), "sha256": hashes["subtitle"]}, "screenplay": {"path": str(screenplay), "sha256": hashes["screenplay"]}, "stage1": {"shots_sha256": hashes["shots"]}}]}), encoding="utf-8")
+    status.write_text(json.dumps({"movies": [{"movie_id": movie, "artifact_hashes": hashes, "deterministic_output_hashes": {"screenplay_context": sha(context), "alignment": sha(deterministic), "shot_context": sha(deterministic_shots), "review_requests": sha(requests)}}]}), encoding="utf-8")
+    risk = tmp_path / "risk.jsonl"; write_jsonl(risk, [{"subtitle_id": "subtitle_000001"}])
+    risk_summary = tmp_path / "risk-summary.json"
+    risk_summary.write_text(json.dumps({"record_count": 1, "audit_sha256": sha(risk), "no_candidate_match_classification_counts": {"candidate_recall_risk": 1}}), encoding="utf-8")
+    lifecycle = tmp_path / "merge.json"; lifecycle.write_text(json.dumps({"passed": True}), encoding="utf-8")
+    monkeypatch.setattr("oscardp.script_context.production_qc.validate_files", lambda *args: SimpleNamespace(passed=True, errors=[], alignment_count=1, shot_count=0))
+
+    with pytest.raises(RuntimeError, match="unresolved candidate-recall risk count 1"):
+        finalize_production_movie_v3(
+            movie, inventory, status, context, deterministic, deterministic_shots, reviewed, reviewed_shots,
+            shots, requests, responses, reviewer, [lifecycle], risk, risk_summary,
+            tmp_path / "qc.json", tmp_path / "manifest.json",
+        )
+    assert not (tmp_path / "manifest.json").exists()

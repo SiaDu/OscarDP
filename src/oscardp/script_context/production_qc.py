@@ -243,6 +243,7 @@ def finalize_production_movie_v3(
     requests_path: Path, responses_path: Path, reviewer_manifest_path: Path,
     lifecycle_report_paths: list[Path], risk_audit_path: Path, risk_summary_path: Path,
     qc_path: Path, manifest_path: Path, *, max_unresolved_ambiguities: int = 5,
+    max_unresolved_candidate_recall_risks: int = 0,
 ) -> dict[str, Any]:
     if qc_path.exists() or manifest_path.exists():
         raise FileExistsError("refusing to overwrite final production QC artifacts")
@@ -308,9 +309,15 @@ def finalize_production_movie_v3(
     reviewed_rows = read_jsonl(reviewed_alignment_path)
     status_counts = Counter(row["alignment"]["status"] for row in reviewed_rows)
     diagnostic_ambiguities = int(risk_summary.get("no_candidate_match_classification_counts", {}).get("ambiguous_needs_review", 0))
+    candidate_recall_risks = int(risk_summary.get("no_candidate_match_classification_counts", {}).get("candidate_recall_risk", 0))
     unresolved = int(status_counts.get("needs_review", 0)) + diagnostic_ambiguities
     if unresolved > max_unresolved_ambiguities:
         errors.append(f"unresolved ambiguity count {unresolved} exceeds allowed isolated maximum {max_unresolved_ambiguities}")
+    if candidate_recall_risks > max_unresolved_candidate_recall_risks:
+        errors.append(
+            f"unresolved candidate-recall risk count {candidate_recall_risks} exceeds allowed maximum "
+            f"{max_unresolved_candidate_recall_risks}"
+        )
     qc = {
         "schema_version": "1.0", "movie_id": movie_id, "production_reviewer_version": reviewer.get("production_reviewer_version"),
         "hard_validation_contract_version": reviewer.get("hard_validation_contract_version"),
@@ -320,6 +327,8 @@ def finalize_production_movie_v3(
         "alignment_count": reviewed_validation.alignment_count, "shot_count": reviewed_validation.shot_count,
         "alignment_status_counts": dict(sorted(status_counts.items())), "unresolved_ambiguity_count": unresolved,
         "max_unresolved_ambiguities": max_unresolved_ambiguities,
+        "unresolved_candidate_recall_risk_count": candidate_recall_risks,
+        "max_unresolved_candidate_recall_risks": max_unresolved_candidate_recall_risks,
         "high_risk_audit_count": risk_summary.get("record_count"), "high_risk_reason_counts": risk_summary.get("inclusion_reason_counts"),
         "deterministic_validation_passed": deterministic_validation.passed, "reviewed_validation_passed": reviewed_validation.passed,
         "protected_hashes": protected_hashes, "lifecycle_reports": lifecycle_reports,
