@@ -218,6 +218,8 @@ def test_structure_audit_reports_action_editorial_and_fragmented_dialogue() -> N
     assert audit["editorial_label_speaker_count"] == 1
     assert audit["fragmented_parenthetical_count"] == 1
     assert len(audit["affected_blocks"]) == 3
+    assert audit["confirmed_structural_error_count"] == 2
+    assert audit["diagnostic_only_count"] == 1
 
 
 def test_structure_audit_does_not_reject_spoken_it_or_imperative_dialogue() -> None:
@@ -229,6 +231,15 @@ def test_structure_audit_does_not_reject_spoken_it_or_imperative_dialogue() -> N
     ])
     audit = audit_screenplay_structure(context)
     assert audit["confirmed_structural_error_count"] == 0
+
+
+def test_action_like_spoken_recollection_is_diagnostic_not_confirmed_error() -> None:
+    context = _context([("ELIZA", "She remembers his letters, word for word. She bid me read them to her.")])
+    audit = audit_screenplay_structure(context)
+    assert audit["action_like_dialogue_count"] == 1
+    assert audit["diagnostic_only_count"] == 1
+    assert audit["confirmed_structural_error_count"] == 0
+    assert audit["affected_blocks"][0]["confirmed_structural_error"] is False
 
 
 def test_validation_fails_pre_openai_structure_gate() -> None:

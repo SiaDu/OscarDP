@@ -115,6 +115,7 @@ def _ends_active_cue_as_action(
 def audit_screenplay_structure(context: dict[str, Any]) -> dict[str, Any]:
     affected: list[dict[str, Any]] = []
     action_like = editorial = fragmented = 0
+    confirmed = 0
     for scene in context.get("script_scenes", []):
         for block in scene.get("script_blocks", []):
             if block.get("block_type") != "dialogue":
@@ -134,16 +135,21 @@ def audit_screenplay_structure(context: dict[str, Any]) -> dict[str, Any]:
                 fragmented += 1
                 reasons.append("fragmented_parenthetical")
             if reasons:
+                is_confirmed = any(reason != "action_like_dialogue" for reason in reasons)
+                confirmed += int(is_confirmed)
                 affected.append({
                     "scene_id": scene.get("scene_id"), "block_id": block.get("block_id"),
                     "speaker": block.get("speaker"), "text": text,
                     "parenthetical": parenthetical, "reasons": reasons,
+                    "confirmed_structural_error": is_confirmed,
                 })
     return {
-        "schema_version": "1.0", "action_like_dialogue_count": action_like,
+        "schema_version": "1.1", "action_like_dialogue_count": action_like,
         "editorial_label_speaker_count": editorial,
         "fragmented_parenthetical_count": fragmented,
-        "confirmed_structural_error_count": len(affected), "affected_blocks": affected,
+        "confirmed_structural_error_count": confirmed,
+        "diagnostic_only_count": len(affected) - confirmed,
+        "affected_blocks": affected,
     }
 
 
