@@ -10,17 +10,22 @@ import pytest
 
 from oscardp.script_context.openai_schema import (
     V3_SYSTEM_INSTRUCTIONS,
+    V32_POLICY_SYSTEM_INSTRUCTIONS,
     alignment_response_schema,
     alignment_response_schema_v3,
 )
 from oscardp.script_context.openai_review import batch_line, submit_batch
 from oscardp.script_context.stage253 import (
     batch_line_v3,
+    batch_line_v32_policy,
     evaluate_pilot_v3,
     prepare_batch_v3,
+    prepare_batch_v32_policy,
     prepare_review_context_v31,
     submit_batch_v3,
+    submit_batch_v32_policy,
     validate_batch_lines_v3,
+    validate_batch_lines_v32_policy,
     validate_resolution_v3,
 )
 
@@ -63,6 +68,14 @@ def test_policy_instructions_cover_new_propositions_and_graphic_text_without_mov
     assert "telegram" in V3_SYSTEM_INSTRUCTIONS and "visible insert text is not dialogue" in V3_SYSTEM_INSTRUCTIONS
     assert "same speaker" in V3_SYSTEM_INSTRUCTIONS and "same proposition" in V3_SYSTEM_INSTRUCTIONS
     assert "tt27847051" not in V3_SYSTEM_INSTRUCTIONS and "subtitle_" not in V3_SYSTEM_INSTRUCTIONS
+
+
+def test_v32_policy_is_generic_and_covers_observed_failure_classes() -> None:
+    policy = V32_POLICY_SYSTEM_INSTRUCTIONS
+    for phrase in ("short replies", "expanded or contracted", "spelling variation", "multiple speakers", "Do not under-select", "Preserve negative discrimination"):
+        assert phrase in policy
+    assert "nearby subtitles" in policy and "are not evidence" in policy
+    assert "tt27847051" not in policy and "subtitle_" not in policy
 
 
 def test_reordered_dialogue_can_choose_specific_earlier_candidate() -> None:
@@ -140,6 +153,31 @@ def test_v31_batch_manifest_records_context_design_without_changing_policy(tmp_p
     assert manifest["request_context_design"]["gold_labels_included"] is False
     row = json.loads(batch.read_text(encoding="utf-8"))
     assert row["body"]["instructions"] == V3_SYSTEM_INSTRUCTIONS
+
+
+def test_prepare_v32_changes_only_policy_and_preserves_v3_schema(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"; policy = tmp_path / "policy.md"; output = tmp_path / "batch-v32.jsonl"
+    write_jsonl(requests, [request()]); policy.write_text("frozen policy", encoding="utf-8")
+    manifest = prepare_batch_v32_policy(requests, policy, output, "test-model")
+    rows = [json.loads(line) for line in output.read_text().splitlines()]
+    assert validate_batch_lines_v32_policy(rows) == []
+    assert manifest["changed_layer"] == "reviewer_prompt_policy_only"
+    assert manifest["request_context_version"] == "v3_no_nearby_subtitle_context"
+    assert rows[0]["body"]["instructions"] == V32_POLICY_SYSTEM_INSTRUCTIONS
+    assert rows[0]["body"]["text"]["format"]["schema"] == alignment_response_schema_v3(request())
+    assert validate_batch_lines_v3(rows)
+
+
+def test_v32_submit_mocked_lifecycle_uses_its_own_validator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    batch = tmp_path / "batch-v32.jsonl"; job = tmp_path / "job-v32.json"
+    write_jsonl(batch, [batch_line_v32_policy(request(), "test-model")])
+    files = SimpleNamespace(create=Mock(return_value=SimpleNamespace(id="file-v32")))
+    batches = SimpleNamespace(create=Mock(return_value=SimpleNamespace(id="batch-v32", status="validating")))
+    monkeypatch.setattr("oscardp.script_context.openai_review._client", lambda: SimpleNamespace(files=files, batches=batches))
+    result = submit_batch_v32_policy(batch, job, confirm_submit=True)
+    assert result["reviewer_version"] == "v3.2-policy"
+    assert result["decision_schema_version"] == "candidate_task_v3"
+    files.create.assert_called_once(); batches.create.assert_called_once()
 
 
 def test_historical_submit_uses_historical_validator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

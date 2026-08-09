@@ -167,6 +167,21 @@ radius, unchanged target/candidate projections, and that no gold labels were
 included. Nearby rows provide discourse context only and are never additional
 resolution targets.
 
+Reviewer policy experiments are separately versioned. The v3.2 policy path
+keeps the original v3 request payload and binary response schema while changing
+only generic reviewer instructions:
+
+```bash
+python -m oscardp.script_context prepare-openai-batch-v3-2-policy \
+  --requests /path/to/frozen_pilot_requests.jsonl \
+  --annotation-policy /path/to/frozen_annotation_policy.md \
+  --output /path/to/pilot_batch_input.v3_2_policy.jsonl \
+  --model "$OPENAI_MODEL"
+```
+
+Use `submit-openai-batch-v3-2-policy` for that exact artifact. Historical v3
+and v3.1 Batch inputs retain their original validators and instructions.
+
 Candidate-task v3 inputs have an explicit submission command and validator;
 the historical command remains reserved for v1/v2 inputs:
 

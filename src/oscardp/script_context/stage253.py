@@ -9,12 +9,13 @@ from typing import Any
 from oscardp.shots.schema import json_dumps
 
 from .openai_review import _extract_structured, _submit_validated_batch
-from .openai_schema import V3_DECISION_BASES, V3_DECISIONS, V3_SYSTEM_INSTRUCTIONS, alignment_response_schema_v3
+from .openai_schema import V3_DECISION_BASES, V3_DECISIONS, V3_SYSTEM_INSTRUCTIONS, V32_POLICY_SYSTEM_INSTRUCTIONS, alignment_response_schema_v3
 from .pipeline import _write_json, _write_jsonl
 from .schema import read_jsonl
 
 
 REQUEST_PREFIX_V3 = "Review this policy-aware candidate-task alignment request:\n"
+REQUEST_PREFIX_V32_POLICY = "Review this candidate-task alignment request under reviewer policy v3.2:\n"
 REQUEST_CONTEXT_VERSION_V31 = "v3.1_nearby_subtitles"
 
 
@@ -93,6 +94,20 @@ def batch_line_v3(request: dict[str, Any], model: str) -> dict[str, Any]:
     }
 
 
+def batch_line_v32_policy(request: dict[str, Any], model: str) -> dict[str, Any]:
+    return {
+        "custom_id": request["request_id"], "method": "POST", "url": "/v1/responses",
+        "body": {
+            "model": model, "store": False, "instructions": V32_POLICY_SYSTEM_INSTRUCTIONS,
+            "input": REQUEST_PREFIX_V32_POLICY + json_dumps(request, pretty=True),
+            "text": {"format": {
+                "type": "json_schema", "name": "candidate_task_alignment_response_v3", "strict": True,
+                "schema": alignment_response_schema_v3(request),
+            }},
+        },
+    }
+
+
 def _batch_request_v3(row: dict[str, Any]) -> dict[str, Any] | None:
     value = row.get("body", {}).get("input")
     if not isinstance(value, str) or not value.startswith(REQUEST_PREFIX_V3):
@@ -128,6 +143,93 @@ def validate_batch_lines_v3(rows: list[dict[str, Any]]) -> list[str]:
         if row.get("body", {}).get("instructions") != V3_SYSTEM_INSTRUCTIONS:
             errors.append(f"line {line_number}: v3 policy instructions are missing or changed")
     return errors
+
+
+def validate_batch_lines_v32_policy(rows: list[dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
+    seen: set[str] = set()
+    for line_number, row in enumerate(rows, 1):
+        custom_id = row.get("custom_id")
+        if not isinstance(custom_id, str) or not custom_id:
+            errors.append(f"line {line_number}: invalid custom_id")
+        elif custom_id in seen:
+            errors.append(f"line {line_number}: duplicate custom_id {custom_id}")
+        seen.add(custom_id)
+        if row.get("method") != "POST" or row.get("url") != "/v1/responses":
+            errors.append(f"line {line_number}: batch endpoint must be POST /v1/responses")
+        value = row.get("body", {}).get("input")
+        request = None
+        if isinstance(value, str) and value.startswith(REQUEST_PREFIX_V32_POLICY):
+            try:
+                parsed = json.loads(value[len(REQUEST_PREFIX_V32_POLICY):])
+                request = parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                pass
+        if request is None:
+            errors.append(f"line {line_number}: embedded v3.2 request payload is missing or malformed")
+        elif request.get("request_id") != custom_id:
+            errors.append(f"line {line_number}: custom_id does not match embedded request_id")
+        expected_schema = None if request is None else alignment_response_schema_v3(request)
+        fmt = row.get("body", {}).get("text", {}).get("format", {})
+        if fmt.get("type") != "json_schema" or fmt.get("strict") is not True or fmt.get("schema") != expected_schema:
+            errors.append(f"line {line_number}: request-specific v3 schema is missing or changed")
+        if row.get("body", {}).get("instructions") != V32_POLICY_SYSTEM_INSTRUCTIONS:
+            errors.append(f"line {line_number}: v3.2 policy instructions are missing or changed")
+    return errors
+
+
+def prepare_batch_v32_policy(
+    requests_path: Path, annotation_policy_path: Path, output_path: Path, model: str,
+) -> dict[str, Any]:
+    requests = read_jsonl(requests_path)
+    ids = [request.get("request_id") for request in requests]
+    if len(ids) != len(set(ids)) or any(not value for value in ids):
+        raise ValueError("Requests must have unique non-empty request IDs")
+    if not annotation_policy_path.is_file():
+        raise ValueError(f"Annotation policy does not exist: {annotation_policy_path}")
+    rows = [batch_line_v32_policy(request, model) for request in requests]
+    errors = validate_batch_lines_v32_policy(rows)
+    if errors:
+        raise ValueError("Invalid v3.2 Batch input: " + "; ".join(errors))
+    _write_jsonl(output_path, rows)
+    schema_hashes = {
+        request["request_id"]: hashlib.sha256(json_dumps(alignment_response_schema_v3(request)).encode("utf-8")).hexdigest()
+        for request in requests
+    }
+    manifest = {
+        "schema_version": "1.0", "reviewer_version": "v3.2-policy",
+        "review_policy_version": "annotation_policy_v1_plus_generic_v3.2_instructions",
+        "changed_layer": "reviewer_prompt_policy_only", "decision_schema_version": "candidate_task_v3",
+        "request_context_version": "v3_no_nearby_subtitle_context", "model": model,
+        "request_count": len(rows), "source_requests": requests_path.resolve().as_posix(),
+        "source_requests_sha256": hashlib.sha256(requests_path.read_bytes()).hexdigest(),
+        "annotation_policy": annotation_policy_path.resolve().as_posix(),
+        "annotation_policy_sha256": hashlib.sha256(annotation_policy_path.read_bytes()).hexdigest(),
+        "instructions_sha256": hashlib.sha256(V32_POLICY_SYSTEM_INSTRUCTIONS.encode("utf-8")).hexdigest(),
+        "schema_sha256_by_request": schema_hashes,
+        "schema_sha256_aggregate": hashlib.sha256(json_dumps(schema_hashes).encode("utf-8")).hexdigest(),
+        "request_payload_data_unchanged": True, "generated_at": datetime.now(UTC).isoformat(),
+    }
+    _write_json(output_path.with_suffix(output_path.suffix + ".manifest.json"), manifest)
+    return manifest
+
+
+def submit_batch_v32_policy(batch_input: Path, job_file: Path, *, confirm_submit: bool) -> dict[str, Any]:
+    if not confirm_submit:
+        raise RuntimeError("Refusing paid submission without --confirm-submit")
+    rows = read_jsonl(batch_input)
+    errors = validate_batch_lines_v32_policy(rows)
+    if errors:
+        raise ValueError("Invalid v3.2 Batch input: " + "; ".join(errors))
+    return _submit_validated_batch(
+        batch_input, job_file, rows,
+        metadata_extra={
+            "schema_version": "1.0", "reviewer_version": "v3.2-policy",
+            "decision_schema_version": "candidate_task_v3",
+            "review_policy_version": "annotation_policy_v1_plus_generic_v3.2_instructions",
+            "batch_input_sha256": hashlib.sha256(batch_input.read_bytes()).hexdigest(),
+        },
+    )
 
 
 def prepare_batch_v3(
