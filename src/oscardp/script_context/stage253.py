@@ -595,7 +595,8 @@ def _sequence_quality_v3(selections: list[dict[str, Any] | None], request_id: st
         "backward_mapping_count", "bounded_backward_mapping_count", "large_backward_mapping_count",
         "missing_reorder_basis_count", "cross_scene_sequence_jump_count", "large_forward_jump_count",
         "repeated_block_mapping_count", "non_adjacent_resolution_count",
-        "cross_scene_resolution_count", "high_risk_sequence_event_count",
+        "cross_scene_resolution_count", "reversed_block_order_resolution_count",
+        "high_risk_sequence_event_count",
     )
     quality: dict[str, Any] = {field: 0 for field in fields}; quality["events"] = []
     previous: dict[str, Any] | None = None
@@ -636,11 +637,18 @@ def _sequence_quality_v3(selections: list[dict[str, Any] | None], request_id: st
     return quality
 
 
-def validate_resolution_v3(response: dict[str, Any], request: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+def validate_resolution_v3(
+    response: dict[str, Any], request: dict[str, Any],
+    hard_validation_contract_version: str = "candidate_task_v3_structure_v2",
+) -> tuple[list[str], dict[str, Any]]:
+    if hard_validation_contract_version not in {
+        "candidate_task_v3_structure_v2", "candidate_task_v3_structure_v3",
+    }:
+        raise ValueError("unsupported candidate-task hard validation contract")
     errors: list[str] = []
     diagnostics: dict[str, Any] = {
         "hard_validation_policy": "candidate_task_v3",
-        "hard_validation_contract_version": "candidate_task_v3_structure_v2",
+        "hard_validation_contract_version": hard_validation_contract_version,
         "foreign_candidate_output_count": 0,
     }
     if response.get("request_id") != request.get("request_id"):
@@ -678,14 +686,14 @@ def validate_resolution_v3(response: dict[str, Any], request: dict[str, Any]) ->
             diagnostics["foreign_candidate_output_count"] += len(foreign)
             errors.append(f"block outside request candidates for {subtitle_id}"); selections.append(None); continue
         orders = [candidate_order[block_id] for block_id in block_ids]
-        if orders != sorted(orders):
+        if orders != sorted(orders) and hard_validation_contract_version == "candidate_task_v3_structure_v2":
             errors.append(f"selected blocks must preserve request candidate order for {subtitle_id}")
         scenes = {candidate_by_id[block_id]["scene_id"] for block_id in block_ids}
         if not block_ids:
             selections.append(None); continue
         screenplay_orders = [int(candidate_by_id[block_id]["screenplay_order"]) for block_id in block_ids]
         selections.append({
-            "subtitle_id": subtitle_id, "start": screenplay_orders[0], "end": screenplay_orders[-1],
+            "subtitle_id": subtitle_id, "start": min(screenplay_orders), "end": max(screenplay_orders),
             "scene_id": next(iter(scenes)) if len(scenes) == 1 else None, "basis": basis,
             "block_ids": block_ids, "candidate_orders": orders,
             "screenplay_orders": screenplay_orders, "scenes": sorted(scenes),
@@ -705,7 +713,12 @@ def validate_resolution_v3(response: dict[str, Any], request: dict[str, Any]) ->
             "decision_basis": selection["basis"],
             "severity": "high_risk",
         }
-        if any(right != left + 1 for left, right in zip(selection["candidate_orders"], selection["candidate_orders"][1:])):
+        ordered_candidate_orders = sorted(selection["candidate_orders"])
+        if selection["candidate_orders"] != ordered_candidate_orders:
+            quality["reversed_block_order_resolution_count"] += 1
+            quality["high_risk_sequence_event_count"] += 1
+            quality["events"].append({**common, "reason": "reversed_block_order_within_resolution"})
+        if any(right != left + 1 for left, right in zip(ordered_candidate_orders, ordered_candidate_orders[1:])):
             quality["non_adjacent_resolution_count"] += 1
             quality["high_risk_sequence_event_count"] += 1
             quality["events"].append({**common, "reason": "non_adjacent_blocks_within_resolution"})
@@ -716,7 +729,10 @@ def validate_resolution_v3(response: dict[str, Any], request: dict[str, Any]) ->
     return errors, diagnostics
 
 
-def validate_responses_v3(raw_path: Path, requests_path: Path, output_dir: Path) -> dict[str, Any]:
+def validate_responses_v3(
+    raw_path: Path, requests_path: Path, output_dir: Path,
+    hard_validation_contract_version: str = "candidate_task_v3_structure_v2",
+) -> dict[str, Any]:
     requests = read_jsonl(requests_path); request_by_id = {row["request_id"]: row for row in requests}
     valid: list[dict[str, Any]] = []; errors: list[dict[str, Any]] = []; seen: set[str] = set()
     for line_number, row in enumerate(read_jsonl(raw_path), 1):
@@ -733,7 +749,9 @@ def validate_responses_v3(raw_path: Path, requests_path: Path, output_dir: Path)
         structured, extraction_error = _extract_structured(body)
         if extraction_error:
             errors.append({"line": line_number, "custom_id": custom_id, "errors": [extraction_error]}); continue
-        hard_errors, diagnostics = validate_resolution_v3(structured, request_by_id[custom_id])  # type: ignore[arg-type]
+        hard_errors, diagnostics = validate_resolution_v3(  # type: ignore[arg-type]
+            structured, request_by_id[custom_id], hard_validation_contract_version,
+        )
         if hard_errors:
             errors.append({"line": line_number, "custom_id": custom_id, "errors": hard_errors, "validation_diagnostics": diagnostics}); continue
         valid.append({**structured, "custom_id": custom_id, "response_id": body.get("id"), "model": body.get("model"), "validation_diagnostics": diagnostics})  # type: ignore[arg-type]
@@ -742,7 +760,8 @@ def validate_responses_v3(raw_path: Path, requests_path: Path, output_dir: Path)
         "backward_mapping_count", "bounded_backward_mapping_count", "large_backward_mapping_count",
         "missing_reorder_basis_count", "cross_scene_sequence_jump_count", "large_forward_jump_count",
         "repeated_block_mapping_count", "non_adjacent_resolution_count",
-        "cross_scene_resolution_count", "high_risk_sequence_event_count",
+        "cross_scene_resolution_count", "reversed_block_order_resolution_count",
+        "high_risk_sequence_event_count",
     )
     quality: dict[str, Any] = {field: 0 for field in quality_fields}; quality["events"] = []
     for response in valid:
@@ -752,7 +771,7 @@ def validate_responses_v3(raw_path: Path, requests_path: Path, output_dir: Path)
     foreign = sum(int(row.get("validation_diagnostics", {}).get("foreign_candidate_output_count", 0)) for row in [*valid, *errors])
     report = {
         "schema_version": "1.0", "validation_policy": "candidate_task_v3",
-        "hard_validation_contract_version": "candidate_task_v3_structure_v2", "request_count": len(requests),
+        "hard_validation_contract_version": hard_validation_contract_version, "request_count": len(requests),
         "resolution_count": sum(len(row["resolutions"]) for row in valid), "valid_count": len(valid),
         "invalid_count": len(errors), "missing_request_ids": missing, "foreign_candidate_output_count": foreign,
         "sequence_quality": quality, "errors": errors, "passed": not errors and not missing,

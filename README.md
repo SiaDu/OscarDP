@@ -288,6 +288,26 @@ separate `v3_2_production_2` tag. Production.1 chunks can be carried forward
 only when the production.2 manifest records and verifies the exact inherited
 production.1 manifest hash; arbitrary cross-version merging is rejected.
 
+`candidate_task_v3_structure_v3` is a validator-only candidate contract. It
+keeps the response schema and selected block-ID list unchanged, but treats a
+request-local reversed block order as a high-risk sequence diagnostic instead
+of malformed output. This covers legitimate `repeated_or_reordered_dialogue`
+where final-film speaker order differs from screenplay order. Historical
+structure-v2 validation remains the default and retains its original behavior:
+
+```bash
+python -m oscardp.script_context validate-openai-responses-v3 \
+  --raw-output /path/to/raw_batch_output.jsonl \
+  --requests /path/to/exact_requests.jsonl \
+  --output-dir /path/to/separate_validator_v3_result \
+  --hard-validation-contract candidate_task_v3_structure_v3
+```
+
+Do not use this candidate contract for production merely because a development
+revalidation passes. Freeze and evaluate an independent calibration movie,
+then promote a separately versioned production reviewer manifest or retain
+structure v2.
+
 The promoted `v3.2.1-production.1` lifecycle binds the v3.2.1 vocative-safe
 prompt, `global_lexical_rescue_v2`, and
 `candidate_task_v3_structure_v2`. Retrieval augmentation writes a companion

@@ -112,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate_openai.add_argument("--raw-output", type=Path, required=True); validate_openai.add_argument("--requests", type=Path, required=True); validate_openai.add_argument("--output-dir", type=Path, required=True)
     validate_openai_v3 = commands.add_parser("validate-openai-responses-v3")
     validate_openai_v3.add_argument("--raw-output", type=Path, required=True); validate_openai_v3.add_argument("--requests", type=Path, required=True); validate_openai_v3.add_argument("--output-dir", type=Path, required=True)
+    validate_openai_v3.add_argument("--hard-validation-contract", choices=("candidate_task_v3_structure_v2", "candidate_task_v3_structure_v3"), default="candidate_task_v3_structure_v2")
     validate_gold = commands.add_parser("validate-openai-pilot-gold")
     validate_gold.add_argument("--gold", type=Path, required=True); validate_gold.add_argument("--requests", type=Path, required=True)
     validate_gold.add_argument("--output", type=Path, required=True); validate_gold.add_argument("--max-backward-distance", type=int, default=3)
@@ -300,7 +301,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json_dumps(report, pretty=True)); return 0 if report["passed"] else 1
         if args.command == "validate-openai-responses-v3":
             from .stage253 import validate_responses_v3
-            report = validate_responses_v3(args.raw_output, args.requests, args.output_dir)
+            report = validate_responses_v3(args.raw_output, args.requests, args.output_dir, args.hard_validation_contract)
             print(json_dumps(report, pretty=True)); return 0 if report["passed"] else 1
         if args.command == "validate-openai-pilot-gold":
             from .openai_review import validate_pilot_gold

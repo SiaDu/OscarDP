@@ -181,6 +181,22 @@ def test_v3_multi_block_selection_must_preserve_candidate_order() -> None:
     assert any("preserve request candidate order" in error for error in errors)
 
 
+def test_v3_structure_v3_treats_reversed_block_order_as_quality_risk() -> None:
+    req = request()
+    response = {"request_id": "r1", "resolutions": [
+        resolution("s1", "match", ["C", "A"], "repeated_or_reordered_dialogue"),
+    ]}
+    errors, diagnostics = validate_resolution_v3(
+        response, req, "candidate_task_v3_structure_v3",
+    )
+    assert errors == []
+    quality = diagnostics["sequence_quality"]
+    assert quality["reversed_block_order_resolution_count"] == 1
+    assert quality["non_adjacent_resolution_count"] == 1
+    assert quality["high_risk_sequence_event_count"] == 2
+    assert any(event["reason"] == "reversed_block_order_within_resolution" for event in quality["events"])
+
+
 def test_prepare_v3_batch_preserves_payload_and_policy_manifest(tmp_path: Path) -> None:
     requests = tmp_path / "requests.jsonl"; policy = tmp_path / "policy.md"; output = tmp_path / "batch.jsonl"
     req = request(); write_jsonl(requests, [req]); policy.write_text("frozen policy", encoding="utf-8")
