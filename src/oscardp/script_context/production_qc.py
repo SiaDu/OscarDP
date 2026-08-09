@@ -230,8 +230,9 @@ def finalize_production_movie_v3(
     lifecycle_reports = []
     for path in lifecycle_report_paths:
         report = json.loads(path.read_text(encoding="utf-8"))
-        lifecycle_reports.append({"path": path.as_posix(), "sha256": _sha(path), "passed": report.get("passed")})
-        if report.get("passed") is not True:
+        passed = report.get("passed") if "passed" in report else report.get("validation_passed")
+        lifecycle_reports.append({"path": path.as_posix(), "sha256": _sha(path), "passed": passed})
+        if passed is not True:
             errors.append(f"lifecycle report did not pass: {path}")
     risk_summary = json.loads(risk_summary_path.read_text(encoding="utf-8"))
     if risk_summary.get("audit_sha256") != _sha(risk_audit_path):
