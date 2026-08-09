@@ -89,6 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
     production_remaining.add_argument("--reviewer-manifest", type=Path, required=True)
     production_batch = commands.add_parser("prepare-openai-production-batch-v3")
     production_batch.add_argument("--requests", type=Path, required=True); production_batch.add_argument("--reviewer-manifest", type=Path, required=True); production_batch.add_argument("--output", type=Path, required=True)
+    production_split = commands.add_parser("split-openai-production-requests-v3")
+    production_split.add_argument("--requests", type=Path, required=True); production_split.add_argument("--reviewer-manifest", type=Path, required=True)
+    production_split.add_argument("--output-dir", type=Path, required=True); production_split.add_argument("--max-estimated-tokens", type=int, default=300_000)
+    production_split.add_argument("--max-requests", type=int, default=100)
     production_submit = commands.add_parser("submit-openai-production-batch-v3")
     production_submit.add_argument("--batch-input", type=Path, required=True); production_submit.add_argument("--reviewer-manifest", type=Path, required=True)
     production_submit.add_argument("--job-file", type=Path, required=True); production_submit.add_argument("--confirm-submit", action="store_true")
@@ -113,6 +117,11 @@ def build_parser() -> argparse.ArgumentParser:
     production_merge.add_argument("--remaining-requests", type=Path, required=True); production_merge.add_argument("--pilot-responses", type=Path, required=True)
     production_merge.add_argument("--remaining-responses", type=Path, required=True); production_merge.add_argument("--reviewer-manifest", type=Path, required=True)
     production_merge.add_argument("--output", type=Path, required=True); production_merge.add_argument("--report", type=Path, required=True)
+    production_chunk_merge = commands.add_parser("merge-openai-production-response-chunks-v3")
+    production_chunk_merge.add_argument("--chunk-manifest", type=Path, required=True)
+    production_chunk_merge.add_argument("--chunk-response", type=Path, action="append", required=True)
+    production_chunk_merge.add_argument("--reviewer-manifest", type=Path, required=True)
+    production_chunk_merge.add_argument("--output", type=Path, required=True); production_chunk_merge.add_argument("--report", type=Path, required=True)
     production_apply = commands.add_parser("apply-openai-production-responses-v3")
     production_apply.add_argument("--alignment", type=Path, required=True); production_apply.add_argument("--requests", type=Path, required=True)
     production_apply.add_argument("--validated-responses", type=Path, required=True); production_apply.add_argument("--screenplay-context", type=Path, required=True)
@@ -230,6 +239,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-openai-production-batch-v3":
             from .production_review import prepare_production_batch_v3
             print(json_dumps(prepare_production_batch_v3(args.requests, args.reviewer_manifest, args.output), pretty=True)); return 0
+        if args.command == "split-openai-production-requests-v3":
+            from .production_review import split_production_requests_v3
+            result = split_production_requests_v3(
+                args.requests, args.reviewer_manifest, args.output_dir,
+                max_estimated_tokens=args.max_estimated_tokens, max_requests=args.max_requests,
+            )
+            print(json_dumps(result, pretty=True)); return 0
         if args.command == "submit-openai-production-batch-v3":
             from .production_review import submit_production_batch_v3
             print(json_dumps(submit_production_batch_v3(args.batch_input, args.reviewer_manifest, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
@@ -260,6 +276,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "merge-openai-production-responses-v3":
             from .production_review import merge_production_responses_v3
             print(json_dumps(merge_production_responses_v3(args.full_requests, args.pilot_requests, args.remaining_requests, args.pilot_responses, args.remaining_responses, args.reviewer_manifest, args.output, args.report), pretty=True)); return 0
+        if args.command == "merge-openai-production-response-chunks-v3":
+            from .production_review import merge_production_response_chunks_v3
+            result = merge_production_response_chunks_v3(
+                args.chunk_manifest, args.chunk_response, args.reviewer_manifest, args.output, args.report,
+            )
+            print(json_dumps(result, pretty=True)); return 0
         if args.command == "apply-openai-production-responses-v3":
             from .production_review import apply_production_responses_v3
             print(json_dumps(apply_production_responses_v3(args.alignment, args.requests, args.validated_responses, args.screenplay_context, args.shots, args.output_dir, args.reviewer_manifest), pretty=True)); return 0

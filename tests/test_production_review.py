@@ -12,9 +12,11 @@ from oscardp.script_context.openai_schema import V32_POLICY_SYSTEM_INSTRUCTIONS
 from oscardp.script_context.production_review import (
     PRODUCTION_REVIEWER_VERSION,
     apply_production_responses_v3,
+    merge_production_response_chunks_v3,
     merge_production_responses_v3,
     prepare_production_batch_v3,
     prepare_production_remaining_v3,
+    split_production_requests_v3,
     submit_production_batch_v3,
 )
 
@@ -89,6 +91,81 @@ def test_production_submit_revalidates_hash_and_uses_no_network_on_tamper(tmp_pa
     with pytest.raises(ValueError, match="hash differs"):
         submit_production_batch_v3(tampered, reviewer, tmp_path / "job2.json", confirm_submit=True)
     files.create.assert_called_once()
+
+
+def test_production_chunk_packing_is_exact_ordered_bounded_and_write_once(tmp_path: Path) -> None:
+    rows = [request(i) for i in range(1, 6)]
+    requests = tmp_path / "requests.jsonl"
+    reviewer = tmp_path / "reviewer.json"
+    chunks_dir = tmp_path / "chunks"
+    write_jsonl(requests, rows)
+    reviewer_manifest(reviewer)
+
+    result = split_production_requests_v3(
+        requests, reviewer, chunks_dir, max_estimated_tokens=10_000, max_requests=2,
+    )
+
+    assert result["chunk_count"] == 3
+    assert [chunk["request_count"] for chunk in result["chunks"]] == [2, 2, 1]
+    assert all(chunk["conservative_estimated_enqueued_tokens"] <= 10_000 for chunk in result["chunks"])
+    reconstructed = []
+    for chunk in result["chunks"]:
+        path = Path(chunk["requests_path"])
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == chunk["requests_sha256"]
+        reconstructed.extend(json.loads(line)["request_id"] for line in path.read_text().splitlines())
+    assert reconstructed == [row["request_id"] for row in rows]
+    with pytest.raises(FileExistsError):
+        split_production_requests_v3(
+            requests, reviewer, chunks_dir, max_estimated_tokens=10_000, max_requests=2,
+        )
+
+
+def test_production_chunk_response_merge_validates_coverage_and_v3_schema(tmp_path: Path) -> None:
+    rows = [request(i) for i in range(1, 6)]
+    requests = tmp_path / "requests.jsonl"
+    reviewer = tmp_path / "reviewer.json"
+    write_jsonl(requests, rows)
+    reviewer_manifest(reviewer)
+    manifest = split_production_requests_v3(
+        requests, reviewer, tmp_path / "chunks", max_estimated_tokens=10_000, max_requests=2,
+    )
+    response_paths = []
+    by_id = {row["request_id"]: row for row in rows}
+    for chunk in manifest["chunks"]:
+        chunk_requests = [json.loads(line) for line in Path(chunk["requests_path"]).read_text().splitlines()]
+        path = tmp_path / f"responses-{chunk['chunk_index']}.jsonl"
+        write_jsonl(path, [response(row) for row in reversed(chunk_requests)])
+        response_paths.append(path)
+    output = tmp_path / "merged.jsonl"
+    report = tmp_path / "report.json"
+    result = merge_production_response_chunks_v3(
+        tmp_path / "chunks/chunk_manifest.v3_2_production_1.json",
+        response_paths, reviewer, output, report,
+    )
+    assert result["passed"] and result["request_count"] == 5
+    assert [json.loads(line)["request_id"] for line in output.read_text().splitlines()] == [
+        row["request_id"] for row in rows
+    ]
+
+    missing = tmp_path / "missing.jsonl"
+    write_jsonl(missing, [])
+    with pytest.raises(ValueError, match="exactly cover"):
+        merge_production_response_chunks_v3(
+            tmp_path / "chunks/chunk_manifest.v3_2_production_1.json",
+            [missing, *response_paths[1:]], reviewer, tmp_path / "missing-out.jsonl", tmp_path / "missing-report.json",
+        )
+
+    historical = response(by_id[manifest["chunks"][0]["first_request_id"]])
+    historical["resolutions"][0]["decision"] = "no_match"
+    historical["resolutions"][0]["block_ids"] = []
+    invalid = tmp_path / "historical.jsonl"
+    first_chunk_rows = [json.loads(line) for line in Path(manifest["chunks"][0]["requests_path"]).read_text().splitlines()]
+    write_jsonl(invalid, [historical, *[response(row) for row in first_chunk_rows[1:]]])
+    with pytest.raises(ValueError, match="invalid v3 response"):
+        merge_production_response_chunks_v3(
+            tmp_path / "chunks/chunk_manifest.v3_2_production_1.json",
+            [invalid, *response_paths[1:]], reviewer, tmp_path / "invalid-out.jsonl", tmp_path / "invalid-report.json",
+        )
 
 
 def test_production_merge_uses_v3_validator_and_preserves_full_order(tmp_path: Path) -> None:

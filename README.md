@@ -251,6 +251,35 @@ python -m oscardp.script_context submit-openai-production-batch-v3 \
   --confirm-submit
 ```
 
+If a remaining set is too large for the account's enqueued-token limit, split
+the immutable request JSONL before preparing Batch inputs. Packing is
+deterministic and order-preserving; it records exact source, reviewer, and
+chunk hashes. Submit and complete the chunks serially, validate each raw Batch
+output against its exact chunk requests, and merge the validated responses in
+manifest order:
+
+```bash
+python -m oscardp.script_context split-openai-production-requests-v3 \
+  --requests /path/to/remaining_requests.v3_2_production_1.jsonl \
+  --reviewer-manifest /path/to/stage2_production_reviewer_v3_2.json \
+  --output-dir /path/to/chunked_retry_1 \
+  --max-estimated-tokens 300000 \
+  --max-requests 100
+
+python -m oscardp.script_context merge-openai-production-response-chunks-v3 \
+  --chunk-manifest /path/to/chunked_retry_1/chunk_manifest.v3_2_production_1.json \
+  --chunk-response /path/to/chunk_001_result/validated_responses.jsonl \
+  --chunk-response /path/to/chunk_002_result/validated_responses.jsonl \
+  --reviewer-manifest /path/to/stage2_production_reviewer_v3_2.json \
+  --output /path/to/remaining_validated_responses.v3_2_production_1.jsonl \
+  --report /path/to/remaining_chunk_merge_report.v3_2_production_1.json
+```
+
+The byte-based token value is a conservative packing estimate, not a tokenizer
+measurement. Each chunk still passes the normal version-aware local Batch QA;
+do not resubmit a failed oversized input or run historical v1/v2 validation on
+these binary candidate-task responses.
+
 Use `merge-openai-production-responses-v3` only after both partitions pass
 v3 hard validation, then `apply-openai-production-responses-v3`. The latter
 preserves each original binary resolution as provenance while emitting only

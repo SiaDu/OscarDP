@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -103,6 +104,73 @@ def prepare_production_batch_v3(
     return manifest
 
 
+def split_production_requests_v3(
+    requests_path: Path, reviewer_manifest_path: Path, output_dir: Path,
+    *, max_estimated_tokens: int = 300_000, max_requests: int = 100,
+) -> dict[str, Any]:
+    reviewer = _load_reviewer_manifest(reviewer_manifest_path)
+    if max_estimated_tokens < 10_000 or max_estimated_tokens > 800_000:
+        raise ValueError("max_estimated_tokens must be between 10000 and 800000")
+    if max_requests < 1 or max_requests > 50_000:
+        raise ValueError("max_requests must be between 1 and 50000")
+    manifest_path = output_dir / "chunk_manifest.v3_2_production_1.json"
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise FileExistsError("refusing to overwrite production request chunks")
+    requests = read_jsonl(requests_path)
+    _unique_ids(requests, "request_id", "production chunk source")
+    _validate_request_subtitles(requests, "production chunk source")
+
+    def estimate(request: dict[str, Any]) -> int:
+        # JSON is mostly ASCII. Dividing exact request-line bytes by three is
+        # deliberately more conservative than the usual four-bytes/token rule.
+        line = json_dumps(batch_line_v32_policy(request, reviewer["model"])) + "\n"
+        return math.ceil(len(line.encode("utf-8")) / 3)
+
+    chunks: list[list[tuple[dict[str, Any], int]]] = []
+    current: list[tuple[dict[str, Any], int]] = []
+    current_tokens = 0
+    for request in requests:
+        tokens = estimate(request)
+        if tokens > max_estimated_tokens:
+            raise ValueError(f"single request {request['request_id']} exceeds the chunk token budget")
+        if current and (len(current) >= max_requests or current_tokens + tokens > max_estimated_tokens):
+            chunks.append(current)
+            current = []
+            current_tokens = 0
+        current.append((request, tokens))
+        current_tokens += tokens
+    if current:
+        chunks.append(current)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    records: list[dict[str, Any]] = []
+    for index, chunk in enumerate(chunks, 1):
+        path = output_dir / f"requests.chunk_{index:03d}.v3_2_production_1.jsonl"
+        _write_jsonl(path, [item[0] for item in chunk])
+        records.append({
+            "chunk_index": index, "requests_path": path.resolve().as_posix(),
+            "requests_sha256": _sha(path), "request_count": len(chunk),
+            "resolution_count": sum(len(item[0]["subtitle_ids"]) for item in chunk),
+            "conservative_estimated_enqueued_tokens": sum(item[1] for item in chunk),
+            "first_request_id": chunk[0][0]["request_id"], "last_request_id": chunk[-1][0]["request_id"],
+        })
+    flattened = [item[0]["request_id"] for chunk in chunks for item in chunk]
+    if flattened != [item["request_id"] for item in requests]:
+        raise RuntimeError("production chunks do not preserve exact source order")
+    manifest = {
+        "schema_version": "1.0", "lifecycle_schema_version": "v3_production_1_chunked",
+        "production_reviewer_version": PRODUCTION_REVIEWER_VERSION,
+        "decision_schema_version": "candidate_task_v3", "model": reviewer["model"],
+        "packing_policy": "exact_batch_line_utf8_bytes_divided_by_3_conservative_estimate",
+        "max_estimated_tokens_per_chunk": max_estimated_tokens, "max_requests_per_chunk": max_requests,
+        "source_requests": requests_path.resolve().as_posix(), "source_requests_sha256": _sha(requests_path),
+        "reviewer_manifest": reviewer_manifest_path.resolve().as_posix(), "reviewer_manifest_sha256": _sha(reviewer_manifest_path),
+        "request_count": len(requests), "resolution_count": sum(len(item["subtitle_ids"]) for item in requests),
+        "chunk_count": len(records), "chunks": records, "generated_at": datetime.now(UTC).isoformat(),
+    }
+    _write_json(manifest_path, manifest)
+    return manifest
+
+
 def submit_production_batch_v3(
     batch_input_path: Path, reviewer_manifest_path: Path, job_path: Path, *, confirm_submit: bool,
 ) -> dict[str, Any]:
@@ -180,6 +248,62 @@ def merge_production_responses_v3(
             "remaining_requests": _sha(remaining_requests_path), "pilot_responses": _sha(pilot_responses_path),
             "remaining_responses": _sha(remaining_responses_path), "reviewer_manifest": _sha(reviewer_manifest_path),
         },
+        "output_sha256": _sha(output_path), "passed": True,
+    }
+    _write_json(report_path, report)
+    return report
+
+
+def merge_production_response_chunks_v3(
+    chunk_manifest_path: Path, response_paths: list[Path], reviewer_manifest_path: Path,
+    output_path: Path, report_path: Path,
+) -> dict[str, Any]:
+    _load_reviewer_manifest(reviewer_manifest_path)
+    if output_path.exists() or report_path.exists():
+        raise FileExistsError("refusing to overwrite merged production chunk responses")
+    manifest = json.loads(chunk_manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("production_reviewer_version") != PRODUCTION_REVIEWER_VERSION:
+        raise ValueError("chunk manifest has the wrong production reviewer version")
+    if manifest.get("reviewer_manifest_sha256") != _sha(reviewer_manifest_path):
+        raise ValueError("production reviewer manifest hash differs from chunk manifest")
+    source_requests_path = Path(manifest["source_requests"])
+    if manifest.get("source_requests_sha256") != _sha(source_requests_path):
+        raise ValueError("source production requests hash differs from chunk manifest")
+    chunks = manifest.get("chunks")
+    if not isinstance(chunks, list) or len(chunks) != len(response_paths):
+        raise ValueError("response path count differs from production chunk count")
+    all_requests: list[dict[str, Any]] = []
+    all_responses: list[dict[str, Any]] = []
+    response_hashes: list[str] = []
+    for chunk, response_path in zip(chunks, response_paths):
+        request_path = Path(chunk["requests_path"])
+        if _sha(request_path) != chunk["requests_sha256"]:
+            raise ValueError(f"chunk {chunk['chunk_index']} request hash changed")
+        requests, responses = read_jsonl(request_path), read_jsonl(response_path)
+        request_ids = _unique_ids(requests, "request_id", f"chunk {chunk['chunk_index']} requests")
+        response_ids = _unique_ids(responses, "request_id", f"chunk {chunk['chunk_index']} responses")
+        if set(request_ids) != set(response_ids):
+            raise ValueError(f"chunk {chunk['chunk_index']} responses do not exactly cover requests")
+        response_by_id = {row["request_id"]: row for row in responses}
+        for request in requests:
+            errors, _diagnostics = validate_resolution_v3(response_by_id[request["request_id"]], request)
+            if errors:
+                raise ValueError(f"chunk {chunk['chunk_index']} invalid v3 response {request['request_id']}: {errors}")
+            all_requests.append(request)
+            all_responses.append(response_by_id[request["request_id"]])
+        response_hashes.append(_sha(response_path))
+    if [row["request_id"] for row in all_requests] != [row["request_id"] for row in read_jsonl(source_requests_path)]:
+        raise ValueError("chunk requests do not reconstruct source request order")
+    if len(all_responses) != manifest["request_count"]:
+        raise ValueError("merged chunk response count differs from manifest")
+    _write_jsonl(output_path, all_responses)
+    report = {
+        "schema_version": "1.0", "lifecycle_schema_version": "v3_production_1_chunked",
+        "production_reviewer_version": PRODUCTION_REVIEWER_VERSION,
+        "decision_schema_version": "candidate_task_v3", "chunk_count": len(chunks),
+        "request_count": len(all_responses), "resolution_count": sum(len(row["resolutions"]) for row in all_responses),
+        "invalid_count": 0, "missing_count": 0, "foreign_count": 0,
+        "chunk_manifest_sha256": _sha(chunk_manifest_path), "response_sha256_by_chunk": response_hashes,
         "output_sha256": _sha(output_path), "passed": True,
     }
     _write_json(report_path, report)
