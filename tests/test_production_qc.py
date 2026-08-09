@@ -37,6 +37,8 @@ def request() -> dict:
         "automatic_candidate_mappings": [{"subtitle_id": "subtitle_000002", "matches": [{"block_id": "scene_001_dialogue_001"}]}],
         "candidate_scenes": ["scene_001"], "candidate_limit": 2,
         "fallback_used": True, "insufficient_candidates": False,
+        "previous_anchor": {"screenplay_order": [0, 0]},
+        "next_anchor": {"screenplay_order": [1, 1]},
     }
 
 
@@ -79,8 +81,8 @@ def test_production_risk_audit_is_self_contained_and_covers_required_risks(tmp_p
     assert result["record_count"] == 2 and result["required_fields_present"]
     first, second = rows
     assert {"low_confidence", "multi_block_selection", "multi_speaker_subtitle", "candidate_limit_saturated", "fallback_retrieval", "parser_structural_warning"} <= set(first["inclusion_reasons"])
-    assert {"graphic_or_insert_like_text", "strong_lexical_overlap_no_candidate_match", "strong_screenplay_text_outside_candidate_window", "candidate_recall_risk", "cross_scene_sequence_event"} <= set(second["inclusion_reasons"])
-    assert second["diagnostics"]["no_candidate_match_classification"] == "candidate_recall_risk"
+    assert {"graphic_or_insert_like_text", "strong_lexical_overlap_no_candidate_match", "strong_screenplay_text_outside_candidate_window", "reviewer_selection_risk", "cross_scene_sequence_event"} <= set(second["inclusion_reasons"])
+    assert second["diagnostics"]["no_candidate_match_classification"] == "reviewer_selection_risk"
     assert second["diagnostics"]["strong_screenplay_matches_outside_candidates"][0]["block_id"] == "scene_001_dialogue_003"
     assert second["human_decision"] is None and second["review_status"] == "pending"
     assert second["dialogue_candidates"] and second["screenplay_local_context"] and second["matched_shots"]
@@ -108,6 +110,40 @@ def test_production_risk_audit_accepts_reverse_order_only_under_validator_v3(tmp
         hard_validation_contract_version="candidate_task_v3_structure_v3",
     )
     assert result["hard_validation_contract_version"] == "candidate_task_v3_structure_v3"
+
+
+def test_production_risk_audit_does_not_treat_weak_automatic_mapping_as_recall_failure(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"; responses = tmp_path / "responses.jsonl"
+    alignment = tmp_path / "reviewed.jsonl"; shots = tmp_path / "shots-reviewed.jsonl"; context = tmp_path / "context.json"
+    req = request()
+    req["subtitle_ids"] = ["subtitle_000002"]
+    req["subtitles"] = [{"subtitle_id": "subtitle_000002", "text": "No.", "time": {"start_sec": 1.0, "end_sec": 1.8}}]
+    req["dialogue_candidates"] = [
+        {"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "A", "text": "Go away."},
+        {"scene_id": "scene_001", "block_id": "scene_001_dialogue_002", "screenplay_order": 1, "speaker": "B", "text": "Come here."},
+    ]
+    req["automatic_candidate_mappings"] = [{
+        "subtitle_id": "subtitle_000002",
+        "matches": [{"block_id": "scene_001_dialogue_001", "lexical_score": 0.2, "combined_score": 0.4}],
+    }]
+    res = response(); res["resolutions"] = [res["resolutions"][1]]
+    write_jsonl(requests, [req]); write_jsonl(responses, [res])
+    write_jsonl(alignment, [{"subtitle_id": "subtitle_000002", "text": "No.", "time": {"start_sec": 1., "end_sec": 1.8}, "scene_id": None, "script_matches": [], "alignment": {"status": "llm_no_match", "script_order_start": None, "script_order_end": None}}])
+    write_jsonl(shots, [{"shot_id": "shot_000001", "keyframe": {"path": "keyframes/shot_000001.jpg"}, "subtitles": [{"subtitle_id": "subtitle_000002"}]}])
+    context.write_text(json.dumps({"script_scenes": [{"scene_id": "scene_001", "parsing": {"status": "parsed"}, "script_blocks": [
+        {"block_type": "dialogue", "block_id": "scene_001_dialogue_001", "speaker": "A", "text": "Go away."},
+        {"block_type": "dialogue", "block_id": "scene_001_dialogue_002", "speaker": "B", "text": "Come here."},
+        {"block_type": "dialogue", "block_id": "scene_001_dialogue_003", "speaker": "C", "text": "No."},
+    ]}]}), encoding="utf-8")
+
+    output = tmp_path / "audit.jsonl"; summary = tmp_path / "summary.json"
+    result = build_production_high_risk_audit_v3(requests, responses, alignment, shots, context, output, summary)
+
+    row = json.loads(output.read_text().splitlines()[0])
+    assert result["schema_version"] == "1.1"
+    assert row["diagnostics"]["no_candidate_match_classification"] == "probable_true_no_match"
+    assert "automatic_mapping_present" in row["diagnostics"]["no_candidate_match_evidence"]
+    assert "candidate_recall_risk" not in row["inclusion_reasons"]
 
 
 def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path, monkeypatch) -> None:
@@ -189,3 +225,12 @@ def test_finalizer_rejects_unresolved_candidate_recall_risks(tmp_path: Path, mon
             tmp_path / "qc.json", tmp_path / "manifest.json",
         )
     assert not (tmp_path / "manifest.json").exists()
+
+    risk_summary.write_text(json.dumps({"record_count": 1, "audit_sha256": sha(risk), "no_candidate_match_classification_counts": {"reviewer_selection_risk": 1}}), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="unresolved reviewer-selection risk count 1"):
+        finalize_production_movie_v3(
+            movie, inventory, status, context, deterministic, deterministic_shots, reviewed, reviewed_shots,
+            shots, requests, responses, reviewer, [lifecycle], risk, risk_summary,
+            tmp_path / "qc-reviewer.json", tmp_path / "manifest-reviewer.json",
+        )
+    assert not (tmp_path / "manifest-reviewer.json").exists()

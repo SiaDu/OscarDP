@@ -391,6 +391,16 @@ adjudication fields. The finalizer re-hashes protected source, Stage 1, and
 deterministic Stage 2 files and refuses to emit a `COMPLETE` manifest unless
 response coverage and both deterministic/reviewed validation pass:
 
+Risk-audit schema 1.1 separates `reviewer_selection_risk` (a strong supplied
+candidate was rejected) from `candidate_recall_risk` (strong screenplay
+evidence was absent from the supplied candidate enum). Anchor-aware lexical
+evidence is required; the mere presence of a weak automatic mapping or a
+common short phrase elsewhere in the screenplay is not a recall failure. Both
+risk classes default to a zero-unresolved finalization gate. The limits can be
+set independently with `--max-unresolved-reviewer-selection-risks` and
+`--max-unresolved-candidate-recall-risks`, but production limits must not be
+raised simply to force a movie through QC.
+
 ```bash
 python -m oscardp.script_context build-openai-production-risk-audit-v3 \
   --requests /path/to/alignment_requests.jsonl \

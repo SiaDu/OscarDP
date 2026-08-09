@@ -67,6 +67,33 @@ def _target_lexical_evidence(text: str, candidates: list[dict[str, Any]]) -> tup
     return best_score, best_count, exact_phrase
 
 
+def _target_token_counts(text: str) -> tuple[int, int]:
+    tokens = tokenize(text).tokens
+    return len(tokens), len({token for token in tokens if token not in _LEXICAL_STOPWORDS})
+
+
+def _anchor_order_bounds(request: dict[str, Any]) -> tuple[int | None, int | None]:
+    previous = request.get("previous_anchor") or {}
+    following = request.get("next_anchor") or {}
+    previous_orders = previous.get("screenplay_order") or []
+    following_orders = following.get("screenplay_order") or []
+    lower = previous_orders[-1] if previous_orders and isinstance(previous_orders[-1], int) else None
+    upper = following_orders[0] if following_orders and isinstance(following_orders[0], int) else None
+    return lower, upper
+
+
+def _within_anchor_envelope(order: Any, lower: int | None, upper: int | None, *, margin: int = 4) -> bool:
+    if not isinstance(order, int):
+        return False
+    if lower is None and upper is None:
+        return False
+    if lower is None:
+        return abs(order - upper) <= margin
+    if upper is None:
+        return abs(order - lower) <= margin
+    return order >= lower - margin and order <= upper + margin
+
+
 def build_production_high_risk_audit_v3(
     requests_path: Path, responses_path: Path, alignment_path: Path, shot_context_path: Path,
     context_path: Path, output_path: Path, summary_path: Path, *, low_confidence_threshold: float = 0.8,
@@ -115,6 +142,7 @@ def build_production_high_risk_audit_v3(
         automatic_by_id = {row["subtitle_id"]: row for row in request.get("automatic_candidate_mappings", [])}
         candidates = request.get("dialogue_candidates", [])
         candidate_by_id = {row["block_id"]: row for row in candidates}
+        lower_anchor_order, upper_anchor_order = _anchor_order_bounds(request)
         validation_events = response.get("validation_diagnostics", {}).get("sequence_quality", {}).get("events", [])
         candidate_limit = request.get("candidate_limit")
         saturated = isinstance(candidate_limit, int) and candidate_limit > 0 and len(candidates) >= candidate_limit
@@ -148,12 +176,23 @@ def build_production_high_risk_audit_v3(
             no_match_classification = None
             no_match_evidence: list[str] = []
             outside_matches: list[dict[str, Any]] = []
+            recall_matches: list[dict[str, Any]] = []
+            displayed_outside_matches: list[dict[str, Any]] = []
             if resolution["decision"] == "no_candidate_match":
                 automatic_matches = automatic_by_id.get(subtitle_id, {}).get("matches", [])
-                lexical, lexical_overlap_count, lexical_phrase = _target_lexical_evidence(text, candidates)
-                automatic_lexical = max((float(row.get("lexical_score") or 0.0) for row in automatic_matches), default=0.0)
+                local_candidates = [
+                    row for row in candidates
+                    if _within_anchor_envelope(
+                        row.get("screenplay_order"), lower_anchor_order, upper_anchor_order,
+                    )
+                ]
+                lexical, lexical_overlap_count, lexical_phrase = _target_lexical_evidence(text, local_candidates)
+                target_token_count, target_content_count = _target_token_counts(text)
                 semantic = max((float(row.get("semantic_score") or 0.0) for row in automatic_matches), default=0.0)
-                strong_lexical = lexical_phrase or (lexical_overlap_count >= 2 and lexical >= 0.75) or automatic_lexical >= 0.75
+                strong_supplied_candidate = (
+                    (lexical_phrase and target_token_count >= 4)
+                    or (lexical_overlap_count >= 2 and lexical >= 2 / 3)
+                )
                 moderate_lexical = lexical_overlap_count >= 2 and lexical >= 0.50
                 supplied_ids = set(candidate_by_id)
                 for block in dialogue:
@@ -163,17 +202,43 @@ def build_production_high_risk_audit_v3(
                     if phrase or (count >= 2 and score >= 0.75):
                         outside_matches.append({**block, "target_content_overlap": score, "exact_phrase": phrase})
                 outside_matches.sort(key=lambda row: (not row["exact_phrase"], -row["target_content_overlap"], row["screenplay_order"]))
-                outside_matches = outside_matches[:5]
-                if strong_lexical:
-                    reasons.append("strong_lexical_overlap_no_candidate_match"); no_match_evidence.append("strong_lexical_overlap")
+                nearby_outside_matches = [
+                    row for row in outside_matches
+                    if _within_anchor_envelope(
+                        row.get("screenplay_order"), lower_anchor_order, upper_anchor_order,
+                    )
+                    and (
+                        (row["exact_phrase"] and target_token_count >= 3)
+                        or target_content_count >= 2
+                    )
+                ]
+                distinctive_distant_matches = [
+                    row for row in outside_matches
+                    if row not in nearby_outside_matches and (
+                        (row["exact_phrase"] and target_token_count >= 4)
+                        or (row["target_content_overlap"] >= 0.75 and target_content_count >= 4)
+                    )
+                ]
+                recall_matches = nearby_outside_matches + distinctive_distant_matches
+                displayed_outside_matches = outside_matches[:5]
+                for row in recall_matches:
+                    if row not in displayed_outside_matches:
+                        displayed_outside_matches.append(row)
+                if strong_supplied_candidate:
+                    reasons.append("strong_lexical_overlap_no_candidate_match")
+                    no_match_evidence.append("strong_supplied_candidate_in_anchor_envelope")
                 if semantic >= 0.75:
-                    reasons.append("high_semantic_score_no_candidate_match"); no_match_evidence.append("high_semantic_score")
+                    reasons.append("high_semantic_score_no_candidate_match")
                 if automatic_matches:
                     no_match_evidence.append("automatic_mapping_present")
-                if outside_matches:
+                if displayed_outside_matches:
                     reasons.append("strong_screenplay_text_outside_candidate_window")
+                if recall_matches:
                     no_match_evidence.append("strong_screenplay_text_outside_candidate_window")
-                if no_match_evidence:
+                if strong_supplied_candidate:
+                    no_match_classification = "reviewer_selection_risk"
+                    reasons.append("reviewer_selection_risk")
+                elif recall_matches:
                     no_match_classification = "candidate_recall_risk"
                     reasons.append("candidate_recall_risk")
                 elif (moderate_lexical or semantic >= 0.50) and (
@@ -203,7 +268,7 @@ def build_production_high_risk_audit_v3(
                 start, end = max(0, min(orders) - 2), min(len(dialogue), max(orders) + 3)
                 local = dialogue[start:end]
             audit.append({
-                "schema_version": "1.0", "request_id": request["request_id"], "subtitle_id": subtitle_id,
+                "schema_version": "1.1", "request_id": request["request_id"], "subtitle_id": subtitle_id,
                 "subtitle_text": text, "subtitle_time": subtitle["time"], "nearby_subtitle_context": nearby,
                 "previous_anchor": request.get("previous_anchor"), "next_anchor": request.get("next_anchor"),
                 "dialogue_candidates": candidates,
@@ -216,7 +281,11 @@ def build_production_high_risk_audit_v3(
                     "candidate_count": len(candidates), "candidate_limit_saturated": saturated,
                     "no_candidate_match_classification": no_match_classification,
                     "no_candidate_match_evidence": no_match_evidence, "parser_structural_warning": parser_warning,
-                    "strong_screenplay_matches_outside_candidates": outside_matches,
+                    "strong_screenplay_matches_outside_candidates": displayed_outside_matches,
+                    "recall_relevant_screenplay_matches_outside_candidates": recall_matches,
+                    "anchor_order_envelope": {
+                        "previous": lower_anchor_order, "next": upper_anchor_order, "margin": 4,
+                    },
                 },
                 "human_decision": None, "human_block_ids": None, "reviewer_notes": None, "review_status": "pending",
             })
@@ -224,7 +293,7 @@ def build_production_high_risk_audit_v3(
     _write_jsonl(output_path, audit)
     reason_counts = Counter(reason for row in audit for reason in row["inclusion_reasons"])
     summary = {
-        "schema_version": "1.0", "record_count": len(audit), "pending_adjudication_count": len(audit),
+        "schema_version": "1.1", "record_count": len(audit), "pending_adjudication_count": len(audit),
         "hard_validation_contract_version": hard_validation_contract_version,
         "request_count": len(requests), "resolution_count": sum(len(row["resolutions"]) for row in responses),
         "inclusion_reason_counts": dict(sorted(reason_counts.items())),
@@ -248,6 +317,7 @@ def finalize_production_movie_v3(
     lifecycle_report_paths: list[Path], risk_audit_path: Path, risk_summary_path: Path,
     qc_path: Path, manifest_path: Path, *, max_unresolved_ambiguities: int = 5,
     max_unresolved_candidate_recall_risks: int = 0,
+    max_unresolved_reviewer_selection_risks: int = 0,
 ) -> dict[str, Any]:
     if qc_path.exists() or manifest_path.exists():
         raise FileExistsError("refusing to overwrite final production QC artifacts")
@@ -323,6 +393,7 @@ def finalize_production_movie_v3(
     status_counts = Counter(row["alignment"]["status"] for row in reviewed_rows)
     diagnostic_ambiguities = int(risk_summary.get("no_candidate_match_classification_counts", {}).get("ambiguous_needs_review", 0))
     candidate_recall_risks = int(risk_summary.get("no_candidate_match_classification_counts", {}).get("candidate_recall_risk", 0))
+    reviewer_selection_risks = int(risk_summary.get("no_candidate_match_classification_counts", {}).get("reviewer_selection_risk", 0))
     unresolved = int(status_counts.get("needs_review", 0)) + diagnostic_ambiguities
     if unresolved > max_unresolved_ambiguities:
         errors.append(f"unresolved ambiguity count {unresolved} exceeds allowed isolated maximum {max_unresolved_ambiguities}")
@@ -330,6 +401,11 @@ def finalize_production_movie_v3(
         errors.append(
             f"unresolved candidate-recall risk count {candidate_recall_risks} exceeds allowed maximum "
             f"{max_unresolved_candidate_recall_risks}"
+        )
+    if reviewer_selection_risks > max_unresolved_reviewer_selection_risks:
+        errors.append(
+            f"unresolved reviewer-selection risk count {reviewer_selection_risks} exceeds allowed maximum "
+            f"{max_unresolved_reviewer_selection_risks}"
         )
     qc = {
         "schema_version": "1.0", "movie_id": movie_id, "production_reviewer_version": reviewer.get("production_reviewer_version"),
@@ -342,6 +418,8 @@ def finalize_production_movie_v3(
         "max_unresolved_ambiguities": max_unresolved_ambiguities,
         "unresolved_candidate_recall_risk_count": candidate_recall_risks,
         "max_unresolved_candidate_recall_risks": max_unresolved_candidate_recall_risks,
+        "unresolved_reviewer_selection_risk_count": reviewer_selection_risks,
+        "max_unresolved_reviewer_selection_risks": max_unresolved_reviewer_selection_risks,
         "high_risk_audit_count": risk_summary.get("record_count"), "high_risk_reason_counts": risk_summary.get("inclusion_reason_counts"),
         "deterministic_validation_passed": deterministic_validation.passed, "reviewed_validation_passed": reviewed_validation.passed,
         "protected_hashes": protected_hashes, "lifecycle_reports": lifecycle_reports,
