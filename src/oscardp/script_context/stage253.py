@@ -15,6 +15,68 @@ from .schema import read_jsonl
 
 
 REQUEST_PREFIX_V3 = "Review this policy-aware candidate-task alignment request:\n"
+REQUEST_CONTEXT_VERSION_V31 = "v3.1_nearby_subtitles"
+
+
+def prepare_review_context_v31(
+    requests_path: Path, alignment_path: Path, output_path: Path, radius: int = 2,
+) -> dict[str, Any]:
+    if radius < 1 or radius > 10:
+        raise ValueError("nearby subtitle radius must be between 1 and 10")
+    requests = read_jsonl(requests_path)
+    alignments = read_jsonl(alignment_path)
+    positions = {row.get("subtitle_id"): index for index, row in enumerate(alignments)}
+    if len(positions) != len(alignments) or None in positions:
+        raise ValueError("alignment must contain unique non-empty subtitle IDs")
+
+    def view(row: dict[str, Any]) -> dict[str, Any]:
+        return {"subtitle_id": row["subtitle_id"], "text": row["text"], "time": row["time"]}
+
+    augmented: list[dict[str, Any]] = []
+    for request in requests:
+        target_ids = list(request.get("subtitle_ids", []))
+        if not target_ids or any(subtitle_id not in positions for subtitle_id in target_ids):
+            raise ValueError(f"{request.get('request_id')} has target subtitle outside alignment")
+        target_positions = [positions[subtitle_id] for subtitle_id in target_ids]
+        if target_positions != sorted(target_positions):
+            raise ValueError(f"{request.get('request_id')} target subtitles are not ordered")
+        first, last = target_positions[0], target_positions[-1]
+        context = {
+            "version": REQUEST_CONTEXT_VERSION_V31,
+            "radius": radius,
+            "targets_unchanged": True,
+            "non_target_context_only": True,
+            "allowed_context_fields": ["subtitle_id", "text", "time"],
+            "before": [view(row) for row in alignments[max(0, first - radius):first]],
+            "after": [view(row) for row in alignments[last + 1:last + 1 + radius]],
+        }
+        augmented.append({**request, "review_context": context})
+
+    original_projection = [
+        (row.get("request_id"), row.get("subtitle_ids"), [item.get("block_id") for item in row.get("dialogue_candidates", [])])
+        for row in requests
+    ]
+    augmented_projection = [
+        (row.get("request_id"), row.get("subtitle_ids"), [item.get("block_id") for item in row.get("dialogue_candidates", [])])
+        for row in augmented
+    ]
+    if original_projection != augmented_projection:
+        raise RuntimeError("review context augmentation changed request targets or candidate IDs")
+    _write_jsonl(output_path, augmented)
+    manifest = {
+        "schema_version": "1.0", "request_context_version": REQUEST_CONTEXT_VERSION_V31,
+        "radius": radius, "request_count": len(augmented),
+        "source_requests": requests_path.resolve().as_posix(),
+        "source_requests_sha256": hashlib.sha256(requests_path.read_bytes()).hexdigest(),
+        "source_alignment": alignment_path.resolve().as_posix(),
+        "source_alignment_sha256": hashlib.sha256(alignment_path.read_bytes()).hexdigest(),
+        "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+        "target_ids_unchanged": True, "candidate_ids_unchanged": True,
+        "gold_labels_included": False, "context_is_not_resolution_target": True,
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    _write_json(output_path.with_suffix(output_path.suffix + ".manifest.json"), manifest)
+    return manifest
 
 
 def batch_line_v3(request: dict[str, Any], model: str) -> dict[str, Any]:
@@ -98,6 +160,22 @@ def prepare_batch_v3(
         "schema_sha256_aggregate": hashlib.sha256(json_dumps(schema_hashes).encode("utf-8")).hexdigest(),
         "request_payload_data_unchanged": True, "generated_at": datetime.now(UTC).isoformat(),
     }
+    context_versions = sorted({
+        request.get("review_context", {}).get("version", "v3_no_nearby_subtitle_context")
+        for request in requests
+    })
+    manifest["request_context_versions"] = context_versions
+    manifest["request_context_design"] = (
+        None if context_versions == ["v3_no_nearby_subtitle_context"] else {
+            "nearby_subtitles_are_non_targets": True,
+            "fields": ["subtitle_id", "text", "time"],
+            "radius_by_request": {
+                request["request_id"]: request.get("review_context", {}).get("radius")
+                for request in requests
+            },
+            "gold_labels_included": False,
+        }
+    )
     _write_json(output_path.with_suffix(output_path.suffix + ".manifest.json"), manifest)
     return manifest
 

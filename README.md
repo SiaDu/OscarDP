@@ -143,6 +143,30 @@ The remaining lifecycle commands are `submit-openai-batch`,
 paid operation and refuses to run without `--confirm-submit` and
 `OPENAI_API_KEY`.
 
+For the binary v3-family candidate task, a v3.1 request-context experiment can
+add bounded neighboring subtitles without changing target subtitle IDs,
+candidate block IDs, the response schema, or the frozen v3 policy:
+
+```bash
+python -m oscardp.script_context prepare-review-context-v3-1 \
+  --requests /path/to/pilot_requests.jsonl \
+  --alignment /path/to/subtitle_script_alignment.jsonl \
+  --output /path/to/pilot_requests.v3_1.jsonl \
+  --radius 2
+
+python -m oscardp.script_context prepare-openai-batch-v3 \
+  --requests /path/to/pilot_requests.v3_1.jsonl \
+  --annotation-policy /path/to/frozen_annotation_policy.md \
+  --output /path/to/pilot_batch_input.v3_1.jsonl \
+  --model "$OPENAI_MODEL"
+```
+
+The added `review_context` contains only non-target subtitle ID, text, and time
+on each side of the target group. Its manifest records source/output hashes,
+radius, unchanged target/candidate projections, and that no gold labels were
+included. Nearby rows provide discourse context only and are never additional
+resolution targets.
+
 Candidate-task v3 inputs have an explicit submission command and validator;
 the historical command remains reserved for v1/v2 inputs:
 

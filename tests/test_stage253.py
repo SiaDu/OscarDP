@@ -18,6 +18,7 @@ from oscardp.script_context.stage253 import (
     batch_line_v3,
     evaluate_pilot_v3,
     prepare_batch_v3,
+    prepare_review_context_v31,
     submit_batch_v3,
     validate_batch_lines_v3,
     validate_resolution_v3,
@@ -105,6 +106,40 @@ def test_prepare_v3_batch_preserves_payload_and_policy_manifest(tmp_path: Path) 
     assert manifest["review_policy_version"] == "annotation_policy_v1"
     assert manifest["decision_schema_version"] == "candidate_task_v3"
     assert manifest["request_payload_data_unchanged"] is True
+    assert manifest["request_context_versions"] == ["v3_no_nearby_subtitle_context"]
+
+
+def test_prepare_v31_context_adds_only_non_target_nearby_subtitles(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"; alignment = tmp_path / "alignment.jsonl"; output = tmp_path / "requests-v31.jsonl"
+    req = request(["s2", "s3"]); write_jsonl(requests, [req])
+    write_jsonl(alignment, [
+        {"subtitle_id": f"s{index}", "text": f"subtitle {index}", "time": {"start_sec": float(index), "end_sec": float(index) + .5}}
+        for index in range(1, 6)
+    ])
+    manifest = prepare_review_context_v31(requests, alignment, output, radius=1)
+    augmented = json.loads(output.read_text(encoding="utf-8"))
+    assert augmented["subtitle_ids"] == req["subtitle_ids"]
+    assert augmented["dialogue_candidates"] == req["dialogue_candidates"]
+    assert [row["subtitle_id"] for row in augmented["review_context"]["before"]] == ["s1"]
+    assert [row["subtitle_id"] for row in augmented["review_context"]["after"]] == ["s4"]
+    assert set(augmented["review_context"]["before"][0]) == {"subtitle_id", "text", "time"}
+    assert manifest["target_ids_unchanged"] and manifest["candidate_ids_unchanged"]
+    assert manifest["gold_labels_included"] is False
+
+
+def test_v31_batch_manifest_records_context_design_without_changing_policy(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"; alignment = tmp_path / "alignment.jsonl"; augmented = tmp_path / "augmented.jsonl"
+    policy = tmp_path / "policy.md"; batch = tmp_path / "batch.jsonl"
+    write_jsonl(requests, [request(["s2"])]); write_jsonl(alignment, [
+        {"subtitle_id": f"s{index}", "text": f"subtitle {index}", "time": {"start_sec": index, "end_sec": index + .5}}
+        for index in range(1, 4)
+    ]); policy.write_text("frozen policy", encoding="utf-8")
+    prepare_review_context_v31(requests, alignment, augmented, radius=1)
+    manifest = prepare_batch_v3(augmented, policy, batch, "test-model")
+    assert manifest["request_context_versions"] == ["v3.1_nearby_subtitles"]
+    assert manifest["request_context_design"]["gold_labels_included"] is False
+    row = json.loads(batch.read_text(encoding="utf-8"))
+    assert row["body"]["instructions"] == V3_SYSTEM_INSTRUCTIONS
 
 
 def test_historical_submit_uses_historical_validator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

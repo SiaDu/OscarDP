@@ -59,6 +59,9 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_batch_v3 = commands.add_parser("prepare-openai-batch-v3")
     prepare_batch_v3.add_argument("--requests", type=Path, required=True); prepare_batch_v3.add_argument("--annotation-policy", type=Path, required=True)
     prepare_batch_v3.add_argument("--output", type=Path, required=True); prepare_batch_v3.add_argument("--model", required=True)
+    context_v31 = commands.add_parser("prepare-review-context-v3-1")
+    context_v31.add_argument("--requests", type=Path, required=True); context_v31.add_argument("--alignment", type=Path, required=True)
+    context_v31.add_argument("--output", type=Path, required=True); context_v31.add_argument("--radius", type=int, default=2)
     remaining = commands.add_parser("prepare-openai-remaining")
     remaining.add_argument("--full-requests", type=Path, required=True); remaining.add_argument("--pilot-requests", type=Path, required=True)
     remaining.add_argument("--output", type=Path, required=True); remaining.add_argument("--manifest", type=Path, required=True); remaining.add_argument("--model", required=True)
@@ -154,6 +157,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-openai-batch-v3":
             from .stage253 import prepare_batch_v3
             print(json_dumps(prepare_batch_v3(args.requests, args.annotation_policy, args.output, args.model), pretty=True)); return 0
+        if args.command == "prepare-review-context-v3-1":
+            from .stage253 import prepare_review_context_v31
+            print(json_dumps(prepare_review_context_v31(args.requests, args.alignment, args.output, args.radius), pretty=True)); return 0
         if args.command == "prepare-openai-remaining":
             from .stage23 import prepare_remaining_requests
             print(json_dumps(prepare_remaining_requests(args.full_requests, args.pilot_requests, args.output, args.manifest, args.model), pretty=True)); return 0
