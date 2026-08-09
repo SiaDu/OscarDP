@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -321,7 +323,8 @@ def augment_review_requests_global_lexical(
     requests_path: Path, context_path: Path, output_path: Path, *, max_rescue_candidates: int = 12,
 ) -> dict[str, Any]:
     """Write a versioned request set with strong screenplay-wide lexical rescue candidates."""
-    if output_path.exists():
+    manifest_path = output_path.with_suffix(output_path.suffix + ".manifest.json")
+    if output_path.exists() or manifest_path.exists():
         raise FileExistsError("refusing to overwrite global lexical rescue requests")
     if not 1 <= max_rescue_candidates <= 36:
         raise ValueError("max_rescue_candidates must be between 1 and 36")
@@ -382,10 +385,11 @@ def augment_review_requests_global_lexical(
                     "start_scene_id": request["dialogue_candidates"][0]["scene_id"],
                     "end_scene_id": request["dialogue_candidates"][-1]["scene_id"],
                 }
+            rescued_requests += 1; rescued_targets += len(target_hits); added_total += len(additions)
+        if additions:
             request["retrieval_version"] = "global_lexical_rescue_v2"
             request["global_lexical_rescue_target_ids"] = sorted(target_hits)
             request["global_lexical_rescue_candidate_count"] = len(additions)
-            rescued_requests += 1; rescued_targets += len(target_hits); added_total += len(additions)
         output.append(request)
     errors = validate_review_requests(output, context)
     if errors:
@@ -401,9 +405,30 @@ def augment_review_requests_global_lexical(
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
-    return {"request_count": len(output), "rescued_request_count": rescued_requests,
-            "rescued_target_count": rescued_targets, "added_candidate_count": added_total,
-            "retrieval_version": "global_lexical_rescue_v2", "output": output_path.as_posix()}
+    result = {"schema_version": "1.0", "request_count": len(output),
+              "rescued_request_count": rescued_requests,
+              "rescued_target_count": rescued_targets, "added_candidate_count": added_total,
+              "retrieval_version": "global_lexical_rescue_v2", "max_rescue_candidates": max_rescue_candidates,
+              "source_requests": requests_path.resolve().as_posix(),
+              "source_requests_sha256": hashlib.sha256(requests_path.read_bytes()).hexdigest(),
+              "screenplay_context": context_path.resolve().as_posix(),
+              "screenplay_context_sha256": hashlib.sha256(context_path.read_bytes()).hexdigest(),
+              "function_word_policy_sha256": hashlib.sha256(
+                  json.dumps(sorted(_GLOBAL_RESCUE_FUNCTION_WORDS), separators=(",", ":")).encode("utf-8")
+              ).hexdigest(),
+              "output": output_path.resolve().as_posix(),
+              "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+              "generated_at": datetime.now(UTC).isoformat()}
+    fd, temporary = tempfile.mkstemp(prefix=manifest_path.name + ".", suffix=".tmp", dir=manifest_path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(result, ensure_ascii=False, allow_nan=False, indent=2) + "\n")
+            handle.flush(); os.fsync(handle.fileno())
+        os.replace(temporary, manifest_path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return result
 
 
 def build_alignment_diagnostics(context: dict[str, Any], alignments: list[dict[str, Any]], requests: list[dict[str, Any]]) -> dict[str, Any]:

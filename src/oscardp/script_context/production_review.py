@@ -11,13 +11,19 @@ from typing import Any
 from oscardp.shots.schema import json_dumps
 
 from .openai_review import _submit_validated_batch, apply_validated_responses
-from .openai_schema import V32_POLICY_SYSTEM_INSTRUCTIONS, alignment_response_schema_v3
+from .openai_schema import (
+    V321_VOCATIVE_SYSTEM_INSTRUCTIONS,
+    V32_POLICY_SYSTEM_INSTRUCTIONS,
+    alignment_response_schema_v3,
+)
 from .pipeline import _write_json, _write_jsonl
 from .schema import read_jsonl
 from .stage23 import _unique_ids, _validate_request_subtitles, prepare_remaining_requests
 from .stage253 import (
     REQUEST_PREFIX_V32_POLICY,
+    batch_line_v321_vocative,
     batch_line_v32_policy,
+    validate_batch_lines_v321_vocative,
     validate_batch_lines_v32_policy,
     validate_resolution_v3,
 )
@@ -30,11 +36,29 @@ PRODUCTION_REVIEWER_VERSIONS = {
         "output_tag": "v3_2_production_1",
         "lifecycle_schema_version": "v3_production_1",
         "hard_validation_contract_version": "candidate_task_v3_structure_v1",
+        "instructions": V32_POLICY_SYSTEM_INSTRUCTIONS,
+        "batch_line": batch_line_v32_policy,
+        "batch_validator": validate_batch_lines_v32_policy,
+        "review_policy_version": "annotation_policy_v1_plus_generic_v3.2_instructions",
     },
     "v3.2-production.2": {
         "output_tag": "v3_2_production_2",
         "lifecycle_schema_version": "v3_production_2",
         "hard_validation_contract_version": "candidate_task_v3_structure_v2",
+        "instructions": V32_POLICY_SYSTEM_INSTRUCTIONS,
+        "batch_line": batch_line_v32_policy,
+        "batch_validator": validate_batch_lines_v32_policy,
+        "review_policy_version": "annotation_policy_v1_plus_generic_v3.2_instructions",
+    },
+    "v3.2.1-production.1": {
+        "output_tag": "v3_2_1_production_1",
+        "lifecycle_schema_version": "v3_2_1_production_1",
+        "hard_validation_contract_version": "candidate_task_v3_structure_v2",
+        "instructions": V321_VOCATIVE_SYSTEM_INSTRUCTIONS,
+        "batch_line": batch_line_v321_vocative,
+        "batch_validator": validate_batch_lines_v321_vocative,
+        "retrieval_version": "global_lexical_rescue_v2",
+        "review_policy_version": "annotation_policy_v1_plus_generic_v3.2.1_vocative_instructions",
     },
 }
 
@@ -44,21 +68,37 @@ def _sha(path: Path) -> str:
 
 
 def _load_reviewer_manifest(path: Path) -> dict[str, Any]:
-    manifest = json.loads(path.read_text(encoding="utf-8"))
-    version = manifest.get("production_reviewer_version")
+    source = json.loads(path.read_text(encoding="utf-8"))
+    components = source.get("components") if isinstance(source.get("components"), dict) else {}
+    manifest = dict(source)
+    version = source.get("production_reviewer_version") or source.get("reviewer_version")
     if version not in PRODUCTION_REVIEWER_VERSIONS:
         raise ValueError("production reviewer manifest has the wrong version")
-    if manifest.get("status") != "promoted_frozen":
+    manifest["production_reviewer_version"] = version
+    manifest["model"] = source.get("model") or components.get("model")
+    manifest["decision_schema_version"] = (
+        source.get("decision_schema_version") or components.get("decision_schema_version")
+    )
+    manifest["hard_validation_contract_version"] = (
+        source.get("hard_validation_contract_version")
+        or components.get("hard_validation_contract_version")
+    )
+    manifest["prompt_sha256"] = source.get("prompt_sha256") or components.get("prompt_sha256")
+    manifest["retrieval_version"] = source.get("retrieval_version") or components.get("retrieval_version")
+    if manifest.get("status") not in {"promoted_frozen", "promoted_global_production_reviewer"}:
         raise ValueError("production reviewer is not promoted and frozen")
-    prompt_hash = hashlib.sha256(V32_POLICY_SYSTEM_INSTRUCTIONS.encode("utf-8")).hexdigest()
+    settings = PRODUCTION_REVIEWER_VERSIONS[version]
+    if version == "v3.2-production.1" and manifest["hard_validation_contract_version"] is None:
+        manifest["hard_validation_contract_version"] = settings["hard_validation_contract_version"]
+    prompt_hash = hashlib.sha256(settings["instructions"].encode("utf-8")).hexdigest()
     if manifest.get("prompt_sha256") != prompt_hash:
         raise ValueError("production reviewer prompt hash differs from code")
     if manifest.get("decision_schema_version") != "candidate_task_v3":
         raise ValueError("production reviewer decision schema is not candidate_task_v3")
-    expected_contract = PRODUCTION_REVIEWER_VERSIONS[version]["hard_validation_contract_version"]
+    expected_contract = settings["hard_validation_contract_version"]
+    if manifest.get("hard_validation_contract_version") != expected_contract:
+        raise ValueError("production reviewer has the wrong hard validation contract")
     if version == "v3.2-production.2":
-        if manifest.get("hard_validation_contract_version") != expected_contract:
-            raise ValueError("production.2 reviewer has the wrong hard validation contract")
         inherited = manifest.get("inherited_production_1_evidence_manifest")
         inherited_hash = manifest.get("inherited_production_1_evidence_manifest_sha256")
         if not isinstance(inherited, str) or not isinstance(inherited_hash, str):
@@ -66,7 +106,113 @@ def _load_reviewer_manifest(path: Path) -> dict[str, Any]:
         inherited_path = Path(inherited)
         if not inherited_path.is_file() or _sha(inherited_path) != inherited_hash:
             raise ValueError("production.2 inherited production.1 evidence hash differs")
+    if version == "v3.2.1-production.1":
+        if manifest.get("retrieval_version") != settings["retrieval_version"]:
+            raise ValueError("production reviewer has the wrong retrieval version")
+        calibration = source.get("independent_calibration")
+        if not isinstance(calibration, dict):
+            raise ValueError("production reviewer is missing independent calibration evidence")
+        if calibration.get("reference_frozen_before_reviewer_output") is not True:
+            raise ValueError("production reviewer reference was not frozen before output")
+        if calibration.get("new_systematic_failure_class_found") is not False:
+            raise ValueError("production reviewer has an unresolved systematic failure")
+        numeric_gate = calibration.get("numeric_gate", {})
+        if not isinstance(numeric_gate, dict) or numeric_gate.get("passed") is not True:
+            raise ValueError("production reviewer numeric calibration gate did not pass")
+        artifact_paths = source.get("artifact_paths")
+        artifact_hashes = source.get("artifact_sha256")
+        if not isinstance(artifact_paths, dict) or not isinstance(artifact_hashes, dict):
+            raise ValueError("production reviewer is missing calibration artifact bindings")
+        for name, expected_hash in artifact_hashes.items():
+            artifact_path = artifact_paths.get(name)
+            if not isinstance(artifact_path, str) or not isinstance(expected_hash, str):
+                raise ValueError(f"production reviewer has invalid artifact binding {name}")
+            resolved = Path(artifact_path)
+            if not resolved.is_file() or _sha(resolved) != expected_hash:
+                raise ValueError(f"production reviewer calibration artifact hash differs: {name}")
     return manifest
+
+
+def _batch_functions(reviewer: dict[str, Any]) -> tuple[Any, Any, str]:
+    settings = PRODUCTION_REVIEWER_VERSIONS[reviewer["production_reviewer_version"]]
+    return settings["batch_line"], settings["batch_validator"], settings["instructions"]
+
+
+def _validate_retrieval_binding(requests_path: Path, reviewer: dict[str, Any]) -> None:
+    expected = reviewer.get("retrieval_version")
+    if expected is None:
+        return
+    manifest_path = requests_path.with_suffix(requests_path.suffix + ".manifest.json")
+    if not manifest_path.is_file():
+        raise ValueError("production requests are missing their retrieval manifest")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("retrieval_version") != expected:
+        raise ValueError("production requests have the wrong retrieval version")
+    if manifest.get("output_sha256") != _sha(requests_path):
+        raise ValueError("production request hash differs from retrieval manifest")
+    if manifest.get("binding_type"):
+        source_path_value = manifest.get("source_requests")
+        source_hash = manifest.get("source_requests_sha256")
+        source_manifest_value = manifest.get("source_retrieval_manifest")
+        source_manifest_hash = manifest.get("source_retrieval_manifest_sha256")
+        if not all(isinstance(value, str) for value in (
+            source_path_value, source_hash, source_manifest_value, source_manifest_hash,
+        )):
+            raise ValueError("production request lineage binding is incomplete")
+        source_path = Path(source_path_value)
+        source_manifest_path = Path(source_manifest_value)
+        if not source_path.is_file() or _sha(source_path) != source_hash:
+            raise ValueError("production request lineage source hash differs")
+        if not source_manifest_path.is_file() or _sha(source_manifest_path) != source_manifest_hash:
+            raise ValueError("production request lineage manifest hash differs")
+        source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+        if source_manifest.get("retrieval_version") != expected or source_manifest.get("output_sha256") != source_hash:
+            raise ValueError("production request lineage has the wrong retrieval binding")
+    for request in read_jsonl(requests_path):
+        marker = request.get("retrieval_version")
+        if marker is not None and marker != expected:
+            raise ValueError("production request contains a conflicting retrieval marker")
+
+
+def bind_production_request_subset_v3(
+    source_requests_path: Path, subset_requests_path: Path, reviewer_manifest_path: Path,
+    manifest_path: Path,
+) -> dict[str, Any]:
+    reviewer = _load_reviewer_manifest(reviewer_manifest_path)
+    _validate_retrieval_binding(source_requests_path, reviewer)
+    expected_manifest = subset_requests_path.with_suffix(subset_requests_path.suffix + ".manifest.json")
+    if manifest_path != expected_manifest:
+        raise ValueError("production subset manifest must use the companion .manifest.json path")
+    if manifest_path.exists():
+        raise FileExistsError("refusing to overwrite production request subset binding")
+    source = read_jsonl(source_requests_path)
+    subset = read_jsonl(subset_requests_path)
+    source_by_id = {row["request_id"]: row for row in source}
+    _unique_ids(source, "request_id", "production subset source")
+    subset_ids = _unique_ids(subset, "request_id", "production subset")
+    if not subset_ids:
+        raise ValueError("production request subset is empty")
+    for row in subset:
+        if source_by_id.get(row["request_id"]) != row:
+            raise ValueError(f"production subset request differs from source: {row['request_id']}")
+    source_manifest_path = source_requests_path.with_suffix(source_requests_path.suffix + ".manifest.json")
+    result = {
+        "schema_version": "1.0", "binding_type": "exact_production_request_subset",
+        "production_reviewer_version": reviewer["production_reviewer_version"],
+        "retrieval_version": reviewer.get("retrieval_version"),
+        "source_requests": source_requests_path.resolve().as_posix(),
+        "source_requests_sha256": _sha(source_requests_path),
+        "source_retrieval_manifest": source_manifest_path.resolve().as_posix(),
+        "source_retrieval_manifest_sha256": _sha(source_manifest_path),
+        "request_count": len(subset), "request_ids": subset_ids,
+        "output": subset_requests_path.resolve().as_posix(),
+        "output_sha256": _sha(subset_requests_path),
+        "reviewer_manifest": reviewer_manifest_path.resolve().as_posix(),
+        "reviewer_manifest_sha256": _sha(reviewer_manifest_path),
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    _write_json(manifest_path, result)
+    return result
 
 
 def _reviewer_context(manifest: dict[str, Any]) -> tuple[str, str, str]:
@@ -101,16 +247,32 @@ def prepare_production_remaining_v3(
     version, _tag, lifecycle = _reviewer_context(reviewer)
     if output_path.exists() or manifest_path.exists():
         raise FileExistsError("refusing to overwrite versioned production remaining artifacts")
+    if reviewer.get("retrieval_version") is not None and manifest_path != output_path.with_suffix(output_path.suffix + ".manifest.json"):
+        raise ValueError("production remaining manifest must use the companion .manifest.json path")
+    _validate_retrieval_binding(full_requests_path, reviewer)
+    _validate_retrieval_binding(pilot_requests_path, reviewer)
     result = prepare_remaining_requests(
-        full_requests_path, pilot_requests_path, output_path, manifest_path, "gpt-5.6-terra",
+        full_requests_path, pilot_requests_path, output_path, manifest_path, reviewer["model"],
     )
     result.update({
         "lifecycle_schema_version": lifecycle,
         "production_reviewer_version": version,
         "decision_schema_version": "candidate_task_v3",
+        "hard_validation_contract_version": reviewer["hard_validation_contract_version"],
         "reviewer_manifest": reviewer_manifest_path.resolve().as_posix(),
         "reviewer_manifest_sha256": _sha(reviewer_manifest_path),
     })
+    if reviewer.get("retrieval_version") is not None:
+        source_retrieval_manifest = full_requests_path.with_suffix(full_requests_path.suffix + ".manifest.json")
+        result.update({
+            "binding_type": "exact_production_remaining_partition",
+            "retrieval_version": reviewer["retrieval_version"],
+            "output_sha256": _sha(output_path),
+            "source_requests": full_requests_path.resolve().as_posix(),
+            "source_requests_sha256": _sha(full_requests_path),
+            "source_retrieval_manifest": source_retrieval_manifest.resolve().as_posix(),
+            "source_retrieval_manifest_sha256": _sha(source_retrieval_manifest),
+        })
     _write_json(manifest_path, result)
     return result
 
@@ -123,10 +285,12 @@ def prepare_production_batch_v3(
     if output_path.exists() or output_path.with_suffix(output_path.suffix + ".manifest.json").exists():
         raise FileExistsError("refusing to overwrite versioned production Batch artifacts")
     requests = read_jsonl(requests_path)
+    _validate_retrieval_binding(requests_path, reviewer)
     ids = _unique_ids(requests, "request_id", "production requests")
     _validate_request_subtitles(requests, "production requests")
-    rows = [batch_line_v32_policy(request, reviewer["model"]) for request in requests]
-    errors = validate_batch_lines_v32_policy(rows)
+    batch_line, batch_validator, instructions = _batch_functions(reviewer)
+    rows = [batch_line(request, reviewer["model"]) for request in requests]
+    errors = batch_validator(rows)
     if errors:
         raise ValueError("Invalid production v3 Batch input: " + "; ".join(errors))
     _write_jsonl(output_path, rows)
@@ -140,11 +304,13 @@ def prepare_production_batch_v3(
         "schema_version": "1.0", "lifecycle_schema_version": lifecycle,
         "production_reviewer_version": version,
         "decision_schema_version": "candidate_task_v3", "model": reviewer["model"],
+        "hard_validation_contract_version": reviewer["hard_validation_contract_version"],
+        "retrieval_version": reviewer.get("retrieval_version"),
         "request_count": len(rows), "request_ids": ids,
         "source_requests": requests_path.resolve().as_posix(), "source_requests_sha256": _sha(requests_path),
         "reviewer_manifest": reviewer_manifest_path.resolve().as_posix(),
         "reviewer_manifest_sha256": _sha(reviewer_manifest_path),
-        "instructions_sha256": hashlib.sha256(V32_POLICY_SYSTEM_INSTRUCTIONS.encode("utf-8")).hexdigest(),
+        "instructions_sha256": hashlib.sha256(instructions.encode("utf-8")).hexdigest(),
         "request_prefix_sha256": hashlib.sha256(REQUEST_PREFIX_V32_POLICY.encode("utf-8")).hexdigest(),
         "schema_sha256_by_request": schema_hashes,
         "schema_sha256_aggregate": hashlib.sha256(json_dumps(schema_hashes).encode("utf-8")).hexdigest(),
@@ -168,13 +334,15 @@ def split_production_requests_v3(
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError("refusing to overwrite production request chunks")
     requests = read_jsonl(requests_path)
+    _validate_retrieval_binding(requests_path, reviewer)
     _unique_ids(requests, "request_id", "production chunk source")
     _validate_request_subtitles(requests, "production chunk source")
+    batch_line, _batch_validator, _instructions = _batch_functions(reviewer)
 
     def estimate(request: dict[str, Any]) -> int:
         # JSON is mostly ASCII. Dividing exact request-line bytes by three is
         # deliberately more conservative than the usual four-bytes/token rule.
-        line = json_dumps(batch_line_v32_policy(request, reviewer["model"])) + "\n"
+        line = json_dumps(batch_line(request, reviewer["model"])) + "\n"
         return math.ceil(len(line.encode("utf-8")) / 3)
 
     chunks: list[list[tuple[dict[str, Any], int]]] = []
@@ -197,6 +365,20 @@ def split_production_requests_v3(
     for index, chunk in enumerate(chunks, 1):
         path = output_dir / f"requests.chunk_{index:03d}.{tag}.jsonl"
         _write_jsonl(path, [item[0] for item in chunk])
+        if reviewer.get("retrieval_version") is not None:
+            source_retrieval_manifest = requests_path.with_suffix(requests_path.suffix + ".manifest.json")
+            _write_json(path.with_suffix(path.suffix + ".manifest.json"), {
+                "schema_version": "1.0", "binding_type": "exact_production_request_chunk",
+                "production_reviewer_version": version,
+                "retrieval_version": reviewer["retrieval_version"],
+                "source_requests": requests_path.resolve().as_posix(),
+                "source_requests_sha256": _sha(requests_path),
+                "source_retrieval_manifest": source_retrieval_manifest.resolve().as_posix(),
+                "source_retrieval_manifest_sha256": _sha(source_retrieval_manifest),
+                "output": path.resolve().as_posix(), "output_sha256": _sha(path),
+                "request_count": len(chunk),
+                "reviewer_manifest_sha256": _sha(reviewer_manifest_path),
+            })
         records.append({
             "chunk_index": index, "requests_path": path.resolve().as_posix(),
             "requests_sha256": _sha(path), "request_count": len(chunk),
@@ -211,6 +393,8 @@ def split_production_requests_v3(
         "schema_version": "1.0", "lifecycle_schema_version": f"{lifecycle}_chunked",
         "production_reviewer_version": version,
         "decision_schema_version": "candidate_task_v3", "model": reviewer["model"],
+        "hard_validation_contract_version": reviewer["hard_validation_contract_version"],
+        "retrieval_version": reviewer.get("retrieval_version"),
         "packing_policy": "exact_batch_line_utf8_bytes_divided_by_3_conservative_estimate",
         "max_estimated_tokens_per_chunk": max_estimated_tokens, "max_requests_per_chunk": max_requests,
         "source_requests": requests_path.resolve().as_posix(), "source_requests_sha256": _sha(requests_path),
@@ -239,8 +423,13 @@ def submit_production_batch_v3(
         raise ValueError("production Batch input hash differs from its manifest")
     if batch_manifest.get("reviewer_manifest_sha256") != _sha(reviewer_manifest_path):
         raise ValueError("production reviewer manifest hash differs from Batch manifest")
+    source_requests = Path(batch_manifest["source_requests"])
+    if not source_requests.is_file() or batch_manifest.get("source_requests_sha256") != _sha(source_requests):
+        raise ValueError("production source requests hash differs from Batch manifest")
+    _validate_retrieval_binding(source_requests, reviewer)
     rows = read_jsonl(batch_input_path)
-    errors = validate_batch_lines_v32_policy(rows)
+    _batch_line, batch_validator, _instructions = _batch_functions(reviewer)
+    errors = batch_validator(rows)
     if errors:
         raise ValueError("Invalid production v3 Batch input: " + "; ".join(errors))
     return _submit_validated_batch(
@@ -249,7 +438,9 @@ def submit_production_batch_v3(
             "schema_version": "1.0", "lifecycle_schema_version": lifecycle,
             "production_reviewer_version": version,
             "decision_schema_version": "candidate_task_v3",
-            "review_policy_version": "annotation_policy_v1_plus_generic_v3.2_instructions",
+            "hard_validation_contract_version": reviewer["hard_validation_contract_version"],
+            "retrieval_version": reviewer.get("retrieval_version"),
+            "review_policy_version": PRODUCTION_REVIEWER_VERSIONS[version]["review_policy_version"],
             "batch_input_sha256": _sha(batch_input_path),
             "reviewer_manifest_sha256": _sha(reviewer_manifest_path),
         },
@@ -268,6 +459,9 @@ def merge_production_responses_v3(
     full, pilot, remaining = (
         read_jsonl(full_requests_path), read_jsonl(pilot_requests_path), read_jsonl(remaining_requests_path)
     )
+    _validate_retrieval_binding(full_requests_path, reviewer)
+    _validate_retrieval_binding(pilot_requests_path, reviewer)
+    _validate_retrieval_binding(remaining_requests_path, reviewer)
     full_ids = _unique_ids(full, "request_id", "full requests")
     pilot_ids = _unique_ids(pilot, "request_id", "pilot requests")
     remaining_ids = _unique_ids(remaining, "request_id", "remaining requests")
@@ -293,6 +487,8 @@ def merge_production_responses_v3(
         "schema_version": "1.0", "lifecycle_schema_version": lifecycle,
         "production_reviewer_version": version,
         "decision_schema_version": "candidate_task_v3", "request_count": len(full),
+        "hard_validation_contract_version": reviewer["hard_validation_contract_version"],
+        "retrieval_version": reviewer.get("retrieval_version"),
         "pilot_request_count": len(pilot), "remaining_request_count": len(remaining),
         "resolution_count": sum(len(row["resolutions"]) for row in ordered),
         "invalid_count": 0, "missing_count": 0, "foreign_count": 0,
@@ -318,6 +514,7 @@ def merge_production_response_chunks_v3(
     manifest = json.loads(chunk_manifest_path.read_text(encoding="utf-8"))
     source_reviewer_version = _validate_source_reviewer_binding(manifest, reviewer, reviewer_manifest_path)
     source_requests_path = Path(manifest["source_requests"])
+    _validate_retrieval_binding(source_requests_path, reviewer)
     if manifest.get("source_requests_sha256") != _sha(source_requests_path):
         raise ValueError("source production requests hash differs from chunk manifest")
     chunks = manifest.get("chunks")
@@ -353,6 +550,8 @@ def merge_production_response_chunks_v3(
         "production_reviewer_version": version,
         "source_production_reviewer_version": source_reviewer_version,
         "decision_schema_version": "candidate_task_v3", "chunk_count": len(chunks),
+        "hard_validation_contract_version": reviewer["hard_validation_contract_version"],
+        "retrieval_version": reviewer.get("retrieval_version"),
         "request_count": len(all_responses), "resolution_count": sum(len(row["resolutions"]) for row in all_responses),
         "invalid_count": 0, "missing_count": 0, "foreign_count": 0,
         "chunk_manifest_sha256": _sha(chunk_manifest_path), "response_sha256_by_chunk": response_hashes,
@@ -393,6 +592,7 @@ def apply_production_responses_v3(
     if any(path.exists() for path in (alignment_output, shot_output)):
         raise FileExistsError("refusing to overwrite incomplete versioned production apply artifacts")
     requests = read_jsonl(requests_path)
+    _validate_retrieval_binding(requests_path, reviewer)
     _unique_ids(requests, "request_id", "production apply requests")
     request_by_id = {row["request_id"]: row for row in requests}
     responses = read_jsonl(validated_path)
@@ -426,6 +626,8 @@ def apply_production_responses_v3(
         **base, "lifecycle_schema_version": lifecycle,
         "production_reviewer_version": version,
         "decision_schema_version": "candidate_task_v3",
+        "hard_validation_contract_version": reviewer["hard_validation_contract_version"],
+        "retrieval_version": reviewer.get("retrieval_version"),
         "source_hashes": {"alignment": _sha(alignment_path), "requests": _sha(requests_path), "responses": _sha(validated_path), "context": _sha(context_path), "shots": _sha(shots_path)},
         "reviewer_manifest_sha256": _sha(reviewer_manifest_path),
         "normalized_responses": normalized_path.as_posix(), "normalized_responses_sha256": _sha(normalized_path),

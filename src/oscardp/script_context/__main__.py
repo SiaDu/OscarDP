@@ -92,6 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
     production_remaining.add_argument("--full-requests", type=Path, required=True); production_remaining.add_argument("--pilot-requests", type=Path, required=True)
     production_remaining.add_argument("--output", type=Path, required=True); production_remaining.add_argument("--manifest", type=Path, required=True)
     production_remaining.add_argument("--reviewer-manifest", type=Path, required=True)
+    production_bind_subset = commands.add_parser("bind-openai-production-request-subset-v3")
+    production_bind_subset.add_argument("--source-requests", type=Path, required=True)
+    production_bind_subset.add_argument("--subset-requests", type=Path, required=True)
+    production_bind_subset.add_argument("--reviewer-manifest", type=Path, required=True)
+    production_bind_subset.add_argument("--manifest", type=Path, required=True)
     production_batch = commands.add_parser("prepare-openai-production-batch-v3")
     production_batch.add_argument("--requests", type=Path, required=True); production_batch.add_argument("--reviewer-manifest", type=Path, required=True); production_batch.add_argument("--output", type=Path, required=True)
     production_split = commands.add_parser("split-openai-production-requests-v3")
@@ -267,6 +272,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-openai-production-remaining-v3":
             from .production_review import prepare_production_remaining_v3
             print(json_dumps(prepare_production_remaining_v3(args.full_requests, args.pilot_requests, args.output, args.manifest, args.reviewer_manifest), pretty=True)); return 0
+        if args.command == "bind-openai-production-request-subset-v3":
+            from .production_review import bind_production_request_subset_v3
+            print(json_dumps(bind_production_request_subset_v3(args.source_requests, args.subset_requests, args.reviewer_manifest, args.manifest), pretty=True)); return 0
         if args.command == "prepare-openai-production-batch-v3":
             from .production_review import prepare_production_batch_v3
             print(json_dumps(prepare_production_batch_v3(args.requests, args.reviewer_manifest, args.output), pretty=True)); return 0

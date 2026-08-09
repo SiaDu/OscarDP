@@ -288,6 +288,30 @@ separate `v3_2_production_2` tag. Production.1 chunks can be carried forward
 only when the production.2 manifest records and verifies the exact inherited
 production.1 manifest hash; arbitrary cross-version merging is rejected.
 
+The promoted `v3.2.1-production.1` lifecycle binds the v3.2.1 vocative-safe
+prompt, `global_lexical_rescue_v2`, and
+`candidate_task_v3_structure_v2`. Retrieval augmentation writes a companion
+`<requests>.jsonl.manifest.json` containing source, context, and output hashes.
+Do not add lineage fields to request rows after calibration: even metadata
+changes the model payload. Bind an exact pilot or other subset externally:
+
+```bash
+python -m oscardp.script_context bind-openai-production-request-subset-v3 \
+  --source-requests /path/to/requests.full.global_lexical_rescue_v2.jsonl \
+  --subset-requests /path/to/pilot_requests.jsonl \
+  --reviewer-manifest /path/to/stage2_production_reviewer_v3_2_1_global_lexical_v2.json \
+  --manifest /path/to/pilot_requests.jsonl.manifest.json
+```
+
+The binder requires byte-equivalent request objects selected from the source
+set and writes only the companion manifest. Production remaining manifests must
+likewise use `<remaining>.jsonl.manifest.json`; request chunks receive their own
+lineage manifests automatically. Batch preparation and submission recheck the
+retrieval lineage, reviewer/calibration artifact hashes, exact prompt, model,
+hard-validation contract, request-specific candidate enums, and source-request
+hash before any network call. Tagged reviewed outputs use
+`v3_2_1_production_1`; historical v3.2 outputs remain immutable.
+
 After the full v3 response set is applied, build the self-contained risk audit
 and freeze final per-movie QC. The audit includes request-local candidates,
 selected blocks, screenplay/sequence/subtitle context, shot/keyframe links,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
@@ -81,6 +82,9 @@ def test_versioned_global_lexical_rescue_adds_outside_candidate_without_overwrit
     assert result["rescued_target_count"] == 1
     assert [item["block_id"] for item in row["dialogue_candidates"]] == ["scene_001_dialogue_001", "scene_002_dialogue_001"]
     assert row["retrieval_version"] == "global_lexical_rescue_v2"
+    retrieval_manifest = json.loads(output.with_suffix(".jsonl.manifest.json").read_text())
+    assert retrieval_manifest["output_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    assert retrieval_manifest["source_requests_sha256"] == hashlib.sha256(requests.read_bytes()).hexdigest()
     assert requests.read_text() == json.dumps(request) + "\n"
     with pytest.raises(FileExistsError):
         augment_review_requests_global_lexical(requests, context_path, output)
@@ -102,6 +106,7 @@ def test_global_lexical_rescue_rejects_function_word_only_cross_scene_phrase(tmp
     row = json.loads(output.read_text())
     assert result["rescued_target_count"] == 0
     assert [item["block_id"] for item in row["dialogue_candidates"]] == ["scene_001_dialogue_001"]
+    assert "retrieval_version" not in row
 
 
 def test_anchors_split_regions_and_deleted_script_gap_is_allowed() -> None:

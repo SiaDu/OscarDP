@@ -9,10 +9,14 @@ from unittest.mock import Mock
 
 import pytest
 
-from oscardp.script_context.openai_schema import V32_POLICY_SYSTEM_INSTRUCTIONS
+from oscardp.script_context.openai_schema import (
+    V321_VOCATIVE_SYSTEM_INSTRUCTIONS,
+    V32_POLICY_SYSTEM_INSTRUCTIONS,
+)
 from oscardp.script_context.production_review import (
     PRODUCTION_REVIEWER_VERSION,
     apply_production_responses_v3,
+    bind_production_request_subset_v3,
     merge_production_response_chunks_v3,
     merge_production_responses_v3,
     prepare_production_batch_v3,
@@ -46,6 +50,36 @@ def reviewer_manifest_v2(path: Path, inherited: Path) -> None:
         "prompt_sha256": hashlib.sha256(V32_POLICY_SYSTEM_INSTRUCTIONS.encode()).hexdigest(),
         "inherited_production_1_evidence_manifest": inherited.resolve().as_posix(),
         "inherited_production_1_evidence_manifest_sha256": hashlib.sha256(inherited.read_bytes()).hexdigest(),
+    }), encoding="utf-8")
+
+
+def reviewer_manifest_v321(path: Path, evidence: Path) -> None:
+    path.write_text(json.dumps({
+        "schema_version": "1.0",
+        "reviewer_version": "v3.2.1-production.1",
+        "status": "promoted_global_production_reviewer",
+        "components": {
+            "prompt_version": "v3.2.1-vocative-candidate",
+            "prompt_sha256": hashlib.sha256(V321_VOCATIVE_SYSTEM_INSTRUCTIONS.encode()).hexdigest(),
+            "retrieval_version": "global_lexical_rescue_v2",
+            "decision_schema_version": "candidate_task_v3",
+            "hard_validation_contract_version": "candidate_task_v3_structure_v2",
+            "model": "gpt-5.6-terra",
+        },
+        "independent_calibration": {
+            "reference_frozen_before_reviewer_output": True,
+            "new_systematic_failure_class_found": False,
+            "numeric_gate": {"passed": True},
+        },
+        "artifact_paths": {"reference": evidence.resolve().as_posix()},
+        "artifact_sha256": {"reference": hashlib.sha256(evidence.read_bytes()).hexdigest()},
+    }), encoding="utf-8")
+
+
+def retrieval_manifest(path: Path) -> None:
+    path.with_suffix(path.suffix + ".manifest.json").write_text(json.dumps({
+        "retrieval_version": "global_lexical_rescue_v2",
+        "output_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     }), encoding="utf-8")
 
 
@@ -124,6 +158,48 @@ def test_production_2_preparation_is_versioned_and_bound_to_inherited_manifest(t
     inherited.write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="inherited production.1 evidence hash differs"):
         prepare_production_batch_v3(requests, reviewer, tmp_path / "other.jsonl")
+
+
+def test_production_321_uses_promoted_prompt_retrieval_and_calibration_bindings(tmp_path: Path) -> None:
+    rows = [request(i) for i in range(1, 4)]
+    full = tmp_path / "full.v321.jsonl"
+    pilot = tmp_path / "pilot.v321.jsonl"
+    remaining = tmp_path / "remaining.v321.jsonl"
+    remaining_manifest = remaining.with_suffix(remaining.suffix + ".manifest.json")
+    evidence = tmp_path / "frozen-reference.jsonl"
+    reviewer = tmp_path / "reviewer-v321.json"
+    evidence.write_text("frozen\n", encoding="utf-8")
+    reviewer_manifest_v321(reviewer, evidence)
+    write_jsonl(full, rows)
+    write_jsonl(pilot, [rows[1]])
+    retrieval_manifest(full)
+    bind_production_request_subset_v3(
+        full, pilot, reviewer, pilot.with_suffix(pilot.suffix + ".manifest.json"),
+    )
+
+    result = prepare_production_remaining_v3(
+        full, pilot, remaining, remaining_manifest, reviewer,
+    )
+    assert result["production_reviewer_version"] == "v3.2.1-production.1"
+    assert result["retrieval_version"] == "global_lexical_rescue_v2"
+    batch = tmp_path / "batch.v321.jsonl"
+    batch_manifest = prepare_production_batch_v3(remaining, reviewer, batch)
+    batch_rows = [json.loads(line) for line in batch.read_text().splitlines()]
+    assert batch_manifest["lifecycle_schema_version"] == "v3_2_1_production_1"
+    assert batch_manifest["hard_validation_contract_version"] == "candidate_task_v3_structure_v2"
+    assert batch_manifest["instructions_sha256"] == hashlib.sha256(
+        V321_VOCATIVE_SYSTEM_INSTRUCTIONS.encode()
+    ).hexdigest()
+    assert all(row["body"]["instructions"] == V321_VOCATIVE_SYSTEM_INSTRUCTIONS for row in batch_rows)
+
+    unbound = tmp_path / "unbound.jsonl"
+    write_jsonl(unbound, [request(9)])
+    with pytest.raises(ValueError, match="missing their retrieval manifest"):
+        prepare_production_batch_v3(unbound, reviewer, tmp_path / "unbound-batch.jsonl")
+
+    evidence.write_text("changed\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="calibration artifact hash differs"):
+        prepare_production_batch_v3(remaining, reviewer, tmp_path / "changed-evidence.jsonl")
 
 
 def test_production_chunk_packing_is_exact_ordered_bounded_and_write_once(tmp_path: Path) -> None:
@@ -267,3 +343,20 @@ def test_production_apply_translates_binary_decision_and_preserves_provenance(tm
     assert v2["production_reviewer_version"] == "v3.2-production.2"
     assert v2["alignment_output"].endswith("subtitle_script_alignment.llm_reviewed_v3_2_production_2.jsonl")
     assert v2["shot_output"].endswith("shot_script_context.llm_reviewed_v3_2_production_2.jsonl")
+
+    evidence = tmp_path / "frozen-reference-v321.jsonl"
+    reviewer_v321 = tmp_path / "reviewer-v321.json"
+    evidence.write_text("frozen\n", encoding="utf-8")
+    reviewer_manifest_v321(reviewer_v321, evidence)
+    retrieval_manifest(requests)
+    v321 = apply_production_responses_v3(
+        alignment, requests, responses, context, shots, tmp_path / "v321", reviewer_v321,
+    )
+    assert v321["production_reviewer_version"] == "v3.2.1-production.1"
+    assert v321["hard_validation_contract_version"] == "candidate_task_v3_structure_v2"
+    assert v321["alignment_output"].endswith(
+        "subtitle_script_alignment.llm_reviewed_v3_2_1_production_1.jsonl"
+    )
+    assert v321["shot_output"].endswith(
+        "shot_script_context.llm_reviewed_v3_2_1_production_1.jsonl"
+    )
