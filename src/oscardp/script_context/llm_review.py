@@ -13,6 +13,15 @@ class LLMResolver(Protocol):
     def resolve(self, request: dict[str, Any]) -> dict[str, Any]: ...
 
 
+_GLOBAL_RESCUE_FUNCTION_WORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "course", "do", "for", "from",
+    "had", "has", "have", "he", "her", "here", "him", "his", "how", "i", "if", "in", "is",
+    "it", "its", "me", "my", "no", "not", "of", "on", "or", "our", "she", "so", "that", "the",
+    "their", "them", "then", "there", "they", "this", "to", "up", "us", "was", "we", "were",
+    "what", "when", "where", "which", "who", "why", "with", "yes", "you", "your",
+}
+
+
 def _anchor_summary(row: dict[str, Any] | None) -> dict[str, Any] | None:
     if row is None:
         return None
@@ -328,7 +337,8 @@ def augment_review_requests_global_lexical(
         target_hits: set[str] = set()
         for subtitle in request.get("subtitles", []):
             tokens = tokenize(subtitle.get("text", "")).tokens
-            if len(tokens) < 3:
+            content_tokens = {token for token in tokens if token not in _GLOBAL_RESCUE_FUNCTION_WORDS}
+            if len(tokens) < 3 or not content_tokens:
                 continue
             ranked: list[tuple[float, int, str]] = []
             for index, unit in enumerate(units):
@@ -372,7 +382,7 @@ def augment_review_requests_global_lexical(
                     "start_scene_id": request["dialogue_candidates"][0]["scene_id"],
                     "end_scene_id": request["dialogue_candidates"][-1]["scene_id"],
                 }
-            request["retrieval_version"] = "global_lexical_rescue_v1"
+            request["retrieval_version"] = "global_lexical_rescue_v2"
             request["global_lexical_rescue_target_ids"] = sorted(target_hits)
             request["global_lexical_rescue_candidate_count"] = len(additions)
             rescued_requests += 1; rescued_targets += len(target_hits); added_total += len(additions)
@@ -393,7 +403,7 @@ def augment_review_requests_global_lexical(
             os.unlink(temporary)
     return {"request_count": len(output), "rescued_request_count": rescued_requests,
             "rescued_target_count": rescued_targets, "added_candidate_count": added_total,
-            "retrieval_version": "global_lexical_rescue_v1", "output": output_path.as_posix()}
+            "retrieval_version": "global_lexical_rescue_v2", "output": output_path.as_posix()}
 
 
 def build_alignment_diagnostics(context: dict[str, Any], alignments: list[dict[str, Any]], requests: list[dict[str, Any]]) -> dict[str, Any]:

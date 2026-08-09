@@ -80,10 +80,28 @@ def test_versioned_global_lexical_rescue_adds_outside_candidate_without_overwrit
     row = json.loads(output.read_text())
     assert result["rescued_target_count"] == 1
     assert [item["block_id"] for item in row["dialogue_candidates"]] == ["scene_001_dialogue_001", "scene_002_dialogue_001"]
-    assert row["retrieval_version"] == "global_lexical_rescue_v1"
+    assert row["retrieval_version"] == "global_lexical_rescue_v2"
     assert requests.read_text() == json.dumps(request) + "\n"
     with pytest.raises(FileExistsError):
         augment_review_requests_global_lexical(requests, context_path, output)
+
+
+def test_global_lexical_rescue_rejects_function_word_only_cross_scene_phrase(tmp_path) -> None:
+    import json
+    context = context_for([["Local scene response"], ["How are you doing today?"]])
+    context_path = tmp_path / "context.json"; context_path.write_text(json.dumps(context), encoding="utf-8")
+    request = {
+        "request_id": "alignment_review_000001", "subtitle_ids": ["subtitle_000001"],
+        "subtitles": [{"subtitle_id": "subtitle_000001", "text": "How are you", "time": {"start_sec": 1, "end_sec": 2}}],
+        "dialogue_candidates": [{"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "HART", "text": "Local scene response", "parenthetical": None, "retrieval_methods": ["anchor_window"], "lexical_score": None, "semantic_score": None, "retrieval_score": None}],
+        "candidate_scenes": ["scene_001"], "candidate_limit": 2,
+    }
+    requests = tmp_path / "requests.jsonl"; requests.write_text(json.dumps(request) + "\n", encoding="utf-8")
+    output = tmp_path / "rescued.jsonl"
+    result = augment_review_requests_global_lexical(requests, context_path, output)
+    row = json.loads(output.read_text())
+    assert result["rescued_target_count"] == 0
+    assert [item["block_id"] for item in row["dialogue_candidates"]] == ["scene_001_dialogue_001"]
 
 
 def test_anchors_split_regions_and_deleted_script_gap_is_allowed() -> None:
