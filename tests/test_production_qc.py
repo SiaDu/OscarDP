@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from oscardp.script_context.production_qc import (
     build_production_high_risk_audit_v3,
     finalize_production_movie_v3,
@@ -115,3 +117,15 @@ def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path,
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["status"] == "COMPLETE" and manifest["counts"]["requests"] == 1
     assert all(row["unchanged"] for row in manifest["protected_hashes"].values())
+
+    risk_summary.write_text(json.dumps({
+        "record_count": 1, "audit_sha256": sha(risk), "inclusion_reason_counts": {},
+        "no_candidate_match_classification_counts": {"ambiguous_needs_review": 6},
+    }), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="unresolved ambiguity count 6"):
+        finalize_production_movie_v3(
+            movie, inventory, status, context, deterministic, deterministic_shots, reviewed, reviewed_shots,
+            shots, requests, responses, reviewer, [lifecycle], risk, risk_summary,
+            tmp_path / "qc-too-ambiguous.json", tmp_path / "manifest-too-ambiguous.json",
+        )
+    assert not (tmp_path / "manifest-too-ambiguous.json").exists()

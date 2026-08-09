@@ -142,6 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     production_finalize.add_argument("--lifecycle-report", type=Path, action="append", required=True)
     production_finalize.add_argument("--risk-audit", type=Path, required=True); production_finalize.add_argument("--risk-summary", type=Path, required=True)
     production_finalize.add_argument("--qc-report", type=Path, required=True); production_finalize.add_argument("--manifest", type=Path, required=True)
+    production_finalize.add_argument("--max-unresolved-ambiguities", type=int, default=5)
     composite = commands.add_parser("build-openai-composite-audit")
     composite.add_argument("--requests", type=Path, required=True); composite.add_argument("--validated-responses", type=Path, required=True)
     composite.add_argument("--output", type=Path, required=True); composite.add_argument("--summary", type=Path, required=True)
@@ -314,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.deterministic_alignment, args.deterministic_shot_context, args.reviewed_alignment,
                 args.reviewed_shot_context, args.shots, args.requests, args.validated_responses,
                 args.reviewer_manifest, args.lifecycle_report, args.risk_audit, args.risk_summary,
-                args.qc_report, args.manifest,
+                args.qc_report, args.manifest, max_unresolved_ambiguities=args.max_unresolved_ambiguities,
             )
             print(json_dumps(result, pretty=True)); return 0
         if args.command == "build-openai-composite-audit":

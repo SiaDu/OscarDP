@@ -128,12 +128,12 @@ def build_production_high_risk_audit_v3(
                     reasons.append("high_semantic_score_no_candidate_match"); no_match_evidence.append("high_semantic_score")
                 if automatic_matches:
                     no_match_evidence.append("automatic_mapping_present")
-                if saturated: no_match_evidence.append("candidate_limit_saturated")
-                if request.get("fallback_used"): no_match_evidence.append("fallback_retrieval")
                 if no_match_evidence:
                     no_match_classification = "candidate_recall_risk"
                     reasons.append("candidate_recall_risk")
-                elif token_count <= 3 or _multi_speaker(text) or parser_warning:
+                elif (lexical >= 0.50 or semantic >= 0.50) and (
+                    saturated or request.get("fallback_used") or _multi_speaker(text) or parser_warning
+                ):
                     no_match_classification = "ambiguous_needs_review"
                     reasons.append("ambiguous_no_candidate_match")
                 else:
@@ -199,7 +199,7 @@ def finalize_production_movie_v3(
     reviewed_alignment_path: Path, reviewed_shot_context_path: Path, shots_path: Path,
     requests_path: Path, responses_path: Path, reviewer_manifest_path: Path,
     lifecycle_report_paths: list[Path], risk_audit_path: Path, risk_summary_path: Path,
-    qc_path: Path, manifest_path: Path,
+    qc_path: Path, manifest_path: Path, *, max_unresolved_ambiguities: int = 5,
 ) -> dict[str, Any]:
     if qc_path.exists() or manifest_path.exists():
         raise FileExistsError("refusing to overwrite final production QC artifacts")
@@ -264,7 +264,10 @@ def finalize_production_movie_v3(
             errors.append(f"deterministic {label} hash changed")
     reviewed_rows = read_jsonl(reviewed_alignment_path)
     status_counts = Counter(row["alignment"]["status"] for row in reviewed_rows)
-    unresolved = int(status_counts.get("needs_review", 0))
+    diagnostic_ambiguities = int(risk_summary.get("no_candidate_match_classification_counts", {}).get("ambiguous_needs_review", 0))
+    unresolved = int(status_counts.get("needs_review", 0)) + diagnostic_ambiguities
+    if unresolved > max_unresolved_ambiguities:
+        errors.append(f"unresolved ambiguity count {unresolved} exceeds allowed isolated maximum {max_unresolved_ambiguities}")
     qc = {
         "schema_version": "1.0", "movie_id": movie_id, "production_reviewer_version": reviewer.get("production_reviewer_version"),
         "hard_validation_contract_version": reviewer.get("hard_validation_contract_version"),
@@ -273,6 +276,7 @@ def finalize_production_movie_v3(
         "foreign_response_count": len(set(response_by_id) - set(request_by_id)),
         "alignment_count": reviewed_validation.alignment_count, "shot_count": reviewed_validation.shot_count,
         "alignment_status_counts": dict(sorted(status_counts.items())), "unresolved_ambiguity_count": unresolved,
+        "max_unresolved_ambiguities": max_unresolved_ambiguities,
         "high_risk_audit_count": risk_summary.get("record_count"), "high_risk_reason_counts": risk_summary.get("inclusion_reason_counts"),
         "deterministic_validation_passed": deterministic_validation.passed, "reviewed_validation_passed": reviewed_validation.passed,
         "protected_hashes": protected_hashes, "lifecycle_reports": lifecycle_reports,
