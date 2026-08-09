@@ -86,6 +86,30 @@ def test_production_risk_audit_is_self_contained_and_covers_required_risks(tmp_p
     assert second["dialogue_candidates"] and second["screenplay_local_context"] and second["matched_shots"]
 
 
+def test_production_risk_audit_accepts_reverse_order_only_under_validator_v3(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.jsonl"; responses = tmp_path / "responses.jsonl"
+    alignment = tmp_path / "reviewed.jsonl"; shots = tmp_path / "shots-reviewed.jsonl"; context = tmp_path / "context.json"
+    req = request(); req["subtitle_ids"] = ["subtitle_000001"]; req["subtitles"] = [req["subtitles"][0]]
+    res = response(); res["resolutions"] = [res["resolutions"][0]]
+    res["resolutions"][0]["block_ids"] = ["scene_001_dialogue_002", "scene_001_dialogue_001"]
+    write_jsonl(requests, [req]); write_jsonl(responses, [res])
+    write_jsonl(alignment, [{"subtitle_id": "subtitle_000001", "text": "- Hi.\n- Go.", "time": {"start_sec": 0., "end_sec": .8}, "scene_id": "scene_001", "script_matches": [{"block_id": "scene_001_dialogue_002"}, {"block_id": "scene_001_dialogue_001"}], "alignment": {"status": "llm_aligned"}}])
+    write_jsonl(shots, [{"shot_id": "shot_000001", "keyframe": {"path": "keyframes/shot_000001.jpg"}, "subtitles": [{"subtitle_id": "subtitle_000001"}]}])
+    context.write_text(json.dumps({"script_scenes": [{"scene_id": "scene_001", "parsing": {"status": "parsed"}, "script_blocks": [{"block_type": "dialogue", **candidate} for candidate in req["dialogue_candidates"]]}]}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid v3 response"):
+        build_production_high_risk_audit_v3(
+            requests, responses, alignment, shots, context,
+            tmp_path / "v2.jsonl", tmp_path / "v2.json",
+        )
+    result = build_production_high_risk_audit_v3(
+        requests, responses, alignment, shots, context,
+        tmp_path / "v3.jsonl", tmp_path / "v3.json",
+        hard_validation_contract_version="candidate_task_v3_structure_v3",
+    )
+    assert result["hard_validation_contract_version"] == "candidate_task_v3_structure_v3"
+
+
 def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path, monkeypatch) -> None:
     movie = "tt1"
     source_dir = tmp_path / "sources"; source_dir.mkdir()

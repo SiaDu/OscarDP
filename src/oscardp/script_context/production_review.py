@@ -60,6 +60,16 @@ PRODUCTION_REVIEWER_VERSIONS = {
         "retrieval_version": "global_lexical_rescue_v2",
         "review_policy_version": "annotation_policy_v1_plus_generic_v3.2.1_vocative_instructions",
     },
+    "v3.2.1-production.2-validator-v3": {
+        "output_tag": "v3_2_1_production_2_validator_v3",
+        "lifecycle_schema_version": "v3_2_1_production_2_validator_v3",
+        "hard_validation_contract_version": "candidate_task_v3_structure_v3",
+        "instructions": V321_VOCATIVE_SYSTEM_INSTRUCTIONS,
+        "batch_line": batch_line_v321_vocative,
+        "batch_validator": validate_batch_lines_v321_vocative,
+        "retrieval_version": "global_lexical_rescue_v2",
+        "review_policy_version": "annotation_policy_v1_plus_generic_v3.2.1_vocative_instructions",
+    },
 }
 
 
@@ -106,7 +116,7 @@ def _load_reviewer_manifest(path: Path) -> dict[str, Any]:
         inherited_path = Path(inherited)
         if not inherited_path.is_file() or _sha(inherited_path) != inherited_hash:
             raise ValueError("production.2 inherited production.1 evidence hash differs")
-    if version == "v3.2.1-production.1":
+    if version in {"v3.2.1-production.1", "v3.2.1-production.2-validator-v3"}:
         if manifest.get("retrieval_version") != settings["retrieval_version"]:
             raise ValueError("production reviewer has the wrong retrieval version")
         calibration = source.get("independent_calibration")
@@ -130,12 +140,47 @@ def _load_reviewer_manifest(path: Path) -> dict[str, Any]:
             resolved = Path(artifact_path)
             if not resolved.is_file() or _sha(resolved) != expected_hash:
                 raise ValueError(f"production reviewer calibration artifact hash differs: {name}")
+    if version == "v3.2.1-production.2-validator-v3":
+        inherited = manifest.get("inherited_production_1_evidence_manifest")
+        inherited_hash = manifest.get("inherited_production_1_evidence_manifest_sha256")
+        if not isinstance(inherited, str) or not isinstance(inherited_hash, str):
+            raise ValueError("validator-v3 reviewer is missing its production.1 evidence binding")
+        inherited_path = Path(inherited)
+        if not inherited_path.is_file() or _sha(inherited_path) != inherited_hash:
+            raise ValueError("validator-v3 inherited production.1 evidence hash differs")
+        validator_calibration = source.get("validator_independent_calibration")
+        if not isinstance(validator_calibration, dict):
+            raise ValueError("validator-v3 reviewer is missing independent validator calibration")
+        if validator_calibration.get("reference_frozen_before_reviewer_output") is not True:
+            raise ValueError("validator-v3 reference was not frozen before reviewer output")
+        if validator_calibration.get("new_systematic_failure_class_found") is not False:
+            raise ValueError("validator-v3 reviewer has an unresolved systematic failure")
+        validator_gate = validator_calibration.get("numeric_gate")
+        if not isinstance(validator_gate, dict) or validator_gate.get("passed") is not True:
+            raise ValueError("validator-v3 independent calibration gate did not pass")
+        validator_paths = source.get("validator_artifact_paths")
+        validator_hashes = source.get("validator_artifact_sha256")
+        if not isinstance(validator_paths, dict) or not isinstance(validator_hashes, dict):
+            raise ValueError("validator-v3 reviewer is missing calibration artifact bindings")
+        for name, expected_hash in validator_hashes.items():
+            artifact_path = validator_paths.get(name)
+            if not isinstance(artifact_path, str) or not isinstance(expected_hash, str):
+                raise ValueError(f"validator-v3 reviewer has invalid artifact binding {name}")
+            resolved = Path(artifact_path)
+            if not resolved.is_file() or _sha(resolved) != expected_hash:
+                raise ValueError(f"validator-v3 calibration artifact hash differs: {name}")
     return manifest
 
 
 def _batch_functions(reviewer: dict[str, Any]) -> tuple[Any, Any, str]:
     settings = PRODUCTION_REVIEWER_VERSIONS[reviewer["production_reviewer_version"]]
     return settings["batch_line"], settings["batch_validator"], settings["instructions"]
+
+
+def _effective_hard_validation_contract(reviewer: dict[str, Any]) -> str:
+    """Map the historical production.1 marker to its existing v2 validator behavior."""
+    contract = reviewer["hard_validation_contract_version"]
+    return "candidate_task_v3_structure_v3" if contract == "candidate_task_v3_structure_v3" else "candidate_task_v3_structure_v2"
 
 
 def _validate_retrieval_binding(requests_path: Path, reviewer: dict[str, Any]) -> None:
@@ -233,6 +278,12 @@ def _validate_source_reviewer_binding(
     if (
         source_version == "v3.2-production.1"
         and target_version == "v3.2-production.2"
+        and source_hash == reviewer.get("inherited_production_1_evidence_manifest_sha256")
+    ):
+        return source_version
+    if (
+        source_version == "v3.2.1-production.1"
+        and target_version == "v3.2.1-production.2-validator-v3"
         and source_hash == reviewer.get("inherited_production_1_evidence_manifest_sha256")
     ):
         return source_version
@@ -476,7 +527,10 @@ def merge_production_responses_v3(
     response_by_id = {row["request_id"]: row for row in pilot_responses + remaining_responses}
     errors: list[dict[str, Any]] = []
     for request_id in full_ids:
-        current, _diagnostics = validate_resolution_v3(response_by_id[request_id], request_by_id[request_id])
+        current, _diagnostics = validate_resolution_v3(
+            response_by_id[request_id], request_by_id[request_id],
+            _effective_hard_validation_contract(reviewer),
+        )
         if current:
             errors.append({"request_id": request_id, "errors": current})
     if errors:
@@ -534,7 +588,10 @@ def merge_production_response_chunks_v3(
             raise ValueError(f"chunk {chunk['chunk_index']} responses do not exactly cover requests")
         response_by_id = {row["request_id"]: row for row in responses}
         for request in requests:
-            errors, _diagnostics = validate_resolution_v3(response_by_id[request["request_id"]], request)
+            errors, _diagnostics = validate_resolution_v3(
+                response_by_id[request["request_id"]], request,
+                _effective_hard_validation_contract(reviewer),
+            )
             if errors:
                 raise ValueError(f"chunk {chunk['chunk_index']} invalid v3 response {request['request_id']}: {errors}")
             all_requests.append(request)
@@ -602,7 +659,9 @@ def apply_production_responses_v3(
         request = request_by_id.get(response.get("request_id"))
         if request is None:
             raise ValueError(f"response outside requests: {response.get('request_id')}")
-        errors, _diagnostics = validate_resolution_v3(response, request)
+        errors, _diagnostics = validate_resolution_v3(
+            response, request, _effective_hard_validation_contract(reviewer),
+        )
         if errors:
             raise ValueError(f"invalid production v3 response {response['request_id']}: {errors}")
         converted = deepcopy(response)

@@ -308,6 +308,18 @@ revalidation passes. Freeze and evaluate an independent calibration movie,
 then promote a separately versioned production reviewer manifest or retain
 structure v2.
 
+After independent calibration passes, `v3.2.1-production.2-validator-v3` keeps
+the v3.2.1 prompt and `global_lexical_rescue_v2` retrieval byte-for-byte
+unchanged and changes only the hard response contract to
+`candidate_task_v3_structure_v3`. Its manifest must hash-bind both the frozen
+`v3.2.1-production.1` manifest and the independent validator-calibration
+reference, validation, evaluation, and error audit. Existing production.1
+request chunks and completed responses may migrate only through that explicit
+parent-manifest binding; all newly prepared Batch and reviewed artifacts use
+the `v3_2_1_production_2_validator_v3` tag. Reverse-order candidate IDs remain
+valid only when supplied by the exact request and are retained as high-risk QC
+events rather than silently normalized.
+
 The promoted `v3.2.1-production.1` lifecycle binds the v3.2.1 vocative-safe
 prompt, `global_lexical_rescue_v2`, and
 `candidate_task_v3_structure_v2`. Retrieval augmentation writes a companion
@@ -348,7 +360,8 @@ python -m oscardp.script_context build-openai-production-risk-audit-v3 \
   --reviewed-shot-context /path/to/shot_script_context.llm_reviewed_v3_2_production_2.jsonl \
   --screenplay-context /path/to/movie_script_context.json \
   --output /path/to/reviewed/v3_2_production_2/high_risk_audit.jsonl \
-  --summary /path/to/reviewed/v3_2_production_2/high_risk_audit_summary.json
+  --summary /path/to/reviewed/v3_2_production_2/high_risk_audit_summary.json \
+  --hard-validation-contract candidate_task_v3_structure_v3
 
 python -m oscardp.script_context finalize-openai-production-movie-v3 \
   --movie-key tt00000000 \

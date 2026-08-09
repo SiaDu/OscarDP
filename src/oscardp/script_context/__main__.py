@@ -143,6 +143,11 @@ def build_parser() -> argparse.ArgumentParser:
     production_risk.add_argument("--reviewed-alignment", type=Path, required=True); production_risk.add_argument("--reviewed-shot-context", type=Path, required=True)
     production_risk.add_argument("--screenplay-context", type=Path, required=True); production_risk.add_argument("--output", type=Path, required=True)
     production_risk.add_argument("--summary", type=Path, required=True); production_risk.add_argument("--low-confidence-threshold", type=float, default=.8)
+    production_risk.add_argument(
+        "--hard-validation-contract",
+        choices=("candidate_task_v3_structure_v2", "candidate_task_v3_structure_v3"),
+        default="candidate_task_v3_structure_v2",
+    )
     lexical_rescue = commands.add_parser("augment-review-requests-global-lexical")
     lexical_rescue.add_argument("--requests", type=Path, required=True); lexical_rescue.add_argument("--screenplay-context", type=Path, required=True)
     lexical_rescue.add_argument("--output", type=Path, required=True); lexical_rescue.add_argument("--max-rescue-candidates", type=int, default=12)
@@ -330,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
             result = build_production_high_risk_audit_v3(
                 args.requests, args.validated_responses, args.reviewed_alignment, args.reviewed_shot_context,
                 args.screenplay_context, args.output, args.summary, low_confidence_threshold=args.low_confidence_threshold,
+                hard_validation_contract_version=args.hard_validation_contract,
             )
             print(json_dumps(result, pretty=True)); return 0
         if args.command == "augment-review-requests-global-lexical":

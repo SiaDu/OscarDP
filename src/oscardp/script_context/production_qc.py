@@ -70,6 +70,7 @@ def _target_lexical_evidence(text: str, candidates: list[dict[str, Any]]) -> tup
 def build_production_high_risk_audit_v3(
     requests_path: Path, responses_path: Path, alignment_path: Path, shot_context_path: Path,
     context_path: Path, output_path: Path, summary_path: Path, *, low_confidence_threshold: float = 0.8,
+    hard_validation_contract_version: str = "candidate_task_v3_structure_v2",
 ) -> dict[str, Any]:
     if output_path.exists() or summary_path.exists():
         raise FileExistsError("refusing to overwrite production high-risk audit artifacts")
@@ -105,7 +106,9 @@ def build_production_high_risk_audit_v3(
         response = response_by_id.get(request["request_id"])
         if response is None:
             raise ValueError(f"missing response for high-risk audit: {request['request_id']}")
-        errors, _diagnostics = validate_resolution_v3(response, request)
+        errors, _diagnostics = validate_resolution_v3(
+            response, request, hard_validation_contract_version,
+        )
         if errors:
             raise ValueError(f"invalid v3 response for high-risk audit {request['request_id']}: {errors}")
         subtitle_by_id = {row["subtitle_id"]: row for row in request["subtitles"]}
@@ -222,6 +225,7 @@ def build_production_high_risk_audit_v3(
     reason_counts = Counter(reason for row in audit for reason in row["inclusion_reasons"])
     summary = {
         "schema_version": "1.0", "record_count": len(audit), "pending_adjudication_count": len(audit),
+        "hard_validation_contract_version": hard_validation_contract_version,
         "request_count": len(requests), "resolution_count": sum(len(row["resolutions"]) for row in responses),
         "inclusion_reason_counts": dict(sorted(reason_counts.items())),
         "no_candidate_match_classification_counts": dict(sorted(classification_counts.items())),
@@ -252,6 +256,12 @@ def finalize_production_movie_v3(
     inventory_movie = next(row for row in inventory["movies"] if row["movie_id"] == movie_id)
     status_movie = next(row for row in status["movies"] if row["movie_id"] == movie_id)
     reviewer = json.loads(reviewer_manifest_path.read_text(encoding="utf-8"))
+    reviewer_components = reviewer.get("components") if isinstance(reviewer.get("components"), dict) else {}
+    hard_validation_contract_version = (
+        reviewer.get("hard_validation_contract_version")
+        or reviewer_components.get("hard_validation_contract_version")
+        or "candidate_task_v3_structure_v2"
+    )
     requests, responses = read_jsonl(requests_path), read_jsonl(responses_path)
     request_by_id = {row["request_id"]: row for row in requests}
     response_by_id = {row["request_id"]: row for row in responses}
@@ -260,7 +270,10 @@ def finalize_production_movie_v3(
         errors.append("production request/response coverage is not exact")
     invalid = 0
     for request_id in sorted(set(request_by_id) & set(response_by_id)):
-        current, _diagnostics = validate_resolution_v3(response_by_id[request_id], request_by_id[request_id])
+        current, _diagnostics = validate_resolution_v3(
+            response_by_id[request_id], request_by_id[request_id],
+            hard_validation_contract_version,
+        )
         if current:
             invalid += 1
     if invalid:
@@ -320,7 +333,7 @@ def finalize_production_movie_v3(
         )
     qc = {
         "schema_version": "1.0", "movie_id": movie_id, "production_reviewer_version": reviewer.get("production_reviewer_version"),
-        "hard_validation_contract_version": reviewer.get("hard_validation_contract_version"),
+        "hard_validation_contract_version": hard_validation_contract_version,
         "request_count": len(requests), "resolution_count": sum(len(row["resolutions"]) for row in responses),
         "invalid_response_count": invalid, "missing_response_count": len(set(request_by_id) - set(response_by_id)),
         "foreign_response_count": len(set(response_by_id) - set(request_by_id)),
@@ -345,7 +358,7 @@ def finalize_production_movie_v3(
     manifest = {
         "schema_version": "1.0", "movie_id": movie_id, "status": "COMPLETE",
         "production_reviewer_version": reviewer["production_reviewer_version"],
-        "hard_validation_contract_version": reviewer.get("hard_validation_contract_version"),
+        "hard_validation_contract_version": hard_validation_contract_version,
         "artifacts": {label: {"path": path.as_posix(), "sha256": _sha(path)} for label, path in artifacts.items()},
         "protected_hashes": protected_hashes, "batch_lifecycle_reports": lifecycle_reports,
         "counts": {

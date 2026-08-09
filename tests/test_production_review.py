@@ -76,6 +76,36 @@ def reviewer_manifest_v321(path: Path, evidence: Path) -> None:
     }), encoding="utf-8")
 
 
+def reviewer_manifest_v321_validator_v3(
+    path: Path, inherited: Path, evidence: Path, validator_evidence: Path,
+) -> None:
+    source = json.loads(inherited.read_text(encoding="utf-8"))
+    source.update({
+        "reviewer_version": "v3.2.1-production.2-validator-v3",
+        "parent_reviewer_version": "v3.2.1-production.1",
+        "components": {
+            **source["components"],
+            "hard_validation_contract_version": "candidate_task_v3_structure_v3",
+        },
+        "inherited_production_1_evidence_manifest": inherited.resolve().as_posix(),
+        "inherited_production_1_evidence_manifest_sha256": hashlib.sha256(
+            inherited.read_bytes()
+        ).hexdigest(),
+        "validator_independent_calibration": {
+            "reference_frozen_before_reviewer_output": True,
+            "new_systematic_failure_class_found": False,
+            "numeric_gate": {"passed": True},
+        },
+        "validator_artifact_paths": {
+            "evaluation": validator_evidence.resolve().as_posix(),
+        },
+        "validator_artifact_sha256": {
+            "evaluation": hashlib.sha256(validator_evidence.read_bytes()).hexdigest(),
+        },
+    })
+    path.write_text(json.dumps(source), encoding="utf-8")
+
+
 def retrieval_manifest(path: Path) -> None:
     path.with_suffix(path.suffix + ".manifest.json").write_text(json.dumps({
         "retrieval_version": "global_lexical_rescue_v2",
@@ -200,6 +230,118 @@ def test_production_321_uses_promoted_prompt_retrieval_and_calibration_bindings(
     evidence.write_text("changed\n", encoding="utf-8")
     with pytest.raises(ValueError, match="calibration artifact hash differs"):
         prepare_production_batch_v3(remaining, reviewer, tmp_path / "changed-evidence.jsonl")
+
+
+def test_production_321_validator_v3_is_versioned_and_binds_both_calibrations(
+    tmp_path: Path,
+) -> None:
+    requests = tmp_path / "requests.jsonl"
+    inherited = tmp_path / "reviewer-v321-production-1.json"
+    reviewer = tmp_path / "reviewer-v321-validator-v3.json"
+    prompt_evidence = tmp_path / "prompt-calibration.json"
+    validator_evidence = tmp_path / "validator-calibration.json"
+    prompt_evidence.write_text("prompt evidence\n", encoding="utf-8")
+    validator_evidence.write_text("validator evidence\n", encoding="utf-8")
+    reviewer_manifest_v321(inherited, prompt_evidence)
+    reviewer_manifest_v321_validator_v3(
+        reviewer, inherited, prompt_evidence, validator_evidence,
+    )
+    write_jsonl(requests, [request(1)])
+    retrieval_manifest(requests)
+
+    result = prepare_production_batch_v3(
+        requests, reviewer, tmp_path / "batch.v321-validator-v3.jsonl",
+    )
+
+    assert result["production_reviewer_version"] == "v3.2.1-production.2-validator-v3"
+    assert result["lifecycle_schema_version"] == "v3_2_1_production_2_validator_v3"
+    assert result["hard_validation_contract_version"] == "candidate_task_v3_structure_v3"
+    assert result["retrieval_version"] == "global_lexical_rescue_v2"
+    validator_evidence.write_text("changed\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="validator-v3 calibration artifact hash differs"):
+        prepare_production_batch_v3(requests, reviewer, tmp_path / "changed.jsonl")
+
+
+def test_production_321_validator_v3_can_merge_frozen_production_1_chunks(
+    tmp_path: Path,
+) -> None:
+    rows = [request(1), request(2)]
+    requests = tmp_path / "requests.jsonl"
+    inherited = tmp_path / "reviewer-v321-production-1.json"
+    reviewer = tmp_path / "reviewer-v321-validator-v3.json"
+    prompt_evidence = tmp_path / "prompt-calibration.json"
+    validator_evidence = tmp_path / "validator-calibration.json"
+    prompt_evidence.write_text("prompt evidence\n", encoding="utf-8")
+    validator_evidence.write_text("validator evidence\n", encoding="utf-8")
+    reviewer_manifest_v321(inherited, prompt_evidence)
+    reviewer_manifest_v321_validator_v3(
+        reviewer, inherited, prompt_evidence, validator_evidence,
+    )
+    write_jsonl(requests, rows)
+    retrieval_manifest(requests)
+    manifest = split_production_requests_v3(
+        requests, inherited, tmp_path / "chunks", max_estimated_tokens=10_000,
+        max_requests=1,
+    )
+    response_paths = []
+    for chunk, row in zip(manifest["chunks"], rows):
+        response_path = tmp_path / f"responses-{chunk['chunk_index']}.jsonl"
+        write_jsonl(response_path, [response(row)])
+        response_paths.append(response_path)
+
+    result = merge_production_response_chunks_v3(
+        tmp_path / "chunks/chunk_manifest.v3_2_1_production_1.json",
+        response_paths, reviewer, tmp_path / "merged.jsonl", tmp_path / "report.json",
+    )
+
+    assert result["production_reviewer_version"] == "v3.2.1-production.2-validator-v3"
+    assert result["source_production_reviewer_version"] == "v3.2.1-production.1"
+    assert result["hard_validation_contract_version"] == "candidate_task_v3_structure_v3"
+
+
+def test_production_321_validator_v3_merge_accepts_and_preserves_reverse_order(
+    tmp_path: Path,
+) -> None:
+    row = request(1, ["subtitle_000001"])
+    row["dialogue_candidates"] = [
+        {"scene_id": "scene_001", "block_id": "scene_001_dialogue_001", "screenplay_order": 0, "speaker": "A", "text": "First"},
+        {"scene_id": "scene_001", "block_id": "scene_001_dialogue_002", "screenplay_order": 1, "speaker": "B", "text": "Second"},
+    ]
+    requests = tmp_path / "requests.jsonl"
+    inherited = tmp_path / "reviewer-v321-production-1.json"
+    reviewer = tmp_path / "reviewer-v321-validator-v3.json"
+    prompt_evidence = tmp_path / "prompt-calibration.json"
+    validator_evidence = tmp_path / "validator-calibration.json"
+    prompt_evidence.write_text("prompt evidence\n", encoding="utf-8")
+    validator_evidence.write_text("validator evidence\n", encoding="utf-8")
+    reviewer_manifest_v321(inherited, prompt_evidence)
+    reviewer_manifest_v321_validator_v3(
+        reviewer, inherited, prompt_evidence, validator_evidence,
+    )
+    write_jsonl(requests, [row])
+    retrieval_manifest(requests)
+    manifest = split_production_requests_v3(
+        requests, inherited, tmp_path / "chunks", max_estimated_tokens=10_000,
+        max_requests=1,
+    )
+    reversed_response = response(row)
+    reversed_response["resolutions"][0].update({
+        "block_ids": ["scene_001_dialogue_002", "scene_001_dialogue_001"],
+        "decision_basis": "repeated_or_reordered_dialogue",
+    })
+    responses = tmp_path / "responses.jsonl"
+    write_jsonl(responses, [reversed_response])
+
+    result = merge_production_response_chunks_v3(
+        tmp_path / "chunks/chunk_manifest.v3_2_1_production_1.json",
+        [responses], reviewer, tmp_path / "merged.jsonl", tmp_path / "report.json",
+    )
+
+    assert result["passed"]
+    merged = json.loads((tmp_path / "merged.jsonl").read_text())
+    assert merged["resolutions"][0]["block_ids"] == [
+        "scene_001_dialogue_002", "scene_001_dialogue_001",
+    ]
 
 
 def test_production_chunk_packing_is_exact_ordered_bounded_and_write_once(tmp_path: Path) -> None:
