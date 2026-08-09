@@ -9,7 +9,7 @@ from typing import Any
 from oscardp.shots.schema import json_dumps
 
 from .openai_review import _extract_structured, _submit_validated_batch
-from .openai_schema import V3_DECISION_BASES, V3_DECISIONS, V3_SYSTEM_INSTRUCTIONS, V32_POLICY_SYSTEM_INSTRUCTIONS, alignment_response_schema_v3
+from .openai_schema import V3_DECISION_BASES, V3_DECISIONS, V3_SYSTEM_INSTRUCTIONS, V321_VOCATIVE_SYSTEM_INSTRUCTIONS, V32_POLICY_SYSTEM_INSTRUCTIONS, alignment_response_schema_v3
 from .pipeline import _write_json, _write_jsonl
 from .schema import read_jsonl
 
@@ -217,6 +217,12 @@ def batch_line_v32_policy(request: dict[str, Any], model: str) -> dict[str, Any]
     }
 
 
+def batch_line_v321_vocative(request: dict[str, Any], model: str) -> dict[str, Any]:
+    row = batch_line_v32_policy(request, model)
+    row["body"]["instructions"] = V321_VOCATIVE_SYSTEM_INSTRUCTIONS
+    return row
+
+
 def batch_line_v33_action_context(request: dict[str, Any], model: str) -> dict[str, Any]:
     return {
         "custom_id": request["request_id"], "method": "POST", "url": "/v1/responses",
@@ -299,6 +305,14 @@ def validate_batch_lines_v32_policy(rows: list[dict[str, Any]]) -> list[str]:
         if row.get("body", {}).get("instructions") != V32_POLICY_SYSTEM_INSTRUCTIONS:
             errors.append(f"line {line_number}: v3.2 policy instructions are missing or changed")
     return errors
+
+
+def validate_batch_lines_v321_vocative(rows: list[dict[str, Any]]) -> list[str]:
+    normalized = json.loads(json.dumps(rows))
+    for row in normalized:
+        if row.get("body", {}).get("instructions") == V321_VOCATIVE_SYSTEM_INSTRUCTIONS:
+            row["body"]["instructions"] = V32_POLICY_SYSTEM_INSTRUCTIONS
+    return validate_batch_lines_v32_policy(normalized)
 
 
 def validate_batch_lines_v33_action_context(rows: list[dict[str, Any]]) -> list[str]:
@@ -452,6 +466,58 @@ def submit_batch_v32_policy(batch_input: Path, job_file: Path, *, confirm_submit
             "batch_input_sha256": hashlib.sha256(batch_input.read_bytes()).hexdigest(),
         },
     )
+
+
+def prepare_batch_v321_vocative(
+    requests_path: Path, annotation_policy_path: Path, output_path: Path, model: str,
+) -> dict[str, Any]:
+    requests = read_jsonl(requests_path)
+    if len(requests) > 30:
+        raise ValueError("v3.2.1 vocative candidate is calibration-only and limited to 30 requests")
+    ids = [request.get("request_id") for request in requests]
+    if len(ids) != len(set(ids)) or any(not value for value in ids):
+        raise ValueError("Requests must have unique non-empty request IDs")
+    if not annotation_policy_path.is_file():
+        raise ValueError(f"Annotation policy does not exist: {annotation_policy_path}")
+    rows = [batch_line_v321_vocative(request, model) for request in requests]
+    errors = validate_batch_lines_v321_vocative(rows)
+    if errors:
+        raise ValueError("Invalid v3.2.1 vocative Batch input: " + "; ".join(errors))
+    _write_jsonl(output_path, rows)
+    manifest = {
+        "schema_version": "1.0", "reviewer_version": "v3.2.1-vocative-candidate",
+        "changed_layer": "reviewer_prompt_policy_only", "decision_schema_version": "candidate_task_v3",
+        "request_context_version": "v3_no_nearby_subtitle_context", "model": model,
+        "request_count": len(rows), "source_requests": requests_path.resolve().as_posix(),
+        "source_requests_sha256": hashlib.sha256(requests_path.read_bytes()).hexdigest(),
+        "annotation_policy_sha256": hashlib.sha256(annotation_policy_path.read_bytes()).hexdigest(),
+        "instructions_sha256": hashlib.sha256(V321_VOCATIVE_SYSTEM_INSTRUCTIONS.encode()).hexdigest(),
+        "calibration_only": True, "maximum_request_count": 30,
+        "batch_input_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    _write_json(output_path.with_suffix(output_path.suffix + ".manifest.json"), manifest)
+    return manifest
+
+
+def submit_batch_v321_vocative(batch_input: Path, job_file: Path, *, confirm_submit: bool) -> dict[str, Any]:
+    if not confirm_submit:
+        raise RuntimeError("Refusing paid submission without --confirm-submit")
+    rows = read_jsonl(batch_input)
+    if len(rows) > 30:
+        raise ValueError("v3.2.1 vocative candidate is calibration-only and limited to 30 requests")
+    errors = validate_batch_lines_v321_vocative(rows)
+    if errors:
+        raise ValueError("Invalid v3.2.1 vocative Batch input: " + "; ".join(errors))
+    manifest_path = batch_input.with_suffix(batch_input.suffix + ".manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("batch_input_sha256") != hashlib.sha256(batch_input.read_bytes()).hexdigest():
+        raise ValueError("v3.2.1 vocative Batch hash differs from manifest")
+    return _submit_validated_batch(batch_input, job_file, rows, metadata_extra={
+        "schema_version": "1.0", "reviewer_version": "v3.2.1-vocative-candidate",
+        "decision_schema_version": "candidate_task_v3", "changed_layer": "reviewer_prompt_policy_only",
+        "batch_input_sha256": manifest["batch_input_sha256"],
+    })
 
 
 def prepare_batch_v3(

@@ -105,3 +105,8 @@ Graphic, telegram, title, card, sign, or other visible insert text is not dialog
 Prefer the most specific candidate over screenplay-order proximity. Repeated and locally reordered dialogue are allowed, but never invent an ID or select a block from outside the supplied candidate set.
 Use match only when one or more supplied dialogue blocks adequately realize the target and return all required block IDs. Use no_candidate_match with an empty block_ids list otherwise.
 Do not provide chain-of-thought or prose outside the required structured result."""
+
+V321_VOCATIVE_SYSTEM_INSTRUCTIONS = V32_POLICY_SYSTEM_INSTRUCTIONS.replace(
+    "An isolated name or vocative may attach to an adjacent substantive candidate only when the request-local turn structure and a spelling or phonetic correspondence make the attachment clear. Name similarity alone is insufficient.",
+    "An isolated name or vocative may attach to an adjacent substantive candidate only when the candidate text itself contains that name, a spelling variant, or a clear phonetic counterpart, and the request-local turn structure supports the attachment. If the candidate text contains no corresponding name or vocative, return no_candidate_match; adjacency, turn position, speaker, scene, or topic can never supply the missing correspondence. Name similarity elsewhere in the request is insufficient.",
+)

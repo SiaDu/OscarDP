@@ -10,6 +10,7 @@ import pytest
 
 from oscardp.script_context.openai_schema import (
     V3_SYSTEM_INSTRUCTIONS,
+    V321_VOCATIVE_SYSTEM_INSTRUCTIONS,
     V32_POLICY_SYSTEM_INSTRUCTIONS,
     alignment_response_schema,
     alignment_response_schema_v3,
@@ -17,24 +18,51 @@ from oscardp.script_context.openai_schema import (
 from oscardp.script_context.openai_review import batch_line, submit_batch
 from oscardp.script_context.stage253 import (
     batch_line_v3,
+    batch_line_v321_vocative,
     batch_line_v32_policy,
     batch_line_v33_action_context,
     evaluate_pilot_v3,
     evaluate_independent_calibration_v3,
     prepare_batch_v3,
+    prepare_batch_v321_vocative,
     prepare_batch_v32_policy,
     prepare_batch_v33_action_context,
     prepare_review_action_context_v33,
     prepare_review_context_v31,
     submit_batch_v3,
+    submit_batch_v321_vocative,
     submit_batch_v32_policy,
     submit_batch_v33_action_context,
     validate_batch_lines_v3,
+    validate_batch_lines_v321_vocative,
     validate_batch_lines_v32_policy,
     validate_batch_lines_v33_action_context,
     validate_independent_calibration_reference,
     validate_resolution_v3,
 )
+
+
+def test_v321_vocative_candidate_changes_only_prompt_and_is_calibration_limited(tmp_path: Path, monkeypatch) -> None:
+    req = request(); requests = tmp_path / "requests.jsonl"; policy = tmp_path / "policy.md"
+    requests.write_text(json.dumps(req) + "\n", encoding="utf-8"); policy.write_text("frozen", encoding="utf-8")
+    output = tmp_path / "batch.jsonl"
+    manifest = prepare_batch_v321_vocative(requests, policy, output, "gpt-5.6-terra")
+    row = json.loads(output.read_text())
+    baseline = batch_line_v32_policy(req, "gpt-5.6-terra")
+    assert row["body"]["instructions"] == V321_VOCATIVE_SYSTEM_INSTRUCTIONS
+    assert {k: v for k, v in row["body"].items() if k != "instructions"} == {k: v for k, v in baseline["body"].items() if k != "instructions"}
+    assert manifest["calibration_only"] and not validate_batch_lines_v321_vocative([row])
+    tampered = json.loads(json.dumps(row)); tampered["body"]["instructions"] += " changed"
+    assert validate_batch_lines_v321_vocative([tampered])
+    files = SimpleNamespace(create=Mock(return_value=SimpleNamespace(id="file-1")))
+    batches = SimpleNamespace(create=Mock(return_value=SimpleNamespace(id="batch-1", status="validating")))
+    monkeypatch.setattr("oscardp.script_context.openai_review._client", lambda: SimpleNamespace(files=files, batches=batches))
+    result = submit_batch_v321_vocative(output, tmp_path / "job.json", confirm_submit=True)
+    assert result["reviewer_version"] == "v3.2.1-vocative-candidate"
+    many = tmp_path / "many.jsonl"
+    many.write_text("".join(json.dumps({**req, "request_id": f"r{i}"}) + "\n" for i in range(31)), encoding="utf-8")
+    with pytest.raises(ValueError, match="calibration-only"):
+        prepare_batch_v321_vocative(many, policy, tmp_path / "too-many.jsonl", "gpt-5.6-terra")
 
 
 def request(subtitle_ids: list[str] | None = None) -> dict:

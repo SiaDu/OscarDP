@@ -62,6 +62,9 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_batch_v32 = commands.add_parser("prepare-openai-batch-v3-2-policy")
     prepare_batch_v32.add_argument("--requests", type=Path, required=True); prepare_batch_v32.add_argument("--annotation-policy", type=Path, required=True)
     prepare_batch_v32.add_argument("--output", type=Path, required=True); prepare_batch_v32.add_argument("--model", required=True)
+    prepare_batch_v321 = commands.add_parser("prepare-openai-batch-v3-2-1-vocative")
+    prepare_batch_v321.add_argument("--requests", type=Path, required=True); prepare_batch_v321.add_argument("--annotation-policy", type=Path, required=True)
+    prepare_batch_v321.add_argument("--output", type=Path, required=True); prepare_batch_v321.add_argument("--model", required=True)
     prepare_batch_v33 = commands.add_parser("prepare-openai-batch-v3-3-action-context")
     prepare_batch_v33.add_argument("--requests", type=Path, required=True); prepare_batch_v33.add_argument("--annotation-policy", type=Path, required=True)
     prepare_batch_v33.add_argument("--output", type=Path, required=True); prepare_batch_v33.add_argument("--model", required=True)
@@ -81,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     submit_v3.add_argument("--batch-input", type=Path, required=True); submit_v3.add_argument("--job-file", type=Path, required=True); submit_v3.add_argument("--confirm-submit", action="store_true")
     submit_v32 = commands.add_parser("submit-openai-batch-v3-2-policy")
     submit_v32.add_argument("--batch-input", type=Path, required=True); submit_v32.add_argument("--job-file", type=Path, required=True); submit_v32.add_argument("--confirm-submit", action="store_true")
+    submit_v321 = commands.add_parser("submit-openai-batch-v3-2-1-vocative")
+    submit_v321.add_argument("--batch-input", type=Path, required=True); submit_v321.add_argument("--job-file", type=Path, required=True); submit_v321.add_argument("--confirm-submit", action="store_true")
     submit_v33 = commands.add_parser("submit-openai-batch-v3-3-action-context")
     submit_v33.add_argument("--batch-input", type=Path, required=True); submit_v33.add_argument("--job-file", type=Path, required=True); submit_v33.add_argument("--confirm-submit", action="store_true")
     production_remaining = commands.add_parser("prepare-openai-production-remaining-v3")
@@ -229,6 +234,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-openai-batch-v3-2-policy":
             from .stage253 import prepare_batch_v32_policy
             print(json_dumps(prepare_batch_v32_policy(args.requests, args.annotation_policy, args.output, args.model), pretty=True)); return 0
+        if args.command == "prepare-openai-batch-v3-2-1-vocative":
+            from .stage253 import prepare_batch_v321_vocative
+            print(json_dumps(prepare_batch_v321_vocative(args.requests, args.annotation_policy, args.output, args.model), pretty=True)); return 0
         if args.command == "prepare-openai-batch-v3-3-action-context":
             from .stage253 import prepare_batch_v33_action_context
             print(json_dumps(prepare_batch_v33_action_context(args.requests, args.annotation_policy, args.output, args.model), pretty=True)); return 0
@@ -250,6 +258,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "submit-openai-batch-v3-2-policy":
             from .stage253 import submit_batch_v32_policy
             print(json_dumps(submit_batch_v32_policy(args.batch_input, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
+        if args.command == "submit-openai-batch-v3-2-1-vocative":
+            from .stage253 import submit_batch_v321_vocative
+            print(json_dumps(submit_batch_v321_vocative(args.batch_input, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
         if args.command == "submit-openai-batch-v3-3-action-context":
             from .stage253 import submit_batch_v33_action_context
             print(json_dumps(submit_batch_v33_action_context(args.batch_input, args.job_file, confirm_submit=args.confirm_submit), pretty=True)); return 0
