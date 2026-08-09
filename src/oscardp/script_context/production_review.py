@@ -393,6 +393,73 @@ def prepare_production_batch_v3(
     return manifest
 
 
+def preflight_production_batch_v3(
+    batch_input_path: Path, requests_path: Path, reviewer_manifest_path: Path,
+    output_path: Path,
+) -> dict[str, Any]:
+    """Rebuild and verify an exact production Batch before paid submission."""
+    if output_path.exists():
+        raise FileExistsError("refusing to overwrite production Batch preflight")
+    reviewer = _load_reviewer_manifest(reviewer_manifest_path)
+    version, _tag, lifecycle = _reviewer_context(reviewer)
+    _validate_retrieval_binding(requests_path, reviewer)
+    requests = read_jsonl(requests_path)
+    batch_rows = read_jsonl(batch_input_path)
+    request_ids = _unique_ids(requests, "request_id", "production preflight requests")
+    _validate_request_subtitles(requests, "production preflight requests")
+    batch_line, batch_validator, instructions = _batch_functions(reviewer)
+    expected_rows = [batch_line(request, reviewer["model"]) for request in requests]
+    errors = list(batch_validator(batch_rows))
+    if [row.get("custom_id") for row in batch_rows] != request_ids:
+        errors.append("Batch custom IDs differ from exact request order")
+    if batch_rows != expected_rows:
+        errors.append("Batch payload differs from deterministic reconstruction")
+
+    manifest_path = batch_input_path.with_suffix(batch_input_path.suffix + ".manifest.json")
+    if not manifest_path.is_file():
+        errors.append("Batch input companion manifest is missing")
+        manifest: dict[str, Any] = {}
+    else:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected_fields = {
+        "production_reviewer_version": version,
+        "lifecycle_schema_version": lifecycle,
+        "model": reviewer["model"],
+        "decision_schema_version": "candidate_task_v3",
+        "hard_validation_contract_version": reviewer["hard_validation_contract_version"],
+        "retrieval_version": reviewer.get("retrieval_version"),
+        "request_count": len(requests),
+        "request_ids": request_ids,
+        "source_requests_sha256": _sha(requests_path),
+        "reviewer_manifest_sha256": _sha(reviewer_manifest_path),
+        "instructions_sha256": hashlib.sha256(instructions.encode("utf-8")).hexdigest(),
+        "batch_input_sha256": _sha(batch_input_path),
+    }
+    for name, expected in expected_fields.items():
+        if manifest.get(name) != expected:
+            errors.append(f"Batch companion manifest differs: {name}")
+    result = {
+        "schema_version": "1.0", "preflight_policy": "exact_production_batch_v3",
+        "production_reviewer_version": version, "lifecycle_schema_version": lifecycle,
+        "model": reviewer["model"],
+        "decision_schema_version": "candidate_task_v3",
+        "decision_enum": ["match", "no_candidate_match"],
+        "hard_validation_contract_version": reviewer["hard_validation_contract_version"],
+        "retrieval_version": reviewer.get("retrieval_version"),
+        "request_count": len(requests),
+        "resolution_count": sum(len(request["subtitles"]) for request in requests),
+        "requests_sha256": _sha(requests_path),
+        "batch_input_sha256": _sha(batch_input_path),
+        "batch_manifest_sha256": _sha(manifest_path) if manifest_path.is_file() else None,
+        "reviewer_manifest_sha256": _sha(reviewer_manifest_path),
+        "deterministic_payload_reconstruction_equal": batch_rows == expected_rows,
+        "error_count": len(errors), "errors": errors, "passed": not errors,
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    _write_json(output_path, result)
+    return result
+
+
 def split_production_requests_v3(
     requests_path: Path, reviewer_manifest_path: Path, output_dir: Path,
     *, max_estimated_tokens: int = 300_000, max_requests: int = 100,

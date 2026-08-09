@@ -99,6 +99,9 @@ def build_parser() -> argparse.ArgumentParser:
     production_bind_subset.add_argument("--manifest", type=Path, required=True)
     production_batch = commands.add_parser("prepare-openai-production-batch-v3")
     production_batch.add_argument("--requests", type=Path, required=True); production_batch.add_argument("--reviewer-manifest", type=Path, required=True); production_batch.add_argument("--output", type=Path, required=True)
+    production_preflight = commands.add_parser("preflight-openai-production-batch-v3")
+    production_preflight.add_argument("--batch-input", type=Path, required=True); production_preflight.add_argument("--requests", type=Path, required=True)
+    production_preflight.add_argument("--reviewer-manifest", type=Path, required=True); production_preflight.add_argument("--output", type=Path, required=True)
     production_split = commands.add_parser("split-openai-production-requests-v3")
     production_split.add_argument("--requests", type=Path, required=True); production_split.add_argument("--reviewer-manifest", type=Path, required=True)
     production_split.add_argument("--output-dir", type=Path, required=True); production_split.add_argument("--max-estimated-tokens", type=int, default=300_000)
@@ -293,6 +296,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-openai-production-batch-v3":
             from .production_review import prepare_production_batch_v3
             print(json_dumps(prepare_production_batch_v3(args.requests, args.reviewer_manifest, args.output), pretty=True)); return 0
+        if args.command == "preflight-openai-production-batch-v3":
+            from .production_review import preflight_production_batch_v3
+            result = preflight_production_batch_v3(
+                args.batch_input, args.requests, args.reviewer_manifest, args.output,
+            )
+            print(json_dumps(result, pretty=True)); return 0 if result["passed"] else 1
         if args.command == "split-openai-production-requests-v3":
             from .production_review import split_production_requests_v3
             result = split_production_requests_v3(

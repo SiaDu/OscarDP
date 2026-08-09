@@ -20,6 +20,7 @@ from oscardp.script_context.production_review import (
     merge_production_response_chunks_v3,
     merge_production_responses_v3,
     prepare_production_batch_v3,
+    preflight_production_batch_v3,
     prepare_production_remaining_v3,
     split_production_requests_v3,
     submit_production_batch_v3,
@@ -280,6 +281,33 @@ def test_production_321_retrieval_v3_binds_parent_calibration_and_requests(tmp_p
     parent.write_text("changed parent\n", encoding="utf-8")
     with pytest.raises(ValueError, match="parent reviewer hash differs"):
         prepare_production_batch_v3(requests, reviewer, tmp_path / "other.jsonl")
+
+
+def test_production_batch_preflight_reconstructs_exact_payload_and_rejects_tampering(tmp_path: Path) -> None:
+    requests = tmp_path / "requests.v3.jsonl"
+    parent = tmp_path / "parent-reviewer.json"; evidence = tmp_path / "calibration-evaluation.json"
+    reviewer = tmp_path / "reviewer-retrieval-v3.json"; batch = tmp_path / "batch.jsonl"
+    write_jsonl(requests, [request(1), request(2)])
+    retrieval_manifest_v3(requests)
+    parent.write_text("frozen parent\n", encoding="utf-8"); evidence.write_text("frozen calibration\n", encoding="utf-8")
+    reviewer_manifest_v321_retrieval_v3(reviewer, parent, evidence)
+    prepare_production_batch_v3(requests, reviewer, batch)
+
+    report = tmp_path / "preflight.json"
+    result = preflight_production_batch_v3(batch, requests, reviewer, report)
+    assert result["passed"] is True
+    assert result["deterministic_payload_reconstruction_equal"] is True
+    assert result["request_count"] == 2
+    with pytest.raises(FileExistsError):
+        preflight_production_batch_v3(batch, requests, reviewer, report)
+
+    rows = [json.loads(line) for line in batch.read_text().splitlines()]
+    rows[0]["body"]["input"] = "tampered"
+    write_jsonl(batch, rows)
+    tampered = preflight_production_batch_v3(batch, requests, reviewer, tmp_path / "tampered.json")
+    assert tampered["passed"] is False
+    assert "Batch payload differs from deterministic reconstruction" in tampered["errors"]
+    assert "Batch companion manifest differs: batch_input_sha256" in tampered["errors"]
 
 
 def test_production_321_validator_v3_is_versioned_and_binds_both_calibrations(

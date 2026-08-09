@@ -265,6 +265,12 @@ binary v3 validator, reconstructs full request order, and writes tagged reviewed
 outputs without touching deterministic inputs:
 
 ```bash
+python -m oscardp.script_context preflight-openai-production-batch-v3 \
+  --batch-input /path/to/batch_input.chunk_001.jsonl \
+  --requests /path/to/requests.chunk_001.jsonl \
+  --reviewer-manifest /path/to/frozen_production_reviewer.json \
+  --output /path/to/submission_preflight.chunk_001.json
+
 python -m oscardp.script_context prepare-openai-production-remaining-v3 \
   --full-requests /path/to/alignment_requests.jsonl \
   --pilot-requests /path/to/pilot_requests.jsonl \
