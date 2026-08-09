@@ -529,6 +529,7 @@ def validate_pilot_gold(
 def apply_validated_responses(
     alignment_path: Path, requests_path: Path, validated_path: Path, context_path: Path,
     shots_path: Path, output_dir: Path, output_tag: str | None = None,
+    *, validate_against_historical_schema: bool = True,
 ) -> dict[str, Any]:
     if output_tag is not None and not re.fullmatch(r"[a-z0-9_]+", output_tag):
         raise ValueError("output_tag must contain only lowercase letters, digits, and underscores")
@@ -544,7 +545,7 @@ def apply_validated_responses(
     changed: set[str] = set()
     for response in responses:
         request = request_by_id.get(response["request_id"])
-        if request is None or validate_resolution(response, request):
+        if request is None or (validate_against_historical_schema and validate_resolution(response, request)):
             raise ValueError(f"Validated response no longer validates: {response.get('request_id')}")
         for resolution in response["resolutions"]:
             subtitle_id = resolution["subtitle_id"]; row = row_by_subtitle[subtitle_id]; original = deepcopy(row)

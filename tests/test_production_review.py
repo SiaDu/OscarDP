@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -228,8 +229,14 @@ def test_production_merge_uses_v3_validator_and_preserves_full_order(tmp_path: P
 def test_production_apply_translates_binary_decision_and_preserves_provenance(tmp_path: Path) -> None:
     ids = ["subtitle_000001", "subtitle_000002"]; req = request(1, ids); requests = tmp_path / "requests.jsonl"; responses = tmp_path / "responses.jsonl"
     alignment = tmp_path / "subtitle_script_alignment.jsonl"; context = tmp_path / "movie_script_context.json"; shots = tmp_path / "shots.jsonl"; reviewer = tmp_path / "reviewer.json"
-    write_jsonl(requests, [req]); write_jsonl(responses, [response(req, no_match_last=True)]); reviewer_manifest(reviewer)
-    blocks = [{"block_id": f"scene_001_dialogue_{i:03d}", "block_type": "dialogue", "source_order": i, "script_page": 1, "speaker": "A", "character_cue": "A", "parenthetical": None, "text": f"dialogue {i}"} for i in (1, 2)]
+    req["dialogue_candidates"].append({
+        "scene_id": "scene_001", "block_id": "scene_001_dialogue_003",
+        "screenplay_order": 2, "speaker": "A", "text": "dialogue 3",
+    })
+    production_response = response(req, no_match_last=True)
+    production_response["resolutions"][0]["block_ids"] = ["scene_001_dialogue_001", "scene_001_dialogue_003"]
+    write_jsonl(requests, [req]); write_jsonl(responses, [production_response]); reviewer_manifest(reviewer)
+    blocks = [{"block_id": f"scene_001_dialogue_{i:03d}", "block_type": "dialogue", "source_order": i, "script_page": 1, "speaker": "A", "character_cue": "A", "parenthetical": None, "text": f"dialogue {i}"} for i in (1, 2, 3)]
     scene = {"scene_id": "scene_001", "screenplay_scene_id": "1", "slugline": "INT. ROOM", "int_ext": "INT", "location": "ROOM", "time_of_day": None, "script_pages": {"start": 1, "end": 1}, "scene_characters": ["A"], "script_blocks": blocks, "semantic_annotations": {}, "parsing": {"status": "parsed", "needs_review": False}}
     context.write_text(json.dumps({"schema_version": "1.0", "movie": {"movie_id": "tt1"}, "script_scenes": [scene]}), encoding="utf-8")
     baseline = []
@@ -238,10 +245,18 @@ def test_production_apply_translates_binary_decision_and_preserves_provenance(tm
     write_jsonl(alignment, baseline)
     shot_rows = [{"shot_id": f"shot_{i+1:06d}", "start_frame": i*10, "end_frame": (i+1)*10, "frame_count": 10, "start_time": f"00:00:0{i}.000", "end_time": f"00:00:0{i+1}.000", "start_sec": float(i), "end_sec": float(i+1), "duration_sec": 1., "keyframe_frame": i*10+4, "keyframe_time_sec": i+.4, "keyframe_relpath": f"keyframes/shot_{i+1:06d}.jpg"} for i in range(2)]
     write_jsonl(shots, shot_rows); before = hashlib.sha256(alignment.read_bytes()).hexdigest()
+    seed_dir = tmp_path / "interrupted-seed"
+    seed = apply_production_responses_v3(alignment, requests, responses, context, shots, seed_dir, reviewer)
+    partial_normalized = tmp_path / "review/openai/validated_responses.v3_2_production_1.apply_normalized.jsonl"
+    partial_normalized.parent.mkdir(parents=True)
+    shutil.copyfile(seed["normalized_responses"], partial_normalized)
     result = apply_production_responses_v3(alignment, requests, responses, context, shots, tmp_path, reviewer)
     assert result["baseline_files_unchanged"] and hashlib.sha256(alignment.read_bytes()).hexdigest() == before
     reviewed = [json.loads(x) for x in Path(result["alignment_output"]).read_text().splitlines()]
     assert reviewed[0]["alignment"]["status"] == "llm_aligned"
+    assert [item["block_id"] for item in reviewed[0]["script_matches"]] == [
+        "scene_001_dialogue_001", "scene_001_dialogue_003",
+    ]
     assert reviewed[1]["alignment"]["status"] == "llm_no_match"
     assert reviewed[1]["alignment"]["llm_resolution"]["original_openai_resolution"]["decision"] == "no_candidate_match"
     resumed = apply_production_responses_v3(alignment, requests, responses, context, shots, tmp_path, reviewer)

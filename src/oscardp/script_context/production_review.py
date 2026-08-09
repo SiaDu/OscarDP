@@ -390,7 +390,7 @@ def apply_production_responses_v3(
         if not alignment_output.is_file() or not shot_output.is_file():
             raise RuntimeError("existing production apply report has missing reviewed outputs")
         return {**report, "resumed": True}
-    if any(path.exists() for path in (normalized_path, alignment_output, shot_output)):
+    if any(path.exists() for path in (alignment_output, shot_output)):
         raise FileExistsError("refusing to overwrite incomplete versioned production apply artifacts")
     requests = read_jsonl(requests_path)
     _unique_ids(requests, "request_id", "production apply requests")
@@ -413,10 +413,14 @@ def apply_production_responses_v3(
         normalized.append(converted)
     if len(normalized) != len(requests) or set(row["request_id"] for row in normalized) != set(request_by_id):
         raise ValueError("production responses do not cover the complete request set")
-    _write_jsonl(normalized_path, normalized)
+    if normalized_path.is_file():
+        if read_jsonl(normalized_path) != normalized:
+            raise RuntimeError("existing normalized production responses differ from validated v3 sources")
+    else:
+        _write_jsonl(normalized_path, normalized)
     base = apply_validated_responses(
         alignment_path, requests_path, normalized_path, context_path, shots_path,
-        output_dir, output_tag,
+        output_dir, output_tag, validate_against_historical_schema=False,
     )
     report = {
         **base, "lifecycle_schema_version": lifecycle,
