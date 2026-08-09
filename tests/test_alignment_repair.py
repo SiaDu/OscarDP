@@ -160,6 +160,21 @@ def test_fallback_keeps_existing_low_confidence_automatic_mapping() -> None:
     assert request["insufficient_candidates"] is False
 
 
+def test_short_tail_reply_uses_anchor_boundary_only_when_retrieval_is_empty() -> None:
+    context = context_for([["Opening reliable anchor has enough distinct words", "First tail option", "Second tail option", "Third tail option", "Fourth tail option"]])
+    rows = align_subtitles(subs(["Opening reliable anchor has enough distinct words", "Kisses"]), context, "tt1")
+    request = build_review_requests(context, rows)["alignment_requests"][0]
+    assert request["fallback_used"] is True
+    assert request["candidate_interval_reason"] == "fallback_after_reliable_anchor"
+    assert request["insufficient_candidates"] is False
+    assert 1 <= len(request["dialogue_candidates"]) <= 4
+    assert any("anchor_boundary" in candidate["retrieval_methods"] for candidate in request["dialogue_candidates"])
+    assert all(
+        set(candidate["retrieval_methods"]) <= {"anchor_boundary", "adjacent_dialogue"}
+        for candidate in request["dialogue_candidates"]
+    )
+
+
 def test_wide_anchor_fallback_retrieves_vehicle_exit_dialogue_in_global_order() -> None:
     context = context_for([
         ["Opening reliable anchor has enough distinct words"],

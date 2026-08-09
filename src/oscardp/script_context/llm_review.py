@@ -203,13 +203,6 @@ def build_review_requests(
         rows = [alignments[item["index"]] for item in group]
         if first["fallback"]:
             required_indices: dict[int, str] = {}
-            if (
-                first["bounds"] is not None
-                and (first["before"] is not None or first["after"] is not None)
-                and first["bounds"][1] - first["bounds"][0] <= 2
-            ):
-                required_indices[first["bounds"][0]] = "anchor_boundary"
-                required_indices[first["bounds"][1]] = "anchor_boundary"
             if first["before"] is not None or first["after"] is not None:
                 for row in rows:
                     for match in row.get("script_matches", []):
@@ -220,6 +213,20 @@ def build_review_requests(
                 rows, units, first["bounds"], candidate_limit, semantic,
                 required_indices=required_indices,
             )
+            if not retrieved and first["bounds"] is not None and (
+                first["before"] is not None or first["after"] is not None
+            ):
+                low, high = first["bounds"]
+                if first["before"] is not None:
+                    for index in range(low, min(high, low + 2) + 1):
+                        required_indices[index] = "anchor_boundary"
+                if first["after"] is not None:
+                    for index in range(max(low, high - 2), high + 1):
+                        required_indices[index] = "anchor_boundary"
+                retrieved = _retrieve_candidates(
+                    rows, units, first["bounds"], candidate_limit, semantic,
+                    required_indices=required_indices,
+                )
         else:
             local_units = first["candidates"]
             if len(local_units) <= candidate_limit:
