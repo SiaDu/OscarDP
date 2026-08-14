@@ -339,6 +339,22 @@ def apply_production_evidence_corrections_v3(
     responses = read_jsonl(normalized_responses_path)
     request_by_id = {row["request_id"]: row for row in requests}
     response_by_id = {row["request_id"]: deepcopy(row) for row in responses}
+    # The production v3 contract uses ``no_candidate_match`` while the
+    # historical apply layer consumes ``no_match``.  Normalize every
+    # resolution, not only the evidence-corrected subset, and retain the raw
+    # v3 resolution for provenance just as production_review does.
+    from .production_review import _BASIS_TO_HISTORICAL
+
+    for response in response_by_id.values():
+        for resolution in response.get("resolutions", []):
+            if resolution.get("decision") not in {"match", "no_candidate_match"}:
+                continue
+            original = deepcopy(resolution)
+            resolution["openai_resolution"] = original
+            resolution["decision"] = "no_match" if original["decision"] == "no_candidate_match" else "match"
+            basis = original.get("decision_basis")
+            if basis in _BASIS_TO_HISTORICAL:
+                resolution["decision_basis"] = _BASIS_TO_HISTORICAL[basis]
     diagnosis_by_subtitle = {row["subtitle_id"]: row for row in diagnoses}
     if len(diagnosis_by_subtitle) != len(diagnoses):
         raise ValueError("evidence diagnosis contains duplicate subtitle IDs")
@@ -435,7 +451,7 @@ def apply_production_evidence_corrections_v3(
         if row.get("diagnostics", {}).get("no_candidate_match_classification") is not None
     )
     original_no_match_count = sum(
-        resolution.get("decision") == "no_match"
+        resolution.get("decision") in {"no_match", "no_candidate_match"}
         for response in responses for resolution in response.get("resolutions", [])
     )
     unrepresented_probable = original_no_match_count - sum(classifications.values())

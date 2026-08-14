@@ -152,12 +152,18 @@ def test_production_evidence_corrections_validate_supplied_and_recall_blocks(tmp
     write_jsonl(requests, [
         {"request_id": "r1", "subtitle_ids": ["s1"], "dialogue_candidates": [{"block_id": "b1"}]},
         {"request_id": "r2", "subtitle_ids": ["s2"], "dialogue_candidates": []},
+        {"request_id": "r3", "subtitle_ids": ["s3"], "dialogue_candidates": []},
     ])
     responses = tmp_path / "normalized.jsonl"
     base_resolution = {"decision": "no_match", "block_ids": [], "confidence": .9, "decision_basis": "changed_or_improvised_dialogue"}
     write_jsonl(responses, [
         {"request_id": "r1", "model": "m", "resolutions": [{"subtitle_id": "s1", **base_resolution}]},
-        {"request_id": "r2", "model": "m", "resolutions": [{"subtitle_id": "s2", **base_resolution}]},
+        {"request_id": "r2", "model": "m", "resolutions": [{"subtitle_id": "s2", **{
+            **base_resolution, "decision": "no_candidate_match",
+        }}]},
+        {"request_id": "r3", "model": "m", "resolutions": [{"subtitle_id": "s3", **{
+            **base_resolution, "decision": "no_candidate_match", "decision_basis": "no_supplied_candidate",
+        }}]},
     ])
     diagnosis = tmp_path / "diagnosis.jsonl"
     write_jsonl(diagnosis, [
@@ -194,11 +200,14 @@ def test_production_evidence_corrections_validate_supplied_and_recall_blocks(tmp
     )
 
     corrected = [resolution for response in captured["responses"] for resolution in response["resolutions"]]
-    assert [row["block_ids"] for row in corrected] == [["b1"], ["b2"]]
-    assert all(row["evidence_correction"]["adjudicator_type"] == "codex_source_evidence_not_human_gold" for row in corrected)
+    assert [row["block_ids"] for row in corrected] == [["b1"], ["b2"], []]
+    assert all(row["evidence_correction"]["adjudicator_type"] == "codex_source_evidence_not_human_gold" for row in corrected[:2])
+    assert corrected[2]["decision"] == "no_match"
+    assert corrected[2]["decision_basis"] == "changed_or_improvised_dialogue"
+    assert corrected[2]["openai_resolution"]["decision"] == "no_candidate_match"
     assert result["validation_passed"] and result["human_gold"] is False
     counts = json.loads(summary.read_text())["no_candidate_match_classification_counts"]
-    assert counts == {"resolved_by_evidence_correction": 2}
+    assert counts == {"probable_true_no_match": 1, "resolved_by_evidence_correction": 2}
 
 
 def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path, monkeypatch) -> None:
