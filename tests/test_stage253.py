@@ -428,9 +428,9 @@ def test_production_spot_check_hard_gate_failures(tmp_path: Path, failure: str) 
 
 def test_select_first_non_terminal_movie_skips_complete_and_blocked() -> None:
     status = {"movies": [
-        {"movie_id": "complete", "status": "COMPLETE"},
-        {"movie_id": "blocked", "status": "BLOCKED_WITH_EXPLICIT_REASON"},
-        {"movie_id": "active", "status": "PRODUCTION_IN_PROGRESS"},
+        {"movie_id": "complete", "final_qc_status": "COMPLETE"},
+        {"movie_id": "blocked", "final_qc_status": "BLOCKED_WITH_EXPLICIT_REASON"},
+        {"movie_id": "active", "final_qc_status": "production_in_progress"},
     ]}
     assert select_first_non_terminal_movie(status)["movie_id"] == "active"
     assert select_first_non_terminal_movie({"movies": status["movies"][:2]}) is None

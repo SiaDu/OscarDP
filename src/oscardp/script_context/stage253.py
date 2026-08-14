@@ -1032,7 +1032,8 @@ def select_first_non_terminal_movie(status: dict[str, Any]) -> dict[str, Any] | 
     """Return the first target that still requires work, preserving status order."""
     terminal_states = {"COMPLETE", "BLOCKED_WITH_EXPLICIT_REASON"}
     for movie in status.get("movies", []):
-        if movie.get("status") not in terminal_states:
+        movie_status = movie.get("status") or movie.get("final_qc_status")
+        if movie_status not in terminal_states:
             return movie
     return None
 
