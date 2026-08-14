@@ -8,6 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from oscardp.script_context.production_qc import (
+    _verify_protected_file,
+    _v3_validation_view,
     apply_production_evidence_corrections_v3,
     build_production_high_risk_audit_v3,
     finalize_production_movie_v3,
@@ -21,6 +23,30 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
 
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_recorded_video_stat_fingerprint_avoids_rehash(monkeypatch, tmp_path: Path) -> None:
+    video = tmp_path / "movie.mkv"
+    video.write_bytes(b"immutable-video")
+    fingerprint = {"size": video.stat().st_size, "mtime_ns": video.stat().st_mtime_ns}
+    monkeypatch.setattr("oscardp.script_context.production_qc._sha", lambda _path: (_ for _ in ()).throw(AssertionError("must not rehash")))
+    verified = _verify_protected_file(video, "historical-sha", stat_fingerprint=fingerprint)
+    assert verified["unchanged"]
+    assert verified["actual_sha256"] is None
+    assert verified["verification_method"] == "recorded_sha256_plus_stat_fingerprint"
+
+
+def test_v3_validation_view_restores_raw_no_candidate_match() -> None:
+    normalized = {
+        "request_id": "alignment_review_000001",
+        "resolutions": [{
+            "subtitle_id": "subtitle_000001", "decision": "no_match", "block_ids": [],
+            "openai_resolution": {"subtitle_id": "subtitle_000001", "decision": "no_candidate_match", "block_ids": [], "confidence": 0.9, "decision_basis": "no_supplied_candidate"},
+        }],
+    }
+    view = _v3_validation_view(normalized)
+    assert view["resolutions"][0]["decision"] == "no_candidate_match"
+    assert normalized["resolutions"][0]["decision"] == "no_match"
 
 
 def request() -> dict:
@@ -243,6 +269,8 @@ def test_finalizer_verifies_hashes_coverage_and_freezes_manifest(tmp_path: Path,
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["status"] == "COMPLETE" and manifest["counts"]["requests"] == 1
     assert all(row["unchanged"] for row in manifest["protected_hashes"].values())
+    assert json.loads(inventory.read_text())["movies"][0]["production_review"]["status"] == "COMPLETE"
+    assert json.loads(status.read_text())["movies"][0]["final_qc_status"] == "COMPLETE"
 
     risk_summary.write_text(json.dumps({
         "record_count": 1, "audit_sha256": sha(risk), "inclusion_reason_counts": {},

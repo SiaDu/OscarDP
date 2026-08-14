@@ -34,6 +34,53 @@ def _sha(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _stat_fingerprint(path: Path) -> dict[str, int]:
+    """Small immutable-source guard used when a prior full hash is recorded."""
+    stat = path.stat()
+    return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+
+def _verify_protected_file(path: Path, expected_sha256: str, *, stat_fingerprint: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Verify normally by SHA-256, or by a recorded stat guard for large media.
+
+    Stat-only verification is deliberately opt-in: callers must supply both the
+    historical SHA-256 and the exact size/mtime fingerprint captured alongside it.
+    """
+    if stat_fingerprint is not None:
+        expected_stat = {
+            "size": stat_fingerprint.get("size"),
+            "mtime_ns": stat_fingerprint.get("mtime_ns"),
+        }
+        actual_stat = _stat_fingerprint(path) if path.is_file() else None
+        unchanged = actual_stat == expected_stat
+        return {
+            "path": path.as_posix(), "expected_sha256": expected_sha256,
+            "actual_sha256": None, "expected_stat_fingerprint": expected_stat,
+            "actual_stat_fingerprint": actual_stat, "unchanged": unchanged,
+            "verification_method": "recorded_sha256_plus_stat_fingerprint",
+        }
+    actual = _sha(path) if path.is_file() else None
+    return {
+        "path": path.as_posix(), "expected_sha256": expected_sha256,
+        "actual_sha256": actual, "unchanged": actual == expected_sha256,
+        "verification_method": "sha256",
+    }
+
+
+def _v3_validation_view(response: dict[str, Any]) -> dict[str, Any]:
+    """Recover raw candidate-task-v3 resolutions from apply-normalized input."""
+    view = deepcopy(response)
+    for resolution in view.get("resolutions", []):
+        raw = resolution.get("openai_resolution")
+        if isinstance(raw, dict) and raw.get("decision") in {"match", "no_candidate_match"}:
+            resolution.update(raw)
+        elif resolution.get("decision") == "no_match":
+            # Backward-compatible fallback for normalized records predating
+            # raw-resolution provenance.
+            resolution["decision"] = "no_candidate_match"
+    return view
+
+
 def _compact_alignment(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "subtitle_id": row["subtitle_id"], "text": row["text"], "time": row["time"],
@@ -525,7 +572,7 @@ def finalize_production_movie_v3(
     invalid = 0
     for request_id in sorted(set(request_by_id) & set(response_by_id)):
         current, _diagnostics = validate_resolution_v3(
-            response_by_id[request_id], request_by_id[request_id],
+            _v3_validation_view(response_by_id[request_id]), request_by_id[request_id],
             hard_validation_contract_version,
         )
         if current:
@@ -552,18 +599,20 @@ def finalize_production_movie_v3(
     if risk_request_hash is not None and risk_request_hash != _sha(requests_path):
         errors.append("high-risk audit request hash differs from production requests")
     expected_sources = {
-        "video": (Path(inventory_movie["video"]["path"]), inventory_movie["video"]["sha256"]),
-        "screenplay": (Path(inventory_movie["screenplay"]["path"]), inventory_movie["screenplay"]["sha256"]),
-        "shots": (shots_path, inventory_movie["stage1"]["shots_sha256"]),
+        "video": (
+            Path(inventory_movie["video"]["path"]), inventory_movie["video"]["sha256"],
+            inventory_movie["video"].get("stat_fingerprint"),
+        ),
+        "screenplay": (Path(inventory_movie["screenplay"]["path"]), inventory_movie["screenplay"]["sha256"], None),
+        "shots": (shots_path, inventory_movie["stage1"]["shots_sha256"], None),
     }
     context_sources = json.loads(context_path.read_text(encoding="utf-8"))["source_files"]
     subtitle_expected = status_movie["artifact_hashes"].get("selected_stage2_subtitle", status_movie["artifact_hashes"]["subtitle"])
-    expected_sources["stage2_subtitle"] = (Path(context_sources["subtitle"]), subtitle_expected)
+    expected_sources["stage2_subtitle"] = (Path(context_sources["subtitle"]), subtitle_expected, None)
     protected_hashes: dict[str, dict[str, Any]] = {}
-    for label, (path, expected) in expected_sources.items():
-        actual = _sha(path) if path.is_file() else None
-        protected_hashes[label] = {"path": path.as_posix(), "expected_sha256": expected, "actual_sha256": actual, "unchanged": actual == expected}
-        if actual != expected:
+    for label, (path, expected, stat_fingerprint) in expected_sources.items():
+        protected_hashes[label] = _verify_protected_file(path, expected, stat_fingerprint=stat_fingerprint)
+        if not protected_hashes[label]["unchanged"]:
             errors.append(f"protected {label} hash changed or file is missing")
     deterministic_expected = status_movie["deterministic_output_hashes"]
     deterministic_paths = {
@@ -646,4 +695,43 @@ def finalize_production_movie_v3(
         "frozen_at": datetime.now(UTC).isoformat(),
     }
     _write_json(manifest_path, manifest)
+    # The manifest is the completion authority; publish its paths atomically to
+    # both goal registries only after every QC gate has passed.
+    inventory_review = inventory_movie.setdefault("production_review", {})
+    inventory_review.update({
+        "status": "COMPLETE", "reviewer_version": reviewer["production_reviewer_version"],
+        "hard_validation_contract_version": hard_validation_contract_version,
+        "full_request_count": len(requests),
+        "full_resolution_count": sum(len(row["resolutions"]) for row in responses),
+        "reviewed_alignment": reviewed_alignment_path.as_posix(),
+        "reviewed_alignment_sha256": _sha(reviewed_alignment_path),
+        "reviewed_shot_context": reviewed_shot_context_path.as_posix(),
+        "reviewed_shot_context_sha256": _sha(reviewed_shot_context_path),
+        "reviewed_alignment_count": reviewed_validation.alignment_count,
+        "reviewed_shot_count": reviewed_validation.shot_count,
+        "high_risk_audit": risk_audit_path.as_posix(),
+        "high_risk_audit_sha256": _sha(risk_audit_path),
+        "final_qc": qc_path.as_posix(), "final_qc_sha256": _sha(qc_path),
+        "production_manifest": manifest_path.as_posix(), "production_manifest_sha256": _sha(manifest_path),
+        "pending_ambiguity_count": unresolved,
+        "candidate_recall_risk_count": candidate_recall_risks,
+        "reviewer_selection_risk_count": reviewer_selection_risks,
+        "protected_hashes_unchanged": all(row["unchanged"] for row in protected_hashes.values()),
+    })
+    inventory["updated_at"] = datetime.now(UTC).isoformat()
+    status_movie.update({
+        "final_qc_status": "COMPLETE", "production_batch_status": "completed_validated_applied_final_qc_passed",
+        "production_completed_chunk_count": status_movie.get("production_chunk_count", status_movie.get("production_completed_chunk_count")),
+        "reviewed_alignment_path": reviewed_alignment_path.as_posix(),
+        "reviewed_shot_context_path": reviewed_shot_context_path.as_posix(),
+        "final_qc_path": qc_path.as_posix(), "final_qc_sha256": _sha(qc_path),
+        "high_risk_audit_path": risk_audit_path.as_posix(), "high_risk_audit_sha256": _sha(risk_audit_path),
+        "high_risk_summary_path": risk_summary_path.as_posix(),
+        "pending_ambiguity_count": unresolved,
+        "candidate_recall_risk_count": candidate_recall_risks,
+        "reviewer_selection_risk_count": reviewer_selection_risks,
+    })
+    status["updated_at"] = datetime.now(UTC).isoformat()
+    _write_json(inventory_path, inventory)
+    _write_json(status_path, status)
     return {**qc, "manifest": manifest_path.as_posix(), "manifest_sha256": _sha(manifest_path)}
