@@ -16,6 +16,7 @@ from oscardp.script_context.openai_schema import (
     alignment_response_schema_v3,
 )
 from oscardp.script_context.openai_review import batch_line, submit_batch
+from oscardp.script_context.schema import read_jsonl
 from oscardp.script_context.stage253 import (
     batch_line_v3,
     batch_line_v321_vocative,
@@ -31,6 +32,7 @@ from oscardp.script_context.stage253 import (
     prepare_batch_v33_action_context,
     prepare_review_action_context_v33,
     prepare_review_context_v31,
+    select_first_non_terminal_movie,
     submit_batch_v3,
     submit_batch_v321_vocative,
     submit_batch_v32_policy,
@@ -361,20 +363,77 @@ def test_independent_calibration_evaluator_reports_numeric_gate_and_not_human_go
     assert result["promotion_requires_error_class_audit"] is True
 
 
-def test_production_spot_check_evaluator_cannot_be_claimed_as_independent_calibration(tmp_path: Path) -> None:
+def production_spot_check_files(tmp_path: Path, count: int) -> tuple[Path, Path, Path, Path, Path]:
     reference = tmp_path / "reference.jsonl"; responses = tmp_path / "validated.jsonl"
-    pilot_manifest = tmp_path / "pilot-manifest.json"; validation = tmp_path / "response-validation.json"; output = tmp_path / "evaluation.json"
-    write_jsonl(reference, [{"request_id": "r1", "reference_resolutions": [{"subtitle_id": "s1", "decision": "match", "block_ids": ["A"]}]}])
-    write_jsonl(responses, [{"request_id": "r1", "resolutions": [resolution("s1", "match", ["A"], "exact_or_near_exact")]}])
-    pilot_manifest.write_text(json.dumps({"requests": [{"request_id": "r1", "stratum": "easy", "timeline_region": "early"}]}), encoding="utf-8")
-    validation.write_text(json.dumps({"valid_count": 30, "invalid_count": 0, "foreign_candidate_output_count": 0, "sequence_quality": {}}), encoding="utf-8")
+    manifest = tmp_path / "pilot-manifest.json"; validation = tmp_path / "response-validation.json"
+    output = tmp_path / "evaluation.json"
+    refs, predictions, selected = [], [], []
+    for index in range(count):
+        request_id, subtitle_id = f"r{index}", f"s{index}"
+        refs.append({"request_id": request_id, "reference_resolutions": [
+            {"subtitle_id": subtitle_id, "decision": "match", "block_ids": ["A"]},
+        ]})
+        predictions.append({"request_id": request_id, "resolutions": [
+            resolution(subtitle_id, "match", ["A"], "exact_or_near_exact"),
+        ]})
+        selected.append({"request_id": request_id, "stratum": "easy", "timeline_region": "early"})
+    write_jsonl(reference, refs); write_jsonl(responses, predictions)
+    manifest.write_text(json.dumps({"requests": selected}), encoding="utf-8")
+    validation.write_text(json.dumps({
+        "request_count": count, "valid_count": count, "invalid_count": 0,
+        "foreign_candidate_output_count": 0, "sequence_quality": {},
+    }), encoding="utf-8")
+    return reference, responses, manifest, validation, output
 
-    result = evaluate_production_spot_check_v3(reference, responses, pilot_manifest, validation, output)
 
+@pytest.mark.parametrize("count", [10, 15])
+def test_production_spot_check_uses_manifest_request_count(tmp_path: Path, count: int) -> None:
+    paths = production_spot_check_files(tmp_path, count)
+    result = evaluate_production_spot_check_v3(*paths)
+    assert result["expected_request_count"] == count
     assert result["evaluation_role"] == "production_spot_check"
     assert result["independent_calibration"] is False
     assert result["promotion_eligible_evidence"] is False
     assert result["numeric_acceptance_gate"]["passed"] is True
+
+
+def test_production_spot_check_semantic_accuracy_is_descriptive(tmp_path: Path) -> None:
+    paths = production_spot_check_files(tmp_path, 10)
+    responses = read_jsonl(paths[1])
+    for row in responses[:2]:
+        row["resolutions"][0].update({"decision": "no_candidate_match", "block_ids": []})
+    write_jsonl(paths[1], responses)
+    result = evaluate_production_spot_check_v3(*paths)
+    assert result["metrics"]["candidate_task_accuracy"] == 0.8
+    assert result["numeric_acceptance_gate"]["passed"] is True
+    assert not any("accuracy" in key for key in result["numeric_acceptance_gate"]["checks"])
+
+
+@pytest.mark.parametrize("failure", ["invalid", "missing", "foreign", "request_count"])
+def test_production_spot_check_hard_gate_failures(tmp_path: Path, failure: str) -> None:
+    paths = production_spot_check_files(tmp_path, 10)
+    validation = json.loads(paths[3].read_text(encoding="utf-8"))
+    if failure == "invalid":
+        validation.update({"valid_count": 9, "invalid_count": 1})
+    elif failure == "missing":
+        responses = read_jsonl(paths[1]); responses[0]["resolutions"] = []
+        write_jsonl(paths[1], responses)
+    elif failure == "foreign":
+        validation["foreign_candidate_output_count"] = 1
+    else:
+        validation["request_count"] = 9
+    paths[3].write_text(json.dumps(validation), encoding="utf-8")
+    assert evaluate_production_spot_check_v3(*paths)["numeric_acceptance_gate"]["passed"] is False
+
+
+def test_select_first_non_terminal_movie_skips_complete_and_blocked() -> None:
+    status = {"movies": [
+        {"movie_id": "complete", "status": "COMPLETE"},
+        {"movie_id": "blocked", "status": "BLOCKED_WITH_EXPLICIT_REASON"},
+        {"movie_id": "active", "status": "PRODUCTION_IN_PROGRESS"},
+    ]}
+    assert select_first_non_terminal_movie(status)["movie_id"] == "active"
+    assert select_first_non_terminal_movie({"movies": status["movies"][:2]}) is None
 
 
 def test_adjudicated_calibration_evaluator_preserves_frozen_reference_and_constrains_corrections(tmp_path: Path) -> None:

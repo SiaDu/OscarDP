@@ -972,26 +972,45 @@ def evaluate_independent_calibration_v3(
             })
     metrics = _binary_metrics(records)
     missing_count = sum(record["actual"] is None for record in records)
-    checks = {
-        "all_30_requests_structurally_valid": validation.get("valid_count") == 30 and validation.get("invalid_count") == 0,
-        "zero_missing_predictions": missing_count == 0,
-        "zero_foreign_candidates": int(validation.get("foreign_candidate_output_count", 0)) == 0,
-        "candidate_task_accuracy_at_least_0_90": metrics["candidate_task_accuracy"] >= 0.90,
-        "candidate_presence_accuracy_at_least_0_90": metrics["candidate_presence_decision_accuracy"] >= 0.90,
-    }
+    expected_request_count = len(pilot_manifest["requests"])
+    if evaluation_role == "production_spot_check":
+        checks = {
+            "all_expected_requests_structurally_valid": (
+                validation.get("valid_count") == expected_request_count
+            ),
+            "validation_request_count_matches_manifest": (
+                validation.get("request_count") == expected_request_count
+            ),
+            "zero_invalid_responses": validation.get("invalid_count") == 0,
+            "zero_missing_predictions": missing_count == 0,
+            "zero_foreign_candidates": int(validation.get("foreign_candidate_output_count", 0)) == 0,
+        }
+        gate_basis = "production_structural_integrity"
+    else:
+        checks = {
+            "all_30_requests_structurally_valid": validation.get("valid_count") == 30 and validation.get("invalid_count") == 0,
+            "zero_missing_predictions": missing_count == 0,
+            "zero_foreign_candidates": int(validation.get("foreign_candidate_output_count", 0)) == 0,
+            "candidate_task_accuracy_at_least_0_90": metrics["candidate_task_accuracy"] >= 0.90,
+            "candidate_presence_accuracy_at_least_0_90": metrics["candidate_presence_decision_accuracy"] >= 0.90,
+        }
+        gate_basis = "independent_calibration_numeric_acceptance"
     result = {
         "schema_version": "1.0", "decision_schema_version": "candidate_task_v3",
         "evaluation_role": evaluation_role,
         "independent_calibration": evaluation_role == "independent_calibration",
         "promotion_eligible_evidence": evaluation_role == "independent_calibration",
         "human_gold": False,
+        "expected_request_count": expected_request_count,
         "reference_sha256": hashlib.sha256(reference_path.read_bytes()).hexdigest(),
         "reference_resolution_count": len(records), "metrics": metrics,
         "structural_invalid_request_count": int(validation.get("invalid_count", 0)),
         "missing_prediction_count": missing_count,
         "foreign_candidate_output_count": int(validation.get("foreign_candidate_output_count", 0)),
         "sequence_quality": validation.get("sequence_quality", {}),
-        "numeric_acceptance_gate": {"checks": checks, "passed": all(checks.values())},
+        "numeric_acceptance_gate": {
+            "basis": gate_basis, "checks": checks, "passed": all(checks.values()),
+        },
         "promotion_requires_error_class_audit": evaluation_role == "independent_calibration",
         "production_advance_requires_error_class_audit": True,
     }
@@ -1007,6 +1026,15 @@ def evaluate_production_spot_check_v3(
         reference_path, validated_path, pilot_manifest_path, response_validation_path,
         output_path, evaluation_role="production_spot_check",
     )
+
+
+def select_first_non_terminal_movie(status: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the first target that still requires work, preserving status order."""
+    terminal_states = {"COMPLETE", "BLOCKED_WITH_EXPLICIT_REASON"}
+    for movie in status.get("movies", []):
+        if movie.get("status") not in terminal_states:
+            return movie
+    return None
 
 
 def evaluate_independent_calibration_adjudicated_v3(
