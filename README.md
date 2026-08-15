@@ -481,6 +481,32 @@ python -m oscardp.script_context finalize-openai-production-movie-v3 \
   --manifest /path/to/reviewed/v3_2_production_2/manifest.json
 ```
 
+### Stage 2 production release freeze
+
+After every target movie is terminal, `freeze-production-release-v3` validates
+the seven final per-movie production manifests, their reviewed outputs, final
+QC, protected inputs, and completed Batch fetch evidence. It then atomically
+publishes a dataset-level release manifest, a pending-ambiguity package, and a
+Stage 3 handoff while reconciling the goal status and inventory registries.
+It is entirely local and never calls OpenAI.
+
+```bash
+python -m oscardp.script_context freeze-production-release-v3 \
+  --inventory /mnt/i/datasets/oscar_movie_processed/stage2_goal_inventory.json \
+  --status /mnt/i/datasets/oscar_movie_processed/stage2_goal_status.json \
+  --experiments /mnt/i/datasets/oscar_movie_processed/stage2_reviewer_experiments.jsonl \
+  --output-root /mnt/i/datasets/oscar_movie_processed \
+  --release-dir /mnt/i/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven \
+  --code-commit FULL_GIT_SHA
+```
+
+This release is intentionally scoped to the seven completed movies. The
+screenplay at `tt30343021_SongSungBlue.pdf` belongs to Song Sung Blue and must
+not be rebound to `tt30144839`; One Battle After Another remains explicitly
+blocked until its own screenplay is available. Release artifacts reference
+the existing reviewed files by absolute path and SHA-256 instead of copying or
+overwriting movie data.
+
 Use `merge-openai-production-responses-v3` only after both partitions pass
 v3 hard validation, then `apply-openai-production-responses-v3`. The latter
 preserves each original binary resolution as provenance while emitting only

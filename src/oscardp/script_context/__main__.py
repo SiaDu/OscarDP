@@ -188,6 +188,14 @@ def build_parser() -> argparse.ArgumentParser:
     production_finalize.add_argument("--max-unresolved-ambiguities", type=int, default=5)
     production_finalize.add_argument("--max-unresolved-candidate-recall-risks", type=int, default=0)
     production_finalize.add_argument("--max-unresolved-reviewer-selection-risks", type=int, default=0)
+    production_release = commands.add_parser("freeze-production-release-v3")
+    production_release.add_argument("--inventory", type=Path, required=True)
+    production_release.add_argument("--status", type=Path, required=True)
+    production_release.add_argument("--experiments", type=Path, required=True)
+    production_release.add_argument("--output-root", type=Path, required=True)
+    production_release.add_argument("--release-dir", type=Path, required=True)
+    production_release.add_argument("--code-commit", required=True)
+    production_release.add_argument("--release-id", default="v3_2_1_production_3_final_seven")
     composite = commands.add_parser("build-openai-composite-audit")
     composite.add_argument("--requests", type=Path, required=True); composite.add_argument("--validated-responses", type=Path, required=True)
     composite.add_argument("--output", type=Path, required=True); composite.add_argument("--summary", type=Path, required=True)
@@ -405,6 +413,13 @@ def main(argv: list[str] | None = None) -> int:
                 max_unresolved_candidate_recall_risks=args.max_unresolved_candidate_recall_risks,
                 max_unresolved_reviewer_selection_risks=args.max_unresolved_reviewer_selection_risks,
                 deterministic_requests_path=args.deterministic_requests,
+            )
+            print(json_dumps(result, pretty=True)); return 0
+        if args.command == "freeze-production-release-v3":
+            from .release import freeze_stage2_release
+            result = freeze_stage2_release(
+                args.inventory, args.status, args.experiments, args.output_root,
+                args.release_dir, args.code_commit, release_id=args.release_id,
             )
             print(json_dumps(result, pretty=True)); return 0
         if args.command == "build-openai-composite-audit":

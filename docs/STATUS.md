@@ -1,6 +1,36 @@
 # OscarDP project status
 
-Last updated: 2026-08-05
+Last updated: 2026-08-15
+
+## Stage 2 production release
+
+The Stage 2 production reviewer and retrieval stack is frozen as
+`v3.2.1-production.3-retrieval-v3-validator-v3`. Seven of the eight production
+targets have passed final QC and have versioned reviewed alignment and shot
+context. `tt30144839` (One Battle After Another) remains
+`BLOCKED_WITH_EXPLICIT_REASON` because its screenplay is unavailable.
+
+`/mnt/i/datasets/oscar_script/tt30343021_SongSungBlue.pdf` is not a substitute:
+its title page identifies it as *Song Sung Blue*, and it is already the source
+for completed movie `tt30343021`.
+
+The dataset-level frozen release is generated under:
+
+```text
+/mnt/i/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven
+```
+
+Expected terminal summary:
+
+- COMPLETE: 7/8
+- TERMINAL: 8/8
+- BLOCKED: 1/8
+- Pending isolated human ambiguities: 4
+
+The release includes a manifest, independent validation report, self-contained
+pending-ambiguity package, and Stage 3 handoff. Stage 3 must use only the
+reviewed shot-context paths named by that release and must exclude the blocked
+movie from resolved-quality claims.
 
 ## Current milestone
 
