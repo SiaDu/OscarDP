@@ -116,9 +116,11 @@ def _preview(video: Path, event: dict[str, Any], output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     command = [
         "ffmpeg", "-y", "-v", "error", "-ss", f"{start:.6f}", "-t", f"{duration:.6f}",
-        "-i", str(video), "-map", "0:v:0", "-map", "0:a:0?",
-        "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
-        "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(output),
+        "-dn", "-sn", "-i", str(video), "-map", "0:v:0", "-map", "0:a:0?",
+        "-map_metadata", "-1", "-map_chapters", "-1",
+        "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-profile:v", "high", "-level:v", "4.1", "-preset", "veryfast", "-crf", "28",
+        "-c:a", "aac", "-ac", "2", "-b:a", "128k", "-movflags", "+faststart", str(output),
     ]
     process = subprocess.run(command, capture_output=True, text=True, check=False)
     if process.returncode:

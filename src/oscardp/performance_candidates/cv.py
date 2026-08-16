@@ -47,10 +47,21 @@ def _chunks(requests: list[FrameRequest], max_gap: float = 30.0, max_span: float
     return result
 
 
+def _cuda_decoder(video: Path) -> str | None:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=nw=1:nk=1", str(video)],
+        capture_output=True, text=True, check=False,
+    )
+    if probe.returncode:
+        return None
+    return {"hevc": "hevc_cuvid", "h264": "h264_cuvid"}.get(probe.stdout.strip())
+
+
 def extract_sparse_frames(video: Path, requests: list[FrameRequest]) -> None:
     require_media_tools()
     for request in requests:
         request.output_path.parent.mkdir(parents=True, exist_ok=True)
+    cuda_decoder = _cuda_decoder(video)
     for chunk in _chunks(requests):
         seek = max(0.0, chunk[0].time_sec - 0.5)
         labels = []
@@ -65,10 +76,22 @@ def extract_sparse_frames(video: Path, requests: list[FrameRequest]) -> None:
             filters.append(
                 f"[v{index}]select='gte(t,{relative:.6f})',scale='min(640,iw)':-2[{label}]"
             )
-        command = ["ffmpeg", "-y", "-v", "error", "-ss", f"{seek:.6f}", "-i", str(video), "-filter_complex", ";".join(filters)]
-        for label, request in zip(labels, chunk, strict=True):
-            command.extend(["-map", f"[{label}]", "-frames:v", "1", "-q:v", "3", str(request.output_path)])
-        process = subprocess.run(command, capture_output=True, text=True, check=False)
+        def command_for(
+            decoder: str | None, *, request_seek: float = seek, request_filters: list[str] = filters,
+            request_labels: list[str] = labels, request_chunk: list[FrameRequest] = chunk,
+        ) -> list[str]:
+            command = ["ffmpeg", "-y", "-v", "error"]
+            if decoder:
+                command.extend(["-hwaccel", "cuda", "-c:v", decoder])
+            command.extend(["-ss", f"{request_seek:.6f}", "-i", str(video), "-filter_complex", ";".join(request_filters)])
+            for label, request in zip(request_labels, request_chunk, strict=True):
+                command.extend(["-map", f"[{label}]", "-frames:v", "1", "-q:v", "3", str(request.output_path)])
+            return command
+
+        process = subprocess.run(command_for(cuda_decoder), capture_output=True, text=True, check=False)
+        if process.returncode and cuda_decoder:
+            cuda_decoder = None
+            process = subprocess.run(command_for(None), capture_output=True, text=True, check=False)
         if process.returncode:
             raise ExternalToolError(process.stderr.strip() or "FFmpeg sparse-frame extraction failed")
         missing = [str(request.output_path) for request in chunk if not request.output_path.is_file()]

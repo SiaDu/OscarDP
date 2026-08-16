@@ -36,6 +36,34 @@ def _artifact(movie: dict[str, Any], group: str, name: str) -> tuple[Path, str |
     return Path(value["path"]), value.get("sha256")
 
 
+def _verify_video_artifact(movie: dict[str, Any]) -> dict[str, Any]:
+    """Reuse the frozen release's completed video hash plus stat fingerprint.
+
+    Stage 2 deliberately avoids re-hashing multi-gigabyte protected videos at
+    release-resume time.  Stage 3 consumes that same immutable release contract
+    rather than making every pilot read an entire source movie before CV begins.
+    Older synthetic fixtures lacking a fingerprint retain full SHA verification.
+    """
+    value = movie.get("protected_artifacts", {}).get("video")
+    if not isinstance(value, dict) or not value.get("path") or not value.get("sha256"):
+        raise ValueError("Release movie lacks protected_artifacts.video")
+    path = Path(value["path"])
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing video: {path}")
+    stat = path.stat()
+    current = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    recorded = value.get("stat_fingerprint")
+    if recorded is None:
+        return _verify(path, value["sha256"], "video")
+    if current != recorded:
+        raise RuntimeError(f"Protected video stat fingerprint changed: {path}")
+    return {
+        "path": path.resolve().as_posix(), "sha256": value["sha256"], "size": stat.st_size,
+        "stat_fingerprint": current,
+        "verification_method": "frozen_release_sha256_plus_stat_fingerprint",
+    }
+
+
 def _release_inputs(options: MiningOptions) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     release_info = _verify(options.release_manifest, None, "release manifest")
     release = read_json(options.release_manifest)
@@ -52,11 +80,11 @@ def _release_inputs(options: MiningOptions) -> tuple[dict[str, Any], dict[str, A
         "reviewed_shot_context": _artifact(movie, "artifacts", "reviewed_shot_context"),
         "screenplay_context": _artifact(movie, "protected_artifacts", "deterministic_screenplay_context"),
         "shots": _artifact(movie, "protected_artifacts", "shots"),
-        "video": _artifact(movie, "protected_artifacts", "video"),
     }
     inputs: dict[str, Any] = {"release_manifest": release_info}
     for label, (path, expected) in paths.items():
         inputs[label] = _verify(path, expected, label)
+    inputs["video"] = _verify_video_artifact(movie)
     inputs["face_model"] = _verify(options.face_model, options.face_model_sha256, "YuNet face model")
     return release, movie, inputs
 
