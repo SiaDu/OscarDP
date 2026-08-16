@@ -34,6 +34,16 @@ movie from resolved-quality claims.
 
 ## Current milestone
 
+Stage 3 shot-first performance candidate mining is implemented as the separate
+`oscardp.performance_candidates` package. It performs deterministic shot-level
+semantic mining, three-frame YuNet face-presence screening, shot selection, and
+post-selection event grouping. Its primary outputs are
+`performance_shots.jsonl` and `performance_events.jsonl`; it does not include a
+person detector, OpenFace, identity, emotion, AU, gaze, or tracking inference.
+The implementation and synthetic integration tests are complete, but the real
+Bugonia pilot and its required human acceptance review have not been run. This
+does not authorize expansion to the remaining frozen movies.
+
 The real-video smoke test passed on both the historical CPU environment and the
 current CUDA environment using the same 30.030-second excerpt from `tt32536315`
 (Blue Moon). CPU and GPU produced identical transition frames and shot ranges.

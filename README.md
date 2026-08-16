@@ -530,6 +530,36 @@ alignment or shot-context files. Model output is constrained to request-local
 IDs, structurally validated, and still requires human pilot evaluation before
 any promotion.
 
+## Stage 3 shot-first performance candidate mining
+
+Stage 3 consumes only a frozen Stage 2 release. It mines deterministic semantic
+signals per shot, samples three frames inside each semantic seed, uses YuNet for
+face-presence screening, selects atomic performance shots, and only then groups
+consecutive selected shots into performance events. It does not run OpenAI,
+OpenFace, identity recognition, emotion classification, AU extraction, gaze, or
+face tracking. Install the optional CV dependency with `pip install -e
+'.[performance]'` and provide a local YuNet ONNX model:
+
+```bash
+python -m oscardp.performance_candidates mine \
+  --release-manifest /mnt/i/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven/release_manifest.json \
+  --output-root /mnt/i/datasets/oscar_movie_processed/stage3 \
+  --movie-key tt12300742 \
+  --face-model /path/to/face_detection_yunet.onnx
+
+python -m oscardp.performance_candidates validate --run-dir /path/to/run
+python -m oscardp.performance_candidates prepare-review-sample --run-dir /path/to/run
+python -m oscardp.performance_candidates evaluate-review \
+  --shot-sample /path/to/performance_shots.review.labeled.jsonl \
+  --event-sample /path/to/performance_events.review.labeled.jsonl
+```
+
+The two primary outputs are `performance_shots.jsonl`, the atomic CV and future
+OpenFace input, and `performance_events.jsonl`, the acting/context unit. Stage 3
+never edits either source movies or Stage 1/2 artifacts. The initial production
+scope is the `tt12300742` Bugonia pilot; do not expand to all frozen movies until
+its stratified human review passes.
+
 ### Stage 2.5 constrained pilot responses
 
 Batch preparation now embeds a request-specific strict schema in every line.
