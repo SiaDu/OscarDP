@@ -12,6 +12,10 @@ from oscardp.performance_candidates.io import sha256_file
 from oscardp.performance_candidates.pipeline import MiningOptions, mine
 from oscardp.performance_candidates.review import evaluate_review, prepare_review_sample
 from oscardp.performance_candidates.semantic import mine_shot_semantics
+from oscardp.performance_candidates.targeting import (
+    mine_target_relevance,
+    resolve_target,
+)
 from oscardp.performance_candidates.validation import validate_run
 
 
@@ -58,13 +62,14 @@ def stage3_fixture(tmp_path: Path) -> tuple[MiningOptions, Path]:
     video = source / "video.mkv"
     face_model = source / "yunet.onnx"
     pending = source / "pending.jsonl"
+    nominees = source / "nominees.csv"
     rows = [
         context_row(1), context_row(2, subtitle_id="subtitle_2", subtitle_text="Wait..."),
         context_row(3, subtitle_id="subtitle_3"), context_row(4, subtitle_id="pending_subtitle"),
     ]
     write_jsonl(reviewed, rows)
     actions = [
-        "She cries and screams.", "He shouts, then waits.",
+        "Michelle cries and screams.", "Michelle shouts, then waits.",
         "She flinches and stares.", "He punches the wall.",
     ]
     write_json(screenplay, {
@@ -77,6 +82,7 @@ def stage3_fixture(tmp_path: Path) -> tuple[MiningOptions, Path]:
     video.write_bytes(b"not decoded by the test extractor")
     face_model.write_bytes(b"test-yunet-model")
     write_jsonl(pending, [{"movie_id": "tt12300742", "subtitle_id": "pending_subtitle"}])
+    nominees.write_text("Ceremony,Year,CanonicalCategory,Film,FilmId,Nominees,NomineeIds,Winner,Detail\n98,2025,ACTRESS IN A LEADING ROLE,Bugonia,tt12300742,Emma Stone,nm1297015,False,Michelle\n", encoding="utf-8")
 
     def artifact(path: Path) -> dict:
         return {"path": str(path), "sha256": sha256_file(path)}
@@ -93,8 +99,8 @@ def stage3_fixture(tmp_path: Path) -> tuple[MiningOptions, Path]:
         }],
         "pending_human_ambiguities": artifact(pending),
     })
-    options = MiningOptions(release_manifest=release, output_root=tmp_path / "output", face_model=face_model)
-    return options, options.output_root / "test_release" / "performance_candidates_v1" / "tt12300742"
+    options = MiningOptions(release_manifest=release, output_root=tmp_path / "output", face_model=face_model, nominees_file=nominees)
+    return options, options.output_root / "test_release" / "performance_candidates_v2" / "tt12300742" / "nm1297015_emma_stone"
 
 
 class DummyDetector:
@@ -123,7 +129,7 @@ def test_semantic_mining_preserves_source_text_and_exclusions(tmp_path: Path) ->
     screenplay = json.loads(Path(movie["protected_artifacts"]["deterministic_screenplay_context"]["path"]).read_text())
     result = mine_shot_semantics(rows, screenplay, {"shot_000004"})
     assert result[0]["semantic_score"] == 0.55
-    assert result[0]["evidence"][0]["text"] == "She cries and screams."
+    assert result[0]["evidence"][0]["text"] == "Michelle cries and screams."
     assert result[3]["excluded_reason"] == "pending_stage2_ambiguity"
 
 
@@ -138,7 +144,7 @@ def test_mine_writes_atomic_shots_then_groups_events(tmp_path: Path) -> None:
     assert shots[0]["selection_basis"] == "semantic_and_cv"
     assert shots[1]["selection_basis"] == "semantic_override"
     assert len(events) == 1 and events[0]["performance_shot_ids"] == [row["performance_shot_id"] for row in shots]
-    assert next(row for row in audit if row["source_shot_id"] == "shot_000003")["status"] == "rejected"
+    assert next(row for row in audit if row["source_shot_id"] == "shot_000003")["status"] == "excluded"
     assert next(row for row in audit if row["source_shot_id"] == "shot_000004")["reason"] == "pending_stage2_ambiguity"
     assert "person" not in (run_dir / "performance_shots.jsonl").read_text().lower()
     assert validate_run(run_dir).passed
@@ -158,7 +164,7 @@ def test_event_grouping_does_not_bridge_unselected_or_scene_boundary() -> None:
     def selected(index: int, scene: str = "scene_001") -> dict:
         row = context_row(index)
         row.update({
-            "performance_shot_id": f"perfshot_tt12300742_{index:06d}", "source_shot_id": row.pop("shot_id"),
+            "performance_shot_id": f"perfshot_tt12300742_nm1297015_{index:06d}", "source_shot_id": row.pop("shot_id"),
             "source_index": index - 1, "shot_score": 0.8,
             "semantic": {"categories": ["reaction"]},
         })
@@ -176,7 +182,7 @@ def test_event_grouping_splits_long_multi_shot_event() -> None:
     for index, source in enumerate(all_rows):
         row = dict(source)
         row.update({
-            "performance_shot_id": f"perfshot_tt12300742_{index + 1:06d}",
+            "performance_shot_id": f"perfshot_tt12300742_nm1297015_{index + 1:06d}",
             "source_shot_id": row.pop("shot_id"), "source_index": index,
             "shot_score": 0.5 + index / 10, "semantic": {"categories": ["reaction"]},
         })
@@ -189,6 +195,18 @@ def test_event_grouping_splits_long_multi_shot_event() -> None:
     events = group_events(selected, all_rows, "tt12300742", "release", maximum_duration=30.0)
     assert len(events) >= 2
     assert all(row["time"]["duration_sec"] <= 30.0 for row in events)
+
+
+def test_event_bridge_keeps_context_out_of_members() -> None:
+    all_rows = [context_row(index) for index in range(1, 4)]
+    selected = []
+    for index in (0, 2):
+        row = dict(all_rows[index])
+        row.update({"performance_shot_id": f"perfshot_tt12300742_nm1297015_{index + 1:06d}", "source_shot_id": row.pop("shot_id"), "source_index": index, "shot_score": .8, "semantic": {"categories": ["reaction"]}})
+        selected.append(row)
+    events = group_events(selected, all_rows, "tt12300742", "release")
+    assert events[0]["context_between_shot_ids"] == ["shot_000002"]
+    assert "shot_000002" not in events[0]["source_shot_ids"]
 
 
 def test_review_package_and_gate_evaluation(tmp_path: Path, monkeypatch) -> None:
@@ -219,3 +237,16 @@ def test_cli_exposes_stage3_commands() -> None:
     parser = build_parser()
     args = parser.parse_args(["validate", "--run-dir", "/tmp/run"])
     assert args.command == "validate"
+
+
+def test_targeting_high_medium_none_and_metadata_resolution(tmp_path: Path) -> None:
+    options, _run_dir = stage3_fixture(tmp_path)
+    target = resolve_target(options.nominees_file, "tt12300742", "nm1297015", None)
+    rows = [context_row(1), context_row(2), context_row(3)]
+    rows[0]["dialogue_speakers"] = ["MICHELLE'S VOICE"]
+    rows[1]["local_script_context"]["action_before"] = ["scene_001_action_001"]
+    screenplay = {"script_scenes": [{"script_blocks": [{"block_id": "scene_001_action_001", "block_type": "action", "text": "Michelle leaves."}]}]}
+    relevance = mine_target_relevance(rows, screenplay, target)
+    assert relevance[0]["confidence"] == "high"
+    assert relevance[1]["confidence"] == "medium"
+    assert relevance[2] == {"performer_name": "Emma Stone", "character_names": ["Michelle"], "confidence": "none", "interpretation": "no_textual_support", "score": 0.0, "evidence": []}

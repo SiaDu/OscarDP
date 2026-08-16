@@ -532,10 +532,11 @@ any promotion.
 
 ## Stage 3 shot-first performance candidate mining
 
-Stage 3 consumes only a frozen Stage 2 release. It mines deterministic semantic
-signals per shot, samples three frames inside each semantic seed, uses YuNet for
-face-presence screening, selects atomic performance shots, and only then groups
-consecutive selected shots into performance events. It does not run OpenAI,
+Stage 3 consumes only a frozen Stage 2 release and runs per nominated performer.
+It deterministically filters semantic seeds using the nominated character before
+sampling frames, then uses YuNet for face-presence screening and groups selected
+target-context shots into events. `target_relevance: none` means only
+`no_textual_support`, never that the performer is absent from the image. It does not run OpenAI,
 OpenFace, identity recognition, emotion classification, AU extraction, gaze, or
 face tracking. Install the optional CV dependency with `pip install -e
 '.[performance]'` and provide a local YuNet ONNX model:
@@ -544,7 +545,9 @@ face tracking. Install the optional CV dependency with `pip install -e
 python -m oscardp.performance_candidates mine \
   --release-manifest /mnt/i/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven/release_manifest.json \
   --output-root /mnt/i/datasets/oscar_movie_processed/stage3 \
+  --nominees-file /mnt/i/datasets/oscar_data/oscar_acting_nominees.csv \
   --movie-key tt12300742 \
+  --performer-id nm1297015 \
   --face-model /path/to/face_detection_yunet.onnx
 
 python -m oscardp.performance_candidates validate --run-dir /path/to/run

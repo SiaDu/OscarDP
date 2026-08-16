@@ -17,7 +17,10 @@ def build_parser() -> argparse.ArgumentParser:
     mining = commands.add_parser("mine", help="mine shot-first performance candidates from a frozen Stage 2 release")
     mining.add_argument("--release-manifest", type=Path, required=True)
     mining.add_argument("--output-root", type=Path, required=True)
+    mining.add_argument("--nominees-file", type=Path, required=True)
     mining.add_argument("--movie-key", default="tt12300742")
+    mining.add_argument("--performer-id")
+    mining.add_argument("--performer-name")
     mining.add_argument("--face-model", type=Path, required=True)
     mining.add_argument("--face-model-sha256")
     mining.add_argument("--semantic-threshold", type=float, default=0.35)
@@ -45,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "mine":
             options = MiningOptions(
                 release_manifest=args.release_manifest, output_root=args.output_root,
+                nominees_file=args.nominees_file, performer_id=args.performer_id, performer_name=args.performer_name,
                 face_model=args.face_model, face_model_sha256=args.face_model_sha256,
                 movie_key=args.movie_key, semantic_threshold=args.semantic_threshold,
                 semantic_override_threshold=args.semantic_override_threshold,

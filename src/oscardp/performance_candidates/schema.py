@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SCHEMA_VERSION = "1.0"
-PIPELINE_VERSION = "performance_candidates_v1"
+PIPELINE_VERSION = "performance_candidates_v2"
 RULESET_VERSION = "performance_semantic_rules_v1"
 
 
@@ -13,7 +13,10 @@ class MiningOptions:
     release_manifest: Path
     output_root: Path
     face_model: Path
+    nominees_file: Path
     movie_key: str = "tt12300742"
+    performer_id: str | None = None
+    performer_name: str | None = None
     face_model_sha256: str | None = None
     semantic_threshold: float = 0.35
     semantic_override_threshold: float = 0.75

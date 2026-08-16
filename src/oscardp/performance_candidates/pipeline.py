@@ -16,6 +16,12 @@ from .grouping import group_events
 from .io import read_json, read_jsonl, sha256_file, write_json, write_jsonl
 from .schema import PIPELINE_VERSION, RULESET_VERSION, SCHEMA_VERSION, MiningOptions
 from .semantic import mine_shot_semantics
+from .targeting import (
+    TARGET_RULESET_VERSION,
+    Target,
+    mine_target_relevance,
+    resolve_target,
+)
 
 DetectorFactory = Callable[[Path], YuNetDetector]
 
@@ -86,6 +92,7 @@ def _release_inputs(options: MiningOptions) -> tuple[dict[str, Any], dict[str, A
         inputs[label] = _verify(path, expected, label)
     inputs["video"] = _verify_video_artifact(movie)
     inputs["face_model"] = _verify(options.face_model, options.face_model_sha256, "YuNet face model")
+    inputs["nominees_file"] = _verify(options.nominees_file, None, "nominees metadata")
     return release, movie, inputs
 
 
@@ -113,18 +120,21 @@ def _validate_source_pairing(context_rows: list[dict[str, Any]], shots: list[dic
             raise RuntimeError(f"Frame range mismatch for {shot.get('shot_id')}")
 
 
-def _fingerprint(options: MiningOptions, release: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
+def _fingerprint(options: MiningOptions, release: dict[str, Any], inputs: dict[str, Any], target: Target) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "pipeline_version": PIPELINE_VERSION,
         "ruleset_version": RULESET_VERSION,
         "release_id": release["release_id"],
         "movie_id": options.movie_key,
+        "performance_key": target.performance_key,
+        "target": target.output(),
         "inputs": inputs,
         "semantic_threshold": options.semantic_threshold,
         "semantic_override_threshold": options.semantic_override_threshold,
         "max_event_duration_sec": options.max_event_duration_sec,
         "cv": {"detector": "OpenCV FaceDetectorYN YuNet", "sample_fractions": [0.2, 0.5, 0.8], "maximum_input_edge": 640},
+        "target_ruleset_version": TARGET_RULESET_VERSION,
     }
 
 
@@ -145,7 +155,7 @@ def _safe_overwrite(run_dir: Path, release_id: str, movie_id: str) -> None:
 def _shot_output(
     semantic: dict[str, Any], frames: list[dict[str, Any]], face_score: float,
     aggregate: dict[str, Any], movie_id: str, release_id: str, model_sha: str,
-    provenance: dict[str, str],
+    provenance: dict[str, str], target: Target, target_relevance: dict[str, Any],
 ) -> tuple[dict[str, Any], str | None]:
     shot = semantic["shot"]
     semantic_score = float(semantic["semantic_score"])
@@ -158,6 +168,8 @@ def _shot_output(
         "schema_version": SCHEMA_VERSION,
         "release_id": release_id,
         "movie_id": movie_id,
+        "target": target.output(), "target_relevance": target_relevance,
+        "target_context_candidate": True, "target_face_verified": None,
         "source_shot_id": shot["shot_id"],
         "source_index": semantic["source_index"],
         "frame_range": shot["frame_range"],
@@ -193,11 +205,12 @@ def mine(
     if options.max_event_duration_sec <= 0:
         raise ValueError("max-event-duration-sec must be positive")
     release, _movie, inputs = _release_inputs(options)
+    target = resolve_target(options.nominees_file, options.movie_key, options.performer_id, options.performer_name)
     release_id = str(release["release_id"])
-    run_dir = options.output_root / release_id / PIPELINE_VERSION / options.movie_key
-    fingerprint = _fingerprint(options, release, inputs)
+    run_dir = options.output_root / release_id / PIPELINE_VERSION / options.movie_key / target.performer_slug
+    fingerprint = _fingerprint(options, release, inputs, target)
     if options.dry_run:
-        return {"status": "dry_run", "movie_id": options.movie_key, "run_dir": run_dir.as_posix(), "fingerprint": fingerprint}
+        return {"status": "dry_run", "movie_id": options.movie_key, "run_dir": run_dir.as_posix(), "target": target.output(), "fingerprint": fingerprint}
 
     manifest_path = run_dir / "manifest.json"
     if options.resume and not options.overwrite and manifest_path.is_file():
@@ -226,12 +239,16 @@ def mine(
         if any(subtitle.get("subtitle_id") in pending_ids for subtitle in row.get("subtitles", []))
     }
     semantics = mine_shot_semantics(context_rows, screenplay, excluded_shots)
+    relevance = mine_target_relevance(context_rows, screenplay, target)
+    for semantic, item in zip(semantics, relevance, strict=True):
+        semantic["target_relevance"] = item
     seeds = [row for row in semantics if row["semantic_score"] >= options.semantic_threshold and row["excluded_reason"] is None]
+    cv_seeds = [row for row in seeds if row["target_relevance"]["confidence"] in {"high", "medium"}]
 
     run_dir.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".{options.movie_key}.stage3.", dir=run_dir.parent))
     try:
-        all_requests = [request for semantic in seeds for request in sample_requests(semantic["shot"], temporary / "cv_frames")]
+        all_requests = [request for semantic in cv_seeds for request in sample_requests(semantic["shot"], temporary / "cv_frames")]
         extractor(video_path, all_requests)
         detector = detector_factory(options.face_model)
         row_provenance = {
@@ -242,7 +259,7 @@ def mine(
         }
         request_by_shot = {
             semantic["shot"]["shot_id"]: [request for request in all_requests if request.shot_id == semantic["shot"]["shot_id"]]
-            for semantic in seeds
+            for semantic in cv_seeds
         }
         selected: list[dict[str, Any]] = []
         audit: list[dict[str, Any]] = []
@@ -257,11 +274,17 @@ def mine(
                 continue
             if semantic["semantic_score"] < options.semantic_threshold:
                 continue
+            target_relevance = semantic["target_relevance"]
+            if target_relevance["confidence"] == "none":
+                audit.append({"movie_id": options.movie_key, "source_shot_id": shot_id, "source_index": semantic["source_index"],
+                              "semantic_score": semantic["semantic_score"], "status": "excluded", "reason": "target_character_not_supported",
+                              "target_relevance": target_relevance, "semantic": {"ruleset_version": semantic["ruleset_version"], "semantic_score": semantic["semantic_score"], "categories": semantic["categories"], "evidence": semantic["evidence"]}, "scene": semantic["shot"].get("scene"), "time": semantic["shot"]["time"]})
+                continue
             requests = request_by_shot[shot_id]
             frames, face_score, aggregate = analyze_shot_frames(detector, requests, temporary)
             row, rejection = _shot_output(
                 semantic, frames, face_score, aggregate, options.movie_key, release_id, inputs["face_model"]["sha256"],
-                row_provenance,
+                row_provenance, target, target_relevance,
             )
             if rejection is None:
                 selected.append(row)
@@ -274,22 +297,30 @@ def mine(
                 "face_score": face_score, "shot_score": row["shot_score"], "status": status,
                 "reason": rejection, "selection_basis": row["selection_basis"],
                 "semantic": row["semantic"], "cv": row["cv"], "scene": row["scene"], "time": row["time"],
+                "target_relevance": target_relevance,
             })
 
         selected.sort(key=lambda row: int(row["source_index"]))
         for ordinal, row in enumerate(selected, 1):
-            row["performance_shot_id"] = f"perfshot_{options.movie_key}_{ordinal:06d}"
+            row["performance_shot_id"] = f"perfshot_{options.movie_key}_{target.performer_id or target.performer_slug}_{ordinal:06d}"
         ranked = sorted(selected, key=lambda row: (-float(row["shot_score"]), float(row["time"]["start_sec"]), row["performance_shot_id"]))
         for rank, row in enumerate(ranked, 1):
-            row["movie_rank"] = rank
-        events = group_events(selected, context_rows, options.movie_key, release_id, options.max_event_duration_sec)
+            row["target_rank"] = rank
+        blocked_indices = {int(item["source_index"]) for item in semantics if item["excluded_reason"]}
+        events = group_events(selected, context_rows, options.movie_key, release_id, options.max_event_duration_sec, target, blocked_indices)
 
         write_jsonl(temporary / "performance_shots.jsonl", selected)
         write_jsonl(temporary / "performance_events.jsonl", events)
         write_jsonl(temporary / "screening_audit.jsonl", audit)
+        write_json(temporary / "target_metadata.json", {**target.output(), "raw_nomination_row": target.raw_row, "resolution_method": target.resolution_method, "nominees_file": inputs["nominees_file"]})
         qc = {
             "schema_version": SCHEMA_VERSION, "movie_id": options.movie_key,
             "source_shot_count": len(context_rows), "semantic_seed_count": len(seeds),
+            "target_high_count": sum(item["target_relevance"]["confidence"] == "high" for item in seeds),
+            "target_medium_count": sum(item["target_relevance"]["confidence"] == "medium" for item in seeds),
+            "target_none_count": sum(item["target_relevance"]["confidence"] == "none" for item in seeds),
+            "target_filter_excluded_count": sum(item["target_relevance"]["confidence"] == "none" for item in seeds),
+            "cv_seed_count": len(cv_seeds), "frames_requested": len(all_requests),
             "excluded_pending_ambiguity_shot_count": len(excluded_shots),
             "performance_shot_count": len(selected), "performance_event_count": len(events),
             "semantic_override_count": sum(row["selection_basis"] == "semantic_override" for row in selected),
@@ -298,12 +329,13 @@ def mine(
         write_json(temporary / "qc_summary.json", qc)
         outputs = {
             name: {"path": name, "sha256": sha256_file(temporary / name)}
-            for name in ("performance_shots.jsonl", "performance_events.jsonl", "screening_audit.jsonl", "qc_summary.json")
+            for name in ("performance_shots.jsonl", "performance_events.jsonl", "screening_audit.jsonl", "target_metadata.json", "qc_summary.json")
         }
         manifest = {
             "schema_version": SCHEMA_VERSION, "pipeline_version": PIPELINE_VERSION,
             "ruleset_version": RULESET_VERSION, "status": "COMPLETE", "release_id": release_id,
             "movie_id": options.movie_key, "fingerprint": fingerprint, "inputs": inputs,
+            "performance_key": target.performance_key, "target": target.output(), "target_ruleset_version": TARGET_RULESET_VERSION,
             "pending_subtitle_ids": sorted(pending_ids), "excluded_shot_ids": sorted(excluded_shots),
             "outputs": outputs,
             "counts": {"performance_shot_count": len(selected), "performance_event_count": len(events), "screening_audit_count": len(audit)},

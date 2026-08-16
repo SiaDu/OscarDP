@@ -37,6 +37,9 @@ def validate_run(run_dir: Path) -> ValidationReport:
         audit = read_jsonl(run_dir / "screening_audit.jsonl")
     except (OSError, ValueError) as exc:
         return ValidationReport(False, [str(exc)], 0, 0, 0)
+    v2 = manifest.get("pipeline_version") == "performance_candidates_v2"
+    if v2 and not (run_dir / "target_metadata.json").is_file():
+        errors.append("missing output: target_metadata.json")
     for name, artifact in manifest.get("outputs", {}).items():
         path = run_dir / name
         if not path.is_file() or sha256_file(path) != artifact.get("sha256"):
@@ -50,10 +53,15 @@ def validate_run(run_dir: Path) -> ValidationReport:
     indices = [row.get("source_index") for row in shots]
     if indices != sorted(indices):
         errors.append("performance shots are not in source order")
+    rank_key = "target_rank" if v2 else "movie_rank"
     rank_order = sorted(shots, key=lambda row: (-float(row["shot_score"]), float(row["time"]["start_sec"]), row["performance_shot_id"]))
-    if any(row.get("movie_rank") != rank for rank, row in enumerate(rank_order, 1)):
+    if any(row.get(rank_key) != rank for rank, row in enumerate(rank_order, 1)):
         errors.append("performance shot ranks are invalid")
     for row in shots:
+        if v2:
+            relevance = row.get("target_relevance") or {}
+            if relevance.get("confidence") not in {"high", "medium"} or row.get("target_face_verified") is not None:
+                errors.append(f"invalid target fields: {row.get('performance_shot_id')}")
         semantic = float(row.get("semantic", {}).get("semantic_score", -1))
         face = float(row.get("cv", {}).get("face_score", -1))
         context = float(row.get("context_confidence", -1))
@@ -77,7 +85,7 @@ def validate_run(run_dir: Path) -> ValidationReport:
     maximum_duration = float(manifest.get("fingerprint", {}).get("max_event_duration_sec", 30.0))
     event_ids: set[str] = set()
     event_rank_order = sorted(events, key=lambda row: (-float(row["event_score"]), float(row["time"]["start_sec"]), row["event_id"]))
-    if any(row.get("movie_rank") != rank for rank, row in enumerate(event_rank_order, 1)):
+    if any(row.get(rank_key) != rank for rank, row in enumerate(event_rank_order, 1)):
         errors.append("performance event ranks are invalid")
     for event in events:
         event_id = event.get("event_id")
@@ -90,7 +98,10 @@ def validate_run(run_dir: Path) -> ValidationReport:
             continue
         member_rows = [row for row in members if row is not None]
         member_indices = [int(row["source_index"]) for row in member_rows]
-        if any(right != left + 1 for left, right in pairwise(member_indices)):
+        context_between = set(event.get("context_between_shot_ids", []))
+        if any(value in {row["source_shot_id"] for row in member_rows} for value in context_between):
+            errors.append(f"event context is also member: {event_id}")
+        if not v2 and any(right != left + 1 for left, right in pairwise(member_indices)):
             errors.append(f"event members are not consecutive: {event_id}")
         scenes = {(row.get("scene") or {}).get("scene_id") for row in member_rows}
         if len(scenes) != 1:

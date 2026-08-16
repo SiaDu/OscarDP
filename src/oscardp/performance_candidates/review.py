@@ -31,6 +31,26 @@ def _deterministic_random(rows: list[dict[str, Any]], seed: str) -> list[dict[st
 
 
 def _shot_sample(shots: list[dict[str, Any]], audit: list[dict[str, Any]], count: int, movie_id: str) -> list[dict[str, Any]]:
+    if any("target_relevance" in row for row in shots + audit):
+        strata = [
+            ("high_selected", [row for row in shots if (row.get("target_relevance") or {}).get("confidence") == "high"]),
+            ("medium_selected", [row for row in shots if (row.get("target_relevance") or {}).get("confidence") == "medium"]),
+            ("target_none_random_excluded", [row for row in audit if (row.get("target_relevance") or {}).get("confidence") == "none"]),
+            ("semantic_high_target_none_excluded", sorted([row for row in audit if (row.get("target_relevance") or {}).get("confidence") == "none"], key=lambda row: (-float(row.get("semantic_score", 0)), int(row.get("source_index", 0))))),
+        ]
+        target: list[tuple[str, dict[str, Any]]] = []
+        for label, rows in strata:
+            rows = _deterministic_random(rows, movie_id + ":" + label) if label.endswith("random_excluded") else rows
+            _take_unique(target, label, rows, min(5, count), "source_shot_id")
+        result = []
+        selected_ids = {row["source_shot_id"] for row in shots}
+        for ordinal, (stratum, row) in enumerate(target[:count], 1):
+            result.append({"review_id": f"shot_review_{ordinal:04d}", "movie_id": movie_id, "stratum": stratum,
+                           "source_population": "selected" if row["source_shot_id"] in selected_ids else "excluded",
+                           "performance_shot_id": row.get("performance_shot_id"), "source_shot_id": row["source_shot_id"],
+                           "time": row.get("time"), "shot_score": row.get("shot_score"), "semantic": row.get("semantic"),
+                           "target_relevance": row.get("target_relevance"), "cv": row.get("cv"), "human_decision": None, "reviewer_notes": None})
+        return result
     target: list[tuple[str, dict[str, Any]]] = []
     quota = max(1, count // 5)
     selected_by_score = sorted(shots, key=lambda row: (-float(row["shot_score"]), int(row["source_index"])))
@@ -152,7 +172,7 @@ def prepare_review_sample(run_dir: Path, shot_count: int = 20, event_count: int 
         event["preview_path"] = preview.relative_to(run_dir).as_posix()
     write_jsonl(review_dir / "performance_events.review.jsonl", event_sample)
     summary = {
-        "movie_id": movie_id, "shot_sample_count": len(shot_sample), "event_sample_count": len(event_sample),
+        "movie_id": movie_id, "performance_key": manifest.get("performance_key"), "shot_sample_count": len(shot_sample), "event_sample_count": len(event_sample),
         "shot_labels": {"human_decision": ["keep", "reject", "borderline"]},
         "event_labels": {"boundary_decision": ["accept", "reject", "borderline"], "performance_decision": ["keep", "reject", "borderline"]},
     }
@@ -167,7 +187,7 @@ def evaluate_review(shot_sample: Path, event_sample: Path) -> dict[str, Any]:
     if invalid_shots or invalid_events:
         raise ValueError(f"Unlabelled or invalid review rows: shots={invalid_shots[:5]} events={invalid_events[:5]}")
     retained = [row for row in shots if row.get("source_population") == "selected" and row["human_decision"] != "borderline"]
-    rejected = [row for row in shots if row.get("source_population") == "rejected" and row["human_decision"] != "borderline"]
+    rejected = [row for row in shots if row.get("source_population") in {"rejected", "excluded"} and row["human_decision"] != "borderline"]
     boundary = [row for row in events if row["boundary_decision"] != "borderline"]
     retained_precision = sum(row["human_decision"] == "keep" for row in retained) / len(retained) if retained else None
     rejected_false_negative = sum(row["human_decision"] == "keep" for row in rejected) / len(rejected) if rejected else None

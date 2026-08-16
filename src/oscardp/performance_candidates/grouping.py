@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .schema import SCHEMA_VERSION
+from .targeting import Target
 
 
 def _scene_id(row: dict[str, Any]) -> str | None:
@@ -27,16 +28,25 @@ def _split_duration(group: list[dict[str, Any]], maximum: float) -> list[list[di
 
 def group_events(
     selected: list[dict[str, Any]], all_shots: list[dict[str, Any]], movie_id: str,
-    release_id: str, maximum_duration: float = 30.0,
+    release_id: str, maximum_duration: float = 30.0, target: Target | None = None,
+    blocked_source_indices: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     by_source_index = {int(row["source_index"]): row for row in selected}
+    blocked_source_indices = blocked_source_indices or set()
     groups: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
     for row in sorted(selected, key=lambda item: int(item["source_index"])):
-        if current and not (
-            int(row["source_index"]) == int(current[-1]["source_index"]) + 1
-            and _scene_id(row) == _scene_id(current[-1])
-        ):
+        bridge_ok = False
+        if current:
+            previous = current[-1]
+            gap = all_shots[int(previous["source_index"]) + 1:int(row["source_index"])]
+            bridge_ok = (
+                _scene_id(row) == _scene_id(previous) and len(gap) <= 1
+                and all(_scene_id(context) == _scene_id(row) and not context.get("scene_transition") for context in gap)
+                and not any(int(previous["source_index"]) < value < int(row["source_index"]) for value in blocked_source_indices)
+                and sum(float(context["time"]["duration_sec"]) for context in gap) <= 5.0
+            )
+        if current and not bridge_ok:
             groups.extend(_split_duration(current, maximum_duration))
             current = []
         current.append(row)
@@ -69,7 +79,8 @@ def group_events(
             "schema_version": SCHEMA_VERSION,
             "release_id": release_id,
             "movie_id": movie_id,
-            "event_id": f"perfevent_{movie_id}_{ordinal:06d}",
+            "event_id": f"perfevent_{movie_id}_{target.performer_id if target and target.performer_id else 'target'}_{ordinal:06d}",
+            "target": target.output() if target else None,
             "scene": first.get("scene"),
             "time": {
                 "start": first["time"]["start"], "end": last["time"]["end"],
@@ -83,10 +94,11 @@ def group_events(
             "event_score": round(event_score, 6),
             "semantic_consistency": round(consistency, 6),
             "context_before_shot_ids": before_ids,
+            "context_between_shot_ids": [all_shots[index]["shot_id"] for left, right in zip([int(row["source_index"]) for row in members], [int(row["source_index"]) for row in members][1:]) for index in range(left + 1, right)],
             "context_after_shot_ids": after_ids,
             "duration_limit_exception": "single_source_shot" if len(members) == 1 and duration > maximum_duration else None,
         })
     ranked = sorted(events, key=lambda row: (-float(row["event_score"]), float(row["time"]["start_sec"]), row["event_id"]))
     for rank, row in enumerate(ranked, 1):
-        row["movie_rank"] = rank
+        row["target_rank"] = rank
     return sorted(events, key=lambda row: float(row["time"]["start_sec"]))

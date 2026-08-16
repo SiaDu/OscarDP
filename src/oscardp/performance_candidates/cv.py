@@ -74,7 +74,7 @@ def extract_sparse_frames(video: Path, requests: list[FrameRequest]) -> None:
             label = f"out{index}"
             labels.append(label)
             filters.append(
-                f"[v{index}]select='gte(t,{relative:.6f})',scale='min(640,iw)':-2[{label}]"
+                f"[v{index}]select='gte(t,{relative:.6f})*isnan(prev_selected_t)',scale='min(640,iw)':-2[{label}]"
             )
         def command_for(
             decoder: str | None, *, request_seek: float = seek, request_filters: list[str] = filters,
