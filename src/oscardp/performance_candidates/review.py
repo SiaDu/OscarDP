@@ -111,15 +111,15 @@ def _first_frame(row: dict[str, Any]) -> str | None:
     return frames[0].get("path") if frames else None
 
 
-def _contact_sheet(rows: list[dict[str, Any]], paths: list[str | None], run_dir: Path, output: Path, title_key: str) -> None:
+def _contact_sheet(rows: list[dict[str, Any]], paths: list[Path | None], output: Path, title_key: str) -> None:
     width, cell_height = 320, 220
     columns = 4
     line_count = max(1, (len(rows) + columns - 1) // columns)
     sheet = Image.new("RGB", (columns * width, line_count * cell_height), "white")
-    for index, (row, relative) in enumerate(zip(rows, paths, strict=True)):
+    for index, (row, path) in enumerate(zip(rows, paths, strict=True)):
         x, y = (index % columns) * width, (index // columns) * cell_height
-        if relative and (run_dir / relative).is_file():
-            with Image.open(run_dir / relative) as image:
+        if path and path.is_file():
+            with Image.open(path) as image:
                 image = image.convert("RGB"); image.thumbnail((width, 180))
                 sheet.paste(image, (x + (width - image.width) // 2, y))
         draw = ImageDraw.Draw(sheet)
@@ -160,11 +160,24 @@ def prepare_review_sample(run_dir: Path, shot_count: int = 20, event_count: int 
     review_dir = run_dir / "review"
     write_jsonl(review_dir / "performance_shots.review.jsonl", shot_sample)
     write_jsonl(review_dir / "performance_events.review.jsonl", event_sample)
-    shot_paths = [_first_frame(row) for row in shot_sample]
+    source_shots = read_jsonl(Path(manifest["inputs"]["shots"]["path"]))
+    source_keyframes = {
+        row["shot_id"]: Path(manifest["inputs"]["shots"]["path"]).parent / row["keyframe_relpath"]
+        for row in source_shots if row.get("keyframe_relpath")
+    }
+    shot_paths: list[Path | None] = []
+    for row in shot_sample:
+        relative = _first_frame(row)
+        path = run_dir / relative if relative else source_keyframes.get(row["source_shot_id"])
+        if path is not None:
+            row["review_frame_path"] = path.as_posix()
+            row["review_frame_source"] = "cv_sample" if relative else "stage1_midpoint_keyframe"
+        shot_paths.append(path)
     shot_by_id = {row["performance_shot_id"]: row for row in shots}
-    event_paths = [_first_frame(shot_by_id[row["performance_shot_ids"][0]]) for row in event_sample]
-    _contact_sheet(shot_sample, shot_paths, run_dir, review_dir / "performance_shots.contact_sheet.jpg", "source_shot_id")
-    _contact_sheet(event_sample, event_paths, run_dir, review_dir / "performance_events.contact_sheet.jpg", "event_id")
+    event_paths = [run_dir / _first_frame(shot_by_id[row["performance_shot_ids"][0]]) for row in event_sample]
+    _contact_sheet(shot_sample, shot_paths, review_dir / "performance_shots.contact_sheet.jpg", "source_shot_id")
+    _contact_sheet(event_sample, event_paths, review_dir / "performance_events.contact_sheet.jpg", "event_id")
+    write_jsonl(review_dir / "performance_shots.review.jsonl", shot_sample)
     video = Path(manifest["inputs"]["video"]["path"])
     for event in event_sample:
         preview = review_dir / "previews" / f"{event['event_id']}.mp4"

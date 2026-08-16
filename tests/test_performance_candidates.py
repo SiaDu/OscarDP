@@ -50,7 +50,7 @@ def source_shot(index: int) -> dict:
         "movie_key": "tt12300742", "shot_id": row["shot_id"],
         "start_frame": row["frame_range"]["start_frame"], "end_frame": row["frame_range"]["end_frame"],
         "frame_count": 20, "start_sec": row["time"]["start_sec"], "end_sec": row["time"]["end_sec"],
-        "duration_sec": 2.0,
+        "duration_sec": 2.0, "keyframe_relpath": f"keyframes/shot_{index:06d}.jpg",
     }
 
 
@@ -79,6 +79,10 @@ def stage3_fixture(tmp_path: Path) -> tuple[MiningOptions, Path]:
         ]}],
     })
     write_jsonl(shots, [source_shot(index) for index in range(1, 5)])
+    for index in range(1, 5):
+        keyframe = source / "keyframes" / f"shot_{index:06d}.jpg"
+        keyframe.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (32, 24), "gray").save(keyframe)
     video.write_bytes(b"not decoded by the test extractor")
     face_model.write_bytes(b"test-yunet-model")
     write_jsonl(pending, [{"movie_id": "tt12300742", "subtitle_id": "pending_subtitle"}])
