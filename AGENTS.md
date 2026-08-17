@@ -9,7 +9,7 @@ Current task:
 1. Read movies from:
 
 ```text
-/mnt/i/datasets/oscar_movie
+/mnt/g/datasets/oscar_movie
 ```
 
 2. Use **TransNetV2** to detect shot boundaries.
@@ -78,13 +78,13 @@ v3 Batch input is local-only and never authorizes upload or submission.
 Default input:
 
 ```text
-/mnt/i/datasets/oscar_movie
+/mnt/g/datasets/oscar_movie
 ```
 
 Default output:
 
 ```text
-/mnt/i/datasets/oscar_movie_processed
+/mnt/g/datasets/oscar_movie_processed
 ```
 
 Use Linux paths only. Do not pass Windows paths such as `I:\datasets\oscar_movie` to WSL tools.
@@ -398,13 +398,13 @@ Use valid JSON. Do not output `NaN`, `Infinity`, NumPy scalar types, or Windows 
 Provide commands similar to:
 
 ```bash
-python -m oscardp.shots discover   --input-root /mnt/i/datasets/oscar_movie
+python -m oscardp.shots discover   --input-root /mnt/g/datasets/oscar_movie
 
-python -m oscardp.shots process-one   --video "/mnt/i/datasets/oscar_movie/<movie>"
+python -m oscardp.shots process-one   --video "/mnt/g/datasets/oscar_movie/<movie>"
 
-python -m oscardp.shots process   --input-root /mnt/i/datasets/oscar_movie   --output-root /mnt/i/datasets/oscar_movie_processed
+python -m oscardp.shots process   --input-root /mnt/g/datasets/oscar_movie   --output-root /mnt/g/datasets/oscar_movie_processed
 
-python -m oscardp.shots validate   --output-root /mnt/i/datasets/oscar_movie_processed
+python -m oscardp.shots validate   --output-root /mnt/g/datasets/oscar_movie_processed
 ```
 
 Useful flags:

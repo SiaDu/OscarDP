@@ -4,8 +4,8 @@ set -uo pipefail
 cd /home/sia/OscarDP || exit 1
 
 PY="/home/sia/OscarDP/.venv/bin/python"
-INPUT="/mnt/i/datasets/oscar_movie"
-OUTPUT="/mnt/i/datasets/oscar_movie_processed"
+INPUT="/mnt/g/datasets/oscar_movie"
+OUTPUT="/mnt/g/datasets/oscar_movie_processed"
 WEIGHTS="/home/sia/OscarDP/models/transnetv2/transnetv2-pytorch-weights.pth"
 EXPECTED_SHA="53f3e734bc191ae1c58ef61121711518c40767013ea32644fa5f1db9dcbb5ae8"
 MIN_FREE_BYTES=21474836480
@@ -38,12 +38,12 @@ print("Test tensor:", tensor.device)
 PY
 
 declare -A VIDEOS=(
-    [tt1312221]='/mnt/i/datasets/oscar_movie/tt1312221_Frankenstein/Frankenstein.2025.1080p.NF.WEB-DL.H.264.DDP5.1.Atmos.mkv'
-    [tt27714581]='/mnt/i/datasets/oscar_movie/tt27714581_SentimentalValue/Sentimental.Value.2025.MULTi.1080p.WEB-DL.H264.DDP5.1.Atmos-HamiltonShare.mkv'
-    [tt14905854]='/mnt/i/datasets/oscar_movie/tt14905854_Hamnet/Hamnet.哈姆奈特.2025.1080p.中英字幕.mp4.mp4'
-    [tt18382850]='/mnt/i/datasets/oscar_movie/tt18382850_IfIHadLegsIdKickYou/如果有腿，我会踢你.2025.BD1080P.mp4'
-    [tt30343021]='/mnt/i/datasets/oscar_movie/tt30343021_SongSungBlue/Song.Sung.Blue.2025.HDR.2160p.WEB-DL.H.265.Atmos-HamiltonShare.mkv'
-    [tt12300742]='/mnt/i/datasets/oscar_movie/tt12300742_Bugonia/【4KUHD】拯救地球.中英双字.Bugonia.2025.BluRay.2160p.TrueHD7.1.HDR.x265.10bit.mkv'
+    [tt1312221]='/mnt/g/datasets/oscar_movie/tt1312221_Frankenstein/Frankenstein.2025.1080p.NF.WEB-DL.H.264.DDP5.1.Atmos.mkv'
+    [tt27714581]='/mnt/g/datasets/oscar_movie/tt27714581_SentimentalValue/Sentimental.Value.2025.MULTi.1080p.WEB-DL.H264.DDP5.1.Atmos-HamiltonShare.mkv'
+    [tt14905854]='/mnt/g/datasets/oscar_movie/tt14905854_Hamnet/Hamnet.哈姆奈特.2025.1080p.中英字幕.mp4.mp4'
+    [tt18382850]='/mnt/g/datasets/oscar_movie/tt18382850_IfIHadLegsIdKickYou/如果有腿，我会踢你.2025.BD1080P.mp4'
+    [tt30343021]='/mnt/g/datasets/oscar_movie/tt30343021_SongSungBlue/Song.Sung.Blue.2025.HDR.2160p.WEB-DL.H.265.Atmos-HamiltonShare.mkv'
+    [tt12300742]='/mnt/g/datasets/oscar_movie/tt12300742_Bugonia/【4KUHD】拯救地球.中英双字.Bugonia.2025.BluRay.2160p.TrueHD7.1.HDR.x265.10bit.mkv'
 )
 
 ORDER=(

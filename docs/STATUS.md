@@ -10,14 +10,14 @@ targets have passed final QC and have versioned reviewed alignment and shot
 context. `tt30144839` (One Battle After Another) remains
 `BLOCKED_WITH_EXPLICIT_REASON` because its screenplay is unavailable.
 
-`/mnt/i/datasets/oscar_script/tt30343021_SongSungBlue.pdf` is not a substitute:
+`/mnt/g/datasets/oscar_script/tt30343021_SongSungBlue.pdf` is not a substitute:
 its title page identifies it as *Song Sung Blue*, and it is already the source
 for completed movie `tt30343021`.
 
 The dataset-level frozen release is generated under:
 
 ```text
-/mnt/i/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven
+/mnt/g/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven
 ```
 
 Expected terminal summary:
@@ -52,7 +52,7 @@ the CUDA qualification work.
 
 ## Smoke-test input
 
-- Source: `/mnt/i/datasets/oscar_movie/tt32536315_BlueMoon/Blue.Moon.2025.2160p.WEB-DL.SDR.H.265..DDP5.1.Atmos-HamiltonShare.mkv`
+- Source: `/mnt/g/datasets/oscar_movie/tt32536315_BlueMoon/Blue.Moon.2025.2160p.WEB-DL.SDR.H.265..DDP5.1.Atmos-HamiltonShare.mkv`
 - Source interval: `00:10:00.000` to approximately `00:10:30.000`
 - Local sample: `data/smoke_test/input/sample_30s.mp4` (Git-ignored)
 - Sample properties: H.264, 1280×534, 24000/1001 fps, 720 frames, 30.030 s

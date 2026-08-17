@@ -18,9 +18,9 @@ Current expected baseline commit:
 
 Dataset roots:
 
-MOVIE_ROOT=/mnt/i/datasets/oscar_movie
-SCRIPT_ROOT=/mnt/i/datasets/oscar_script
-PROCESSED_ROOT=/mnt/i/datasets/oscar_movie_processed
+MOVIE_ROOT=/mnt/g/datasets/oscar_movie
+SCRIPT_ROOT=/mnt/g/datasets/oscar_script
+PROCESSED_ROOT=/mnt/g/datasets/oscar_movie_processed
 
 Movies still to process:
 
@@ -148,7 +148,7 @@ For each movie identify:
 
 Build:
 
-/mnt/i/datasets/oscar_movie_processed/stage2_goal_inventory.json
+/mnt/g/datasets/oscar_movie_processed/stage2_goal_inventory.json
 
 Do not regenerate artifacts merely because they already exist.
 
@@ -991,7 +991,7 @@ MOVIE STATUS FILE
 
 Maintain:
 
-/mnt/i/datasets/oscar_movie_processed/stage2_goal_status.json
+/mnt/g/datasets/oscar_movie_processed/stage2_goal_status.json
 
 For every movie store:
 
@@ -1026,7 +1026,7 @@ GLOBAL EXPERIMENT LOG
 
 Maintain:
 
-/mnt/i/datasets/oscar_movie_processed/stage2_reviewer_experiments.jsonl
+/mnt/g/datasets/oscar_movie_processed/stage2_reviewer_experiments.jsonl
 
 One row for every reviewer experiment:
 

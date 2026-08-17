@@ -10,8 +10,8 @@ from .pipeline import ProcessOptions, process_one
 from .schema import json_dumps
 from .validation import validate_output_root
 
-DEFAULT_INPUT_ROOT = Path("/mnt/i/datasets/oscar_movie")
-DEFAULT_OUTPUT_ROOT = Path("/mnt/i/datasets/oscar_movie_processed")
+DEFAULT_INPUT_ROOT = Path("/mnt/g/datasets/oscar_movie")
+DEFAULT_OUTPUT_ROOT = Path("/mnt/g/datasets/oscar_movie_processed")
 
 
 def _add_input_root(parser: argparse.ArgumentParser) -> None:
