@@ -7,10 +7,17 @@ from pathlib import Path
 from typing import Any
 
 from .cv import (
+    FACE_POSITIVE_SAMPLE_MIN,
+    MIN_FACE_AREA_RATIO,
+    STATIC_DEPICTION_RULESET_VERSION,
+    STATIC_PIXEL_MAD_THRESHOLD,
+    USABLE_SAMPLE_MIN,
+    VISUAL_ELIGIBILITY_RULESET_VERSION,
     YuNetDetector,
     analyze_shot_frames,
     extract_sparse_frames,
     sample_requests,
+    visual_eligibility,
 )
 from .grouping import group_events
 from .io import read_json, read_jsonl, sha256_file, write_json, write_jsonl
@@ -21,6 +28,7 @@ from .targeting import (
     Target,
     mine_target_relevance,
     resolve_target,
+    target_context_risk,
 )
 
 DetectorFactory = Callable[[Path], YuNetDetector]
@@ -135,6 +143,12 @@ def _fingerprint(options: MiningOptions, release: dict[str, Any], inputs: dict[s
         "max_event_duration_sec": options.max_event_duration_sec,
         "cv": {"detector": "OpenCV FaceDetectorYN YuNet", "sample_fractions": [0.2, 0.5, 0.8], "maximum_input_edge": 640},
         "target_ruleset_version": TARGET_RULESET_VERSION,
+        "visual_eligibility_ruleset_version": VISUAL_ELIGIBILITY_RULESET_VERSION,
+        "static_depiction_ruleset_version": STATIC_DEPICTION_RULESET_VERSION,
+        "visual_thresholds": {
+            "usable_sample_min": USABLE_SAMPLE_MIN, "face_positive_sample_min": FACE_POSITIVE_SAMPLE_MIN,
+            "min_face_area_ratio": MIN_FACE_AREA_RATIO, "static_pixel_mad_threshold": STATIC_PIXEL_MAD_THRESHOLD,
+        },
     }
 
 
@@ -156,20 +170,19 @@ def _shot_output(
     semantic: dict[str, Any], frames: list[dict[str, Any]], face_score: float,
     aggregate: dict[str, Any], movie_id: str, release_id: str, model_sha: str,
     provenance: dict[str, str], target: Target, target_relevance: dict[str, Any],
-) -> tuple[dict[str, Any], str | None]:
+    target_risk: dict[str, Any], static_risk: dict[str, Any], eligibility: dict[str, Any], rejection: str | None,
+) -> dict[str, Any]:
     shot = semantic["shot"]
     semantic_score = float(semantic["semantic_score"])
     context_confidence = float(semantic["context_confidence"])
     shot_score = 0.65 * semantic_score + 0.25 * face_score + 0.10 * context_confidence
-    visible = int(aggregate["face_visible_frame_count"]) > 0
-    basis = "semantic_and_cv" if visible else ("semantic_override" if semantic_score >= 0.75 else None)
-    rejection = None if basis else "no_face_evidence_and_below_semantic_override_threshold"
     row = {
         "schema_version": SCHEMA_VERSION,
         "release_id": release_id,
         "movie_id": movie_id,
         "target": target.output(), "target_relevance": target_relevance,
-        "target_context_candidate": True, "target_face_verified": None,
+        "target_context_candidate": True, "target_face_verified": None, "visual_face_eligible": eligibility["passed"],
+        "visual_eligibility": eligibility, "target_context_risk": target_risk, "static_depiction_risk": static_risk,
         "source_shot_id": shot["shot_id"],
         "source_index": semantic["source_index"],
         "frame_range": shot["frame_range"],
@@ -190,10 +203,10 @@ def _shot_output(
         },
         "context_confidence": semantic["context_confidence"],
         "shot_score": round(min(1.0, shot_score), 6),
-        "selection_basis": basis,
+        "selection_basis": "semantic_and_cv" if rejection is None else None,
         "provenance": provenance,
     }
-    return row, rejection
+    return row
 
 
 def mine(
@@ -242,6 +255,7 @@ def mine(
     relevance = mine_target_relevance(context_rows, screenplay, target)
     for semantic, item in zip(semantics, relevance, strict=True):
         semantic["target_relevance"] = item
+        semantic["target_context_risk"] = target_context_risk(semantic["shot"], item, target)
     seeds = [row for row in semantics if row["semantic_score"] >= options.semantic_threshold and row["excluded_reason"] is None]
     cv_seeds = [row for row in seeds if row["target_relevance"]["confidence"] in {"high", "medium"}]
 
@@ -275,29 +289,33 @@ def mine(
             if semantic["semantic_score"] < options.semantic_threshold:
                 continue
             target_relevance = semantic["target_relevance"]
+            target_risk = semantic["target_context_risk"]
             if target_relevance["confidence"] == "none":
                 audit.append({"movie_id": options.movie_key, "source_shot_id": shot_id, "source_index": semantic["source_index"],
                               "semantic_score": semantic["semantic_score"], "status": "excluded", "reason": "target_character_not_supported",
-                              "target_relevance": target_relevance, "semantic": {"ruleset_version": semantic["ruleset_version"], "semantic_score": semantic["semantic_score"], "categories": semantic["categories"], "evidence": semantic["evidence"]}, "scene": semantic["shot"].get("scene"), "time": semantic["shot"]["time"]})
+                              "target_relevance": target_relevance, "target_context_risk": target_risk, "semantic": {"ruleset_version": semantic["ruleset_version"], "semantic_score": semantic["semantic_score"], "categories": semantic["categories"], "evidence": semantic["evidence"]}, "scene": semantic["shot"].get("scene"), "time": semantic["shot"]["time"]})
                 continue
             requests = request_by_shot[shot_id]
-            frames, face_score, aggregate = analyze_shot_frames(detector, requests, temporary)
-            row, rejection = _shot_output(
+            frames, face_score, aggregate, static_risk = analyze_shot_frames(detector, requests, temporary)
+            eligibility, rejection = visual_eligibility(aggregate)
+            row = _shot_output(
                 semantic, frames, face_score, aggregate, options.movie_key, release_id, inputs["face_model"]["sha256"],
-                row_provenance, target, target_relevance,
+                row_provenance, target, target_relevance, target_risk, static_risk, eligibility, rejection,
             )
             if rejection is None:
                 selected.append(row)
                 status = "selected"
             else:
-                status = "rejected"
+                status = "excluded"
             audit.append({
                 "movie_id": options.movie_key, "source_shot_id": shot_id,
                 "source_index": semantic["source_index"], "semantic_score": semantic["semantic_score"],
                 "face_score": face_score, "shot_score": row["shot_score"], "status": status,
                 "reason": rejection, "selection_basis": row["selection_basis"],
                 "semantic": row["semantic"], "cv": row["cv"], "scene": row["scene"], "time": row["time"],
-                "target_relevance": target_relevance,
+                "target_relevance": target_relevance, "target_context_risk": target_risk,
+                "static_depiction_risk": static_risk, "visual_eligibility": eligibility,
+                "semantic_only_context_candidate": bool(rejection and semantic["semantic_score"] >= options.semantic_override_threshold),
             })
 
         selected.sort(key=lambda row: int(row["source_index"]))
@@ -321,10 +339,17 @@ def mine(
             "target_none_count": sum(item["target_relevance"]["confidence"] == "none" for item in seeds),
             "target_filter_excluded_count": sum(item["target_relevance"]["confidence"] == "none" for item in seeds),
             "cv_seed_count": len(cv_seeds), "frames_requested": len(all_requests),
+            "insufficient_usable_visual_samples_count": sum(row["reason"] == "insufficient_usable_visual_samples" for row in audit),
+            "insufficient_persistent_face_visibility_count": sum(row["reason"] == "insufficient_persistent_face_visibility" for row in audit),
+            "insufficient_face_size_count": sum(row["reason"] == "insufficient_face_size" for row in audit),
+            "weak_context_conflict_flag_count": sum(item["target_context_risk"]["weak_context_conflict"] for item in seeds),
+            "static_depiction_risk_flag_count": sum(bool((row.get("static_depiction_risk") or {}).get("flagged")) for row in audit),
+            "semantic_only_context_candidate_count": sum(bool(row.get("semantic_only_context_candidate")) for row in audit),
+            "visual_face_eligible_count": len(selected),
             "excluded_pending_ambiguity_shot_count": len(excluded_shots),
             "performance_shot_count": len(selected), "performance_event_count": len(events),
-            "semantic_override_count": sum(row["selection_basis"] == "semantic_override" for row in selected),
-            "rejected_seed_count": sum(row["status"] == "rejected" for row in audit),
+            "semantic_override_count": 0,
+            "rejected_seed_count": sum(row["status"] == "excluded" and row.get("reason") not in {"target_character_not_supported"} for row in audit),
         }
         write_json(temporary / "qc_summary.json", qc)
         outputs = {

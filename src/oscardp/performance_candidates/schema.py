@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SCHEMA_VERSION = "1.0"
-PIPELINE_VERSION = "performance_candidates_v2"
+PIPELINE_VERSION = "performance_candidates_v2_1"
 RULESET_VERSION = "performance_semantic_rules_v1"
 
 

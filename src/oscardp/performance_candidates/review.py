@@ -31,6 +31,40 @@ def _deterministic_random(rows: list[dict[str, Any]], seed: str) -> list[dict[st
 
 
 def _shot_sample(shots: list[dict[str, Any]], audit: list[dict[str, Any]], count: int, movie_id: str) -> list[dict[str, Any]]:
+    if any("visual_eligibility" in row for row in shots + audit):
+        def diverse(rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+            chosen, scenes = [], set()
+            for row in sorted(rows, key=lambda value: (float((value.get("time") or {}).get("start_sec", 0)), int(value.get("source_index", 0)))):
+                scene = ((row.get("scene") or {}).get("scene_id"), row.get("source_shot_id"))
+                if scene[0] not in scenes:
+                    chosen.append(row); scenes.add(scene[0])
+                if len(chosen) == limit:
+                    return chosen
+            for row in rows:
+                if row not in chosen:
+                    chosen.append(row)
+                if len(chosen) == limit:
+                    break
+            return chosen
+        visual_reasons = {"insufficient_usable_visual_samples", "insufficient_persistent_face_visibility", "insufficient_face_size"}
+        high = diverse([row for row in shots if (row.get("target_relevance") or {}).get("confidence") == "high"], 5)
+        medium = diverse([row for row in shots if (row.get("target_relevance") or {}).get("confidence") == "medium"], 5)
+        visual = [row for row in audit if row.get("reason") in visual_reasons]
+        none = [row for row in audit if (row.get("target_relevance") or {}).get("confidence") == "none"]
+        none_random = _deterministic_random(none, movie_id + ":v21:none")[:3]
+        none_high = sorted(none, key=lambda row: (-float(row.get("semantic_score", 0)), int(row.get("source_index", 0))))
+        target: list[tuple[str, dict[str, Any]]] = []
+        for label, rows in (("high_selected", high), ("medium_selected", medium), ("visual_excluded", diverse(visual, 5)), ("target_none_excluded", none_random + none_high)):
+            _take_unique(target, label, rows, min(5, count), "source_shot_id")
+        selected_ids = {row["source_shot_id"] for row in shots}
+        return [{"review_id": f"shot_review_{ordinal:04d}", "movie_id": movie_id, "stratum": stratum,
+                 "source_population": "selected" if row["source_shot_id"] in selected_ids else "excluded",
+                 "performance_shot_id": row.get("performance_shot_id"), "source_shot_id": row["source_shot_id"],
+                 "time": row.get("time"), "shot_score": row.get("shot_score"), "semantic": row.get("semantic"),
+                 "target_relevance": row.get("target_relevance"), "target_context_risk": row.get("target_context_risk"),
+                 "static_depiction_risk": row.get("static_depiction_risk"), "visual_eligibility": row.get("visual_eligibility"),
+                 "cv": row.get("cv"), "human_decision": None, "reviewer_notes": None}
+                for ordinal, (stratum, row) in enumerate(target[:count], 1)]
     if any("target_relevance" in row for row in shots + audit):
         strata = [
             ("high_selected", [row for row in shots if (row.get("target_relevance") or {}).get("confidence") == "high"]),

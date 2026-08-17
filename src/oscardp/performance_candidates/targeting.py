@@ -144,3 +144,31 @@ def mine_target_relevance(rows: list[dict[str, Any]], screenplay: dict[str, Any]
         if confidence == "none": relevance["interpretation"] = "no_textual_support"
         result.append(relevance)
     return result
+
+
+def target_context_risk(row: dict[str, Any], relevance: dict[str, Any], target: Target) -> dict[str, Any]:
+    """Flag weak textual target context without inferring visual subject identity."""
+    evidence = relevance.get("evidence") or []
+    weak_rules = {
+        "target_action_before_mention_v1", "target_action_after_mention_v1", "target_adjacent_dialogue_v1",
+    }
+    direct_rules = {
+        "target_current_dialogue_speaker_v1", "target_script_match_speaker_v1",
+        "target_parenthetical_v1", "target_action_during_mention_v1", "target_current_interaction_v1",
+    }
+    aliases = [_normal(name) for name in target.character_names]
+    speakers = [str(value) for value in row.get("dialogue_speakers", []) if value]
+    match_speakers = [str(value) for value in row.get("script_matches", []) if value.get("speaker")]
+    current_focus = speakers or match_speakers
+    only_weak = bool(evidence) and all(item.get("rule_id") in weak_rules for item in evidence)
+    non_target_focus = bool(current_focus) and all(not _target_speaker(value, aliases) for value in current_focus)
+    flagged = relevance.get("confidence") == "medium" and only_weak and non_target_focus and not any(
+        item.get("rule_id") in direct_rules for item in evidence
+    )
+    risk_evidence = []
+    if flagged:
+        risk_evidence = [
+            {"source_type": "target_relevance", "rule_ids": [item["rule_id"] for item in evidence], "relation": "weak_target_context"},
+            {"source_type": "current_dialogue_focus", "source_id": row["shot_id"], "text": " | ".join(current_focus), "relation": "non_target_current_focus"},
+        ]
+    return {"weak_context_conflict": flagged, "evidence": risk_evidence}

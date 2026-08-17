@@ -535,7 +535,9 @@ any promotion.
 Stage 3 consumes only a frozen Stage 2 release and runs per nominated performer.
 It deterministically filters semantic seeds using the nominated character before
 sampling frames, then uses YuNet for face-presence screening and groups selected
-target-context shots into events. `target_relevance: none` means only
+target-context shots into events. v2.1 requires persistent, sufficiently large
+generic face evidence before a formal performance shot is emitted; static/low-motion
+depiction and weak-context signals remain diagnostics, not identity claims. `target_relevance: none` means only
 `no_textual_support`, never that the performer is absent from the image. It does not run OpenAI,
 OpenFace, identity recognition, emotion classification, AU extraction, gaze, or
 face tracking. Install the optional CV dependency with `pip install -e

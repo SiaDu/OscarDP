@@ -37,7 +37,8 @@ def validate_run(run_dir: Path) -> ValidationReport:
         audit = read_jsonl(run_dir / "screening_audit.jsonl")
     except (OSError, ValueError) as exc:
         return ValidationReport(False, [str(exc)], 0, 0, 0)
-    v2 = manifest.get("pipeline_version") == "performance_candidates_v2"
+    v2 = manifest.get("pipeline_version") in {"performance_candidates_v2", "performance_candidates_v2_1"}
+    v21 = manifest.get("pipeline_version") == "performance_candidates_v2_1"
     if v2 and not (run_dir / "target_metadata.json").is_file():
         errors.append("missing output: target_metadata.json")
     for name, artifact in manifest.get("outputs", {}).items():
@@ -62,13 +63,16 @@ def validate_run(run_dir: Path) -> ValidationReport:
             relevance = row.get("target_relevance") or {}
             if relevance.get("confidence") not in {"high", "medium"} or row.get("target_face_verified") is not None:
                 errors.append(f"invalid target fields: {row.get('performance_shot_id')}")
+            if v21 and (not row.get("visual_face_eligible") or not (row.get("visual_eligibility") or {}).get("passed")):
+                errors.append(f"invalid visual eligibility: {row.get('performance_shot_id')}")
         semantic = float(row.get("semantic", {}).get("semantic_score", -1))
         face = float(row.get("cv", {}).get("face_score", -1))
         context = float(row.get("context_confidence", -1))
         expected = round(min(1.0, 0.65 * semantic + 0.25 * face + 0.10 * context), 6)
         if not math.isclose(float(row.get("shot_score", -1)), expected, abs_tol=1e-6):
             errors.append(f"shot score is not reproducible: {row.get('performance_shot_id')}")
-        if row.get("selection_basis") not in {"semantic_and_cv", "semantic_override"}:
+        allowed_basis = {"semantic_and_cv"} if v21 else {"semantic_and_cv", "semantic_override"}
+        if row.get("selection_basis") not in allowed_basis:
             errors.append(f"invalid selection basis: {row.get('performance_shot_id')}")
         start, end = float(row["time"]["start_sec"]), float(row["time"]["end_sec"])
         if not start < end:

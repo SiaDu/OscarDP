@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from PIL import Image
 
 from oscardp.shots.media import ExternalToolError, require_media_tools
+
+VISUAL_ELIGIBILITY_RULESET_VERSION = "performance_visual_eligibility_rules_v2_1"
+STATIC_DEPICTION_RULESET_VERSION = "performance_static_depiction_risk_v1"
+USABLE_SAMPLE_MIN = 2
+FACE_POSITIVE_SAMPLE_MIN = 2
+MIN_FACE_AREA_RATIO = 0.005
+STATIC_PIXEL_MAD_THRESHOLD = 1.5
 
 
 @dataclass(frozen=True)
@@ -168,4 +177,49 @@ def analyze_shot_frames(
         "face_visible_frame_ratio": round(visible_ratio, 6),
         "max_face_area_ratio": round(maximum_area, 6), "stability": round(stability, 6),
     }
-    return frames, round(min(1.0, face_score), 6), aggregate
+    usable_indices = [index for index, row in enumerate(frames) if row["quality"]["usable"]]
+    usable_face_counts = [int(frames[index]["face_count"]) for index in usable_indices]
+    mads: list[float | None] = []
+    for left, right in pairwise(usable_indices):
+        with Image.open(requests[left].output_path) as first, Image.open(requests[right].output_path) as second:
+            first_array = np.asarray(first.convert("RGB").resize((320, 180)), dtype=np.float32)
+            second_array = np.asarray(second.convert("RGB").resize((320, 180)), dtype=np.float32)
+        mads.append(round(float(np.mean(np.abs(first_array - second_array))), 6))
+    face_count_stable = len(usable_face_counts) >= 2 and len(set(usable_face_counts)) == 1
+    static_risk = {
+        "flagged": bool(face_count_stable and min(usable_face_counts, default=0) >= 1 and any(value <= STATIC_PIXEL_MAD_THRESHOLD for value in mads if value is not None)),
+        "rule_version": STATIC_DEPICTION_RULESET_VERSION,
+        "interpretation": "probable_static_or_low_motion_depiction",
+        "metrics": {
+            "face_count_stable": face_count_stable,
+            "min_face_count": min(usable_face_counts, default=0),
+            "frame_mad_01": mads[0] if len(mads) > 0 else None,
+            "frame_mad_12": mads[1] if len(mads) > 1 else None,
+            "pixel_mad_threshold": STATIC_PIXEL_MAD_THRESHOLD,
+        },
+    }
+    return frames, round(min(1.0, face_score), 6), aggregate, static_risk
+
+
+def visual_eligibility(aggregate: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    usable = int(aggregate["usable_frame_count"])
+    positive = int(aggregate["face_visible_frame_count"])
+    maximum_area = float(aggregate["max_face_area_ratio"])
+    reason = None
+    if usable < USABLE_SAMPLE_MIN:
+        reason = "insufficient_usable_visual_samples"
+    elif positive < FACE_POSITIVE_SAMPLE_MIN:
+        reason = "insufficient_persistent_face_visibility"
+    elif maximum_area < MIN_FACE_AREA_RATIO:
+        reason = "insufficient_face_size"
+    return {
+        "rule_version": VISUAL_ELIGIBILITY_RULESET_VERSION,
+        "scheduled_sample_count": 3,
+        "usable_sample_count": usable,
+        "face_positive_usable_sample_count": positive,
+        "max_face_area_ratio": round(maximum_area, 6),
+        "usable_sample_min": USABLE_SAMPLE_MIN,
+        "face_positive_sample_min": FACE_POSITIVE_SAMPLE_MIN,
+        "min_face_area_ratio": MIN_FACE_AREA_RATIO,
+        "passed": reason is None,
+    }, reason

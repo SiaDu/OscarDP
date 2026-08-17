@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from oscardp.performance_candidates.__main__ import build_parser
+from oscardp.performance_candidates.cv import visual_eligibility
 from oscardp.performance_candidates.grouping import group_events
 from oscardp.performance_candidates.io import sha256_file
 from oscardp.performance_candidates.pipeline import MiningOptions, mine
@@ -104,7 +105,7 @@ def stage3_fixture(tmp_path: Path) -> tuple[MiningOptions, Path]:
         "pending_human_ambiguities": artifact(pending),
     })
     options = MiningOptions(release_manifest=release, output_root=tmp_path / "output", face_model=face_model, nominees_file=nominees)
-    return options, options.output_root / "test_release" / "performance_candidates_v2" / "tt12300742" / "nm1297015_emma_stone"
+    return options, options.output_root / "test_release" / "performance_candidates_v2_1" / "tt12300742" / "nm1297015_emma_stone"
 
 
 class DummyDetector:
@@ -140,14 +141,14 @@ def test_semantic_mining_preserves_source_text_and_exclusions(tmp_path: Path) ->
 def test_mine_writes_atomic_shots_then_groups_events(tmp_path: Path) -> None:
     options, run_dir = stage3_fixture(tmp_path)
     result = mine(options, detector_factory=DummyDetector, extractor=fake_extract)
-    assert result["performance_shot_count"] == 2
+    assert result["performance_shot_count"] == 1
     shots = [json.loads(line) for line in (run_dir / "performance_shots.jsonl").read_text().splitlines()]
     events = [json.loads(line) for line in (run_dir / "performance_events.jsonl").read_text().splitlines()]
     audit = [json.loads(line) for line in (run_dir / "screening_audit.jsonl").read_text().splitlines()]
-    assert [row["source_shot_id"] for row in shots] == ["shot_000001", "shot_000002"]
+    assert [row["source_shot_id"] for row in shots] == ["shot_000001"]
     assert shots[0]["selection_basis"] == "semantic_and_cv"
-    assert shots[1]["selection_basis"] == "semantic_override"
     assert len(events) == 1 and events[0]["performance_shot_ids"] == [row["performance_shot_id"] for row in shots]
+    assert next(row for row in audit if row["source_shot_id"] == "shot_000002")["semantic_only_context_candidate"]
     assert next(row for row in audit if row["source_shot_id"] == "shot_000003")["status"] == "excluded"
     assert next(row for row in audit if row["source_shot_id"] == "shot_000004")["reason"] == "pending_stage2_ambiguity"
     assert "person" not in (run_dir / "performance_shots.jsonl").read_text().lower()
@@ -254,3 +255,18 @@ def test_targeting_high_medium_none_and_metadata_resolution(tmp_path: Path) -> N
     assert relevance[0]["confidence"] == "high"
     assert relevance[1]["confidence"] == "medium"
     assert relevance[2] == {"performer_name": "Emma Stone", "character_names": ["Michelle"], "confidence": "none", "interpretation": "no_textual_support", "score": 0.0, "evidence": []}
+
+
+@pytest.mark.parametrize(
+    ("aggregate", "reason"),
+    [
+        ({"usable_frame_count": 3, "face_visible_frame_count": 3, "max_face_area_ratio": .02}, None),
+        ({"usable_frame_count": 1, "face_visible_frame_count": 1, "max_face_area_ratio": .02}, "insufficient_usable_visual_samples"),
+        ({"usable_frame_count": 3, "face_visible_frame_count": 1, "max_face_area_ratio": .02}, "insufficient_persistent_face_visibility"),
+        ({"usable_frame_count": 3, "face_visible_frame_count": 3, "max_face_area_ratio": .004}, "insufficient_face_size"),
+    ],
+)
+def test_visual_eligibility_hard_gates(aggregate: dict, reason: str | None) -> None:
+    eligibility, actual = visual_eligibility(aggregate)
+    assert actual == reason
+    assert eligibility["passed"] is (reason is None)

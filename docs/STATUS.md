@@ -37,7 +37,7 @@ movie from resolved-quality claims.
 Stage 3 target-performer performance candidate mining is implemented as the separate
 `oscardp.performance_candidates` package. It performs deterministic shot-level
 semantic mining, target-character text pre-filtering before three-frame YuNet
-face-presence screening, shot selection, and post-selection event grouping. Its primary outputs are
+face-presence screening, visual-eligibility shot selection, and post-selection event grouping. Its primary outputs are
 `performance_shots.jsonl` and `performance_events.jsonl`; it does not include a
 person detector, OpenFace, identity, emotion, AU, gaze, or tracking inference.
 The implementation and synthetic integration tests are complete, but the real
