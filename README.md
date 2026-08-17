@@ -565,6 +565,39 @@ never edits either source movies or Stage 1/2 artifacts. The initial production
 scope is the `tt12300742` Bugonia pilot; do not expand to all frozen movies until
 its stratified human review passes.
 
+### Stage 3 v2.2 target-face verification
+
+v2.2 is a separate, read-only consumer of a frozen v2.1 run. It compares every
+YuNet-detected face in the saved sparse frames only against a manually selected
+same-film gallery for the nominated performer. It uses InsightFace `buffalo_l`
+and cosine similarity; it does not assign the rest of the cast, infer emotion,
+AU, gaze, or live-scene status. First prepare and manually label the gallery;
+do not run verification until that review is complete:
+
+```bash
+python -m oscardp.performance_candidates prepare-target-gallery \
+  --run-dir /path/to/performance_candidates_v2_1/<movie>/<performer> \
+  --output-dir /path/to/target_face_gallery \
+  --face-model /path/to/face_detection_yunet.onnx \
+  --candidate-count 20
+
+# In gallery_candidates.labeled.jsonl, choose 8-15 "target" and optionally
+# 5-10 definitely "non_target" crops; use "skip" for unusable crops.
+python -m oscardp.performance_candidates calibrate-target-face \
+  --gallery-dir /path/to/target_face_gallery \
+  --model-root /path/to/insightface_models
+
+python -m oscardp.performance_candidates verify-target-face \
+  --v2-1-run /path/to/performance_candidates_v2_1/<movie>/<performer> \
+  --gallery-dir /path/to/target_face_gallery \
+  --model-root /path/to/insightface_models \
+  --face-model /path/to/face_detection_yunet.onnx
+```
+
+Only `verified` shots enter v2.2 `performance_shots.jsonl`; `uncertain` and
+`not_verified` remain in the verification audit. Neither state means that the
+performer is absent, and `static_depiction_risk` remains independent.
+
 ### Stage 2.5 constrained pilot responses
 
 Batch preparation now embeds a request-specific strict schema in every line.

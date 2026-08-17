@@ -123,17 +123,22 @@ class YuNetDetector:
             str(self.model_path), "", (320, 320), self.score_threshold, 0.3, 5000,
         )
 
-    def analyze(self, image_path: Path) -> dict[str, Any]:
+    def detect_faces(self, image_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         image = self.cv2.imread(str(image_path))
         if image is None:
             raise RuntimeError(f"Could not read sampled frame: {image_path}")
         height, width = image.shape[:2]
         self.detector.setInputSize((width, height))
         _status, faces = self.detector.detect(image)
-        face_count = 0 if faces is None else len(faces)
-        maximum_area = 0.0
-        if faces is not None:
-            maximum_area = max(float(face[2] * face[3]) / max(1.0, width * height) for face in faces)
+        detections = []
+        for index, face in enumerate([] if faces is None else faces):
+            x, y, face_width, face_height = (float(value) for value in face[:4])
+            detections.append({
+                "face_index": index,
+                "bbox": [round(x, 6), round(y, 6), round(face_width, 6), round(face_height, 6)],
+                "face_area_ratio": round(max(0.0, face_width * face_height) / max(1.0, width * height), 6),
+                "detection_score": round(float(face[-1]), 6),
+            })
         gray = self.cv2.cvtColor(image, self.cv2.COLOR_BGR2GRAY)
         luma = float(np.mean(gray))
         blur_variance = float(self.cv2.Laplacian(gray, self.cv2.CV_64F).var())
@@ -141,14 +146,20 @@ class YuNetDetector:
         too_bright = luma > 240.0
         too_blurry = blur_variance < 20.0
         usable = not (too_dark or too_bright or too_blurry)
-        return {
-            "face_count": face_count,
-            "max_face_area_ratio": round(maximum_area, 6),
+        return detections, {
             "quality": {
                 "mean_luma": round(luma, 6), "blur_variance": round(blur_variance, 6),
                 "too_dark": too_dark, "too_bright": too_bright, "too_blurry": too_blurry,
                 "usable": usable,
-            },
+            }, "image_width": width, "image_height": height,
+        }
+
+    def analyze(self, image_path: Path) -> dict[str, Any]:
+        detections, metadata = self.detect_faces(image_path)
+        return {
+            "face_count": len(detections),
+            "max_face_area_ratio": max((float(row["face_area_ratio"]) for row in detections), default=0.0),
+            "quality": metadata["quality"],
         }
 
 

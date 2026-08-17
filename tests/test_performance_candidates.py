@@ -13,6 +13,12 @@ from oscardp.performance_candidates.io import sha256_file
 from oscardp.performance_candidates.pipeline import MiningOptions, mine
 from oscardp.performance_candidates.review import evaluate_review, prepare_review_sample
 from oscardp.performance_candidates.semantic import mine_shot_semantics
+from oscardp.performance_candidates.target_face_verification import (
+    _decision,
+    cosine_similarity,
+    normalize_embedding,
+    prepare_target_gallery,
+)
 from oscardp.performance_candidates.targeting import (
     mine_target_relevance,
     resolve_target,
@@ -270,3 +276,37 @@ def test_visual_eligibility_hard_gates(aggregate: dict, reason: str | None) -> N
     eligibility, actual = visual_eligibility(aggregate)
     assert actual == reason
     assert eligibility["passed"] is (reason is None)
+
+
+def test_target_face_similarity_and_two_sparse_samples_rule() -> None:
+    assert normalize_embedding([3.0, 4.0]) == [0.6, 0.8]
+    assert cosine_similarity([1.0, 0.0], [1.0, 0.0]) == 1.0
+    one = [{"sample_fraction": 0.2, "embedding_status": "ok", "best_target_similarity": .9, "target_negative_margin": .2}]
+    assert _decision(one, .8, .1)[0] == "uncertain"
+    two = one + [{"sample_fraction": .8, "embedding_status": "ok", "best_target_similarity": .88, "target_negative_margin": .15}]
+    assert _decision(two, .8, .1) == ("verified", 2)
+    low = [{"sample_fraction": fraction, "embedding_status": "ok", "best_target_similarity": .1, "target_negative_margin": .1} for fraction in (.2, .5, .8)]
+    assert _decision(low, .8, .1)[0] == "not_verified"
+
+
+def test_prepare_target_gallery_uses_saved_v21_frames_and_manual_labels(tmp_path: Path) -> None:
+    options, run_dir = stage3_fixture(tmp_path)
+    mine(options, detector_factory=DummyDetector, extractor=fake_extract)
+
+    class GalleryDetector:
+        def __init__(self, _model: Path) -> None:
+            pass
+
+        def detect_faces(self, _path: Path) -> tuple[list[dict], dict]:
+            return [
+                {"face_index": 0, "bbox": [1.0, 1.0, 12.0, 12.0], "face_area_ratio": .1, "detection_score": .9},
+                {"face_index": 1, "bbox": [14.0, 1.0, 12.0, 12.0], "face_area_ratio": .1, "detection_score": .9},
+            ], {}
+
+    gallery = tmp_path / "gallery"
+    result = prepare_target_gallery(run_dir, gallery, options.face_model, candidate_count=2, detector_factory=GalleryDetector)
+    assert result["candidate_count"] == 2
+    rows = [json.loads(line) for line in (gallery / "gallery_candidates.labeled.jsonl").read_text().splitlines()]
+    assert [row["face_index"] for row in rows] == [0, 1]
+    assert all(row["label"] is None and Path(row["crop_path"]).is_file() for row in rows)
+    assert (gallery / "gallery_candidates.contact_sheet.jpg").is_file()

@@ -8,6 +8,11 @@ from oscardp.shots.schema import json_dumps
 
 from .pipeline import MiningOptions, mine
 from .review import evaluate_review, prepare_review_sample
+from .target_face_verification import (
+    calibrate_target_face,
+    prepare_target_gallery,
+    verify_target_faces,
+)
 from .validation import validate_run
 
 
@@ -39,6 +44,27 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate = commands.add_parser("evaluate-review", help="evaluate completed human review labels")
     evaluate.add_argument("--shot-sample", type=Path, required=True)
     evaluate.add_argument("--event-sample", type=Path, required=True)
+    gallery = commands.add_parser("prepare-target-gallery", help="prepare manually labelled target/hard-negative face gallery candidates")
+    gallery.add_argument("--run-dir", type=Path, required=True, help="frozen v2.1 performance run")
+    gallery.add_argument("--output-dir", type=Path, required=True)
+    gallery.add_argument("--face-model", type=Path, required=True)
+    gallery.add_argument("--face-model-sha256")
+    gallery.add_argument("--candidate-count", type=int, default=20)
+    gallery.add_argument("--overwrite", action="store_true")
+    calibration = commands.add_parser("calibrate-target-face", help="calibrate target-face thresholds from manually labelled gallery crops")
+    calibration.add_argument("--gallery-dir", type=Path, required=True)
+    calibration.add_argument("--review-labels", type=Path)
+    calibration.add_argument("--model-root", type=Path, required=True)
+    calibration.add_argument("--provider", default="CUDAExecutionProvider")
+    verify = commands.add_parser("verify-target-face", help="verify v2.1 shots against a manually labelled target gallery")
+    verify.add_argument("--v2-1-run", type=Path, required=True)
+    verify.add_argument("--gallery-dir", type=Path, required=True)
+    verify.add_argument("--model-root", type=Path, required=True)
+    verify.add_argument("--face-model", type=Path, required=True)
+    verify.add_argument("--threshold", type=float)
+    verify.add_argument("--margin-threshold", type=float)
+    verify.add_argument("--provider", default="CUDAExecutionProvider")
+    verify.add_argument("--overwrite", action="store_true")
     return parser
 
 
@@ -64,6 +90,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "evaluate-review":
             result = evaluate_review(args.shot_sample, args.event_sample)
             print(json_dumps(result, pretty=True)); return 0 if result["passed"] else 1
+        if args.command == "prepare-target-gallery":
+            print(json_dumps(prepare_target_gallery(args.run_dir, args.output_dir, args.face_model, args.candidate_count, args.face_model_sha256, args.overwrite), pretty=True)); return 0
+        if args.command == "calibrate-target-face":
+            print(json_dumps(calibrate_target_face(args.gallery_dir, args.review_labels, args.model_root, args.provider), pretty=True)); return 0
+        if args.command == "verify-target-face":
+            print(json_dumps(verify_target_faces(args.v2_1_run, args.gallery_dir, args.model_root, args.face_model, args.threshold, args.margin_threshold, args.provider, args.overwrite), pretty=True)); return 0
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr); return 2
     return 2

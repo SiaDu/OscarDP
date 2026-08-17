@@ -24,7 +24,15 @@ def _walk_keys(value: Any) -> set[str]:
 
 def validate_run(run_dir: Path) -> ValidationReport:
     errors: list[str] = []
-    required = ["manifest.json", "performance_shots.jsonl", "performance_events.jsonl", "screening_audit.jsonl", "qc_summary.json"]
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return ValidationReport(False, ["missing output: manifest.json"], 0, 0, 0)
+    try:
+        pipeline_version = read_json(manifest_path).get("pipeline_version")
+    except (OSError, ValueError) as exc:
+        return ValidationReport(False, [str(exc)], 0, 0, 0)
+    required = ["manifest.json", "performance_shots.jsonl", "performance_events.jsonl", "qc_summary.json"]
+    required.append("verification_audit.jsonl" if pipeline_version == "performance_candidates_v2_2" else "screening_audit.jsonl")
     for name in required:
         if not (run_dir / name).is_file():
             errors.append(f"missing output: {name}")
@@ -34,12 +42,13 @@ def validate_run(run_dir: Path) -> ValidationReport:
         manifest = read_json(run_dir / "manifest.json")
         shots = read_jsonl(run_dir / "performance_shots.jsonl")
         events = read_jsonl(run_dir / "performance_events.jsonl")
-        audit = read_jsonl(run_dir / "screening_audit.jsonl")
+        audit = read_jsonl(run_dir / ("verification_audit.jsonl" if pipeline_version == "performance_candidates_v2_2" else "screening_audit.jsonl"))
     except (OSError, ValueError) as exc:
         return ValidationReport(False, [str(exc)], 0, 0, 0)
-    v2 = manifest.get("pipeline_version") in {"performance_candidates_v2", "performance_candidates_v2_1"}
+    v2 = manifest.get("pipeline_version") in {"performance_candidates_v2", "performance_candidates_v2_1", "performance_candidates_v2_2"}
     v21 = manifest.get("pipeline_version") == "performance_candidates_v2_1"
-    if v2 and not (run_dir / "target_metadata.json").is_file():
+    v22 = manifest.get("pipeline_version") == "performance_candidates_v2_2"
+    if v2 and not v22 and not (run_dir / "target_metadata.json").is_file():
         errors.append("missing output: target_metadata.json")
     for name, artifact in manifest.get("outputs", {}).items():
         path = run_dir / name
@@ -59,7 +68,13 @@ def validate_run(run_dir: Path) -> ValidationReport:
     if any(row.get(rank_key) != rank for rank, row in enumerate(rank_order, 1)):
         errors.append("performance shot ranks are invalid")
     for row in shots:
-        if v2:
+        if v22:
+            verification = row.get("target_face_verification") or {}
+            if verification.get("status") != "verified" or row.get("verified_target_person_id") != (manifest.get("target") or {}).get("performer_id"):
+                errors.append(f"invalid v2.2 verification: {row.get('performance_shot_id')}")
+            if row.get("live_performance_verified") is not None:
+                errors.append(f"v2.2 must not infer live-performance status: {row.get('performance_shot_id')}")
+        elif v2:
             relevance = row.get("target_relevance") or {}
             if relevance.get("confidence") not in {"high", "medium"} or row.get("target_face_verified") is not None:
                 errors.append(f"invalid target fields: {row.get('performance_shot_id')}")
@@ -71,7 +86,7 @@ def validate_run(run_dir: Path) -> ValidationReport:
         expected = round(min(1.0, 0.65 * semantic + 0.25 * face + 0.10 * context), 6)
         if not math.isclose(float(row.get("shot_score", -1)), expected, abs_tol=1e-6):
             errors.append(f"shot score is not reproducible: {row.get('performance_shot_id')}")
-        allowed_basis = {"semantic_and_cv"} if v21 else {"semantic_and_cv", "semantic_override"}
+        allowed_basis = {"semantic_and_cv"} if (v21 or v22) else {"semantic_and_cv", "semantic_override"}
         if row.get("selection_basis") not in allowed_basis:
             errors.append(f"invalid selection basis: {row.get('performance_shot_id')}")
         start, end = float(row["time"]["start_sec"]), float(row["time"]["end_sec"])
