@@ -168,10 +168,31 @@ def _create_analyzer(model_root: Path, provider: str = "CUDAExecutionProvider") 
         raise RuntimeError("Target face verification requires optional dependency insightface") from exc
     app = FaceAnalysis(name="buffalo_l", root=str(model_root), providers=[provider])
     app.prepare(ctx_id=0 if "CUDA" in provider.upper() else -1, det_size=(640, 640))
+    if "CUDA" in provider.upper():
+        active = {
+            name
+            for model in app.models.values()
+            for name in model.session.get_providers()
+        }
+        if "CUDAExecutionProvider" not in active:
+            raise RuntimeError(
+                "CUDAExecutionProvider was requested but InsightFace fell back to CPU; "
+                "install a CUDA-compatible ONNX Runtime GPU runtime or pass "
+                "--provider CPUExecutionProvider explicitly."
+            )
     return app
 
 
-def _embed(analyzer: Any, image_path: Path) -> list[float]:
+def _bbox_iou(left: list[float], right: list[float]) -> float:
+    lx, ly, lw, lh = left
+    rx, ry, rw, rh = right
+    x1, y1, x2, y2 = max(lx, rx), max(ly, ry), min(lx + lw, rx + rw), min(ly + lh, ry + rh)
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    union = lw * lh + rw * rh - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def _embed(analyzer: Any, image_path: Path, expected_bbox: list[float]) -> list[float]:
     try:
         import cv2
     except ImportError as exc:
@@ -180,7 +201,18 @@ def _embed(analyzer: Any, image_path: Path) -> list[float]:
     faces = analyzer.get(image) if image is not None else []
     if not faces:
         return []
-    face = max(faces, key=lambda item: max(0.0, float(item.bbox[2]) - float(item.bbox[0])) * max(0.0, float(item.bbox[3]) - float(item.bbox[1])))
+    # InsightFace bboxes are xyxy; YuNet records are xywh.  Matching on the
+    # full source frame avoids a second detector failing on a tight face crop.
+    face = max(
+        faces,
+        key=lambda item: _bbox_iou(
+            expected_bbox,
+            [float(item.bbox[0]), float(item.bbox[1]), float(item.bbox[2] - item.bbox[0]), float(item.bbox[3] - item.bbox[1])],
+        ),
+    )
+    face_bbox = [float(face.bbox[0]), float(face.bbox[1]), float(face.bbox[2] - face.bbox[0]), float(face.bbox[3] - face.bbox[1])]
+    if _bbox_iou(expected_bbox, face_bbox) < 0.10:
+        return []
     return normalize_embedding([float(value) for value in face.embedding.flatten().tolist()]) if hasattr(face, "embedding") else []
 
 
@@ -211,7 +243,7 @@ def calibrate_target_face(
     analyzer = analyzer_factory(model_root, provider)
     embeddings = []
     for row in rows:
-        vector = _embed(analyzer, Path(row["crop_path"]))
+        vector = _embed(analyzer, Path(row["frame_path"]), [float(value) for value in row["bbox"]])
         if vector:
             embeddings.append({**row, "embedding": vector})
     targets = [row for row in embeddings if row["label"] == "target"]
@@ -220,13 +252,23 @@ def calibrate_target_face(
         raise ValueError("Calibration requires at least two usable manually labelled target gallery crops")
     positive = [max(cosine_similarity(row["embedding"], other["embedding"]) for other in targets if other is not row) for row in targets]
     negative = [max(cosine_similarity(row["embedding"], target["embedding"]) for target in targets) for row in negatives]
-    threshold = max(0.50, max(negative, default=0.0) + 0.02)
-    threshold = min(threshold, min(positive))
-    # A negative gallery is a guard rail rather than a cast classifier.  The
-    # default margin is intentionally modest; its final value is explicitly
-    # recorded and can be tightened after the verification QA review.
-    margin = 0.02 if negatives else 0.0
-    result = {"gallery_version": GALLERY_VERSION, "selection_objective": "precision_first", "positive_count": len(positive), "negative_count": len(negative), "positive_similarity": positive, "negative_target_similarity": negative, "recommended_threshold": round(threshold, 6), "recommended_margin": round(margin, 6), "model": _model_provenance(model_root, provider)}
+    # Precision-first: every manually labelled positive must clear the
+    # threshold, while negatives supply an observed upper bound.  This is
+    # derived entirely from the current same-film gallery rather than copied
+    # from a previous project.
+    threshold = min(positive)
+    positive_margins = [
+        value - max((cosine_similarity(row["embedding"], negative_row["embedding"]) for negative_row in negatives), default=-1.0)
+        for row, value in zip(targets, positive, strict=True)
+    ]
+    negative_margins = [
+        value - max((cosine_similarity(row["embedding"], other["embedding"]) for other in negatives if other is not row), default=-1.0)
+        for row, value in zip(negatives, negative, strict=True)
+    ]
+    margin = min(positive_margins) if positive_margins else 0.0
+    if negative_margins:
+        margin = max(margin, max(negative_margins))
+    result = {"gallery_version": GALLERY_VERSION, "selection_objective": "precision_first", "positive_count": len(positive), "negative_count": len(negative), "positive_similarity": positive, "negative_target_similarity": negative, "positive_margins": positive_margins, "negative_margins": negative_margins, "recommended_threshold": round(threshold, 6), "recommended_margin": round(margin, 6), "model": _model_provenance(model_root, provider)}
     write_json(gallery_dir / "calibration.json", result)
     write_jsonl(gallery_dir / "gallery_embeddings.jsonl", embeddings)
     return result
@@ -265,10 +307,7 @@ def _frame_evidence(
     detections, _metadata = detector.detect_faces(frame_path)
     rows = []
     for detection in detections:
-        with tempfile.TemporaryDirectory(prefix="oscardp-face-") as temporary:
-            crop_path = Path(temporary) / "face.jpg"
-            _crop(frame_path, detection["bbox"], crop_path)
-            vector = _embed(analyzer, crop_path)
+        vector = _embed(analyzer, frame_path, [float(value) for value in detection["bbox"]])
         rows.append({"sample_fraction": fraction, "timestamp_sec": round(timestamp, 6), "face_index": detection["face_index"], "bbox": detection["bbox"], "face_area_ratio": detection["face_area_ratio"], "embedding_status": "ok" if vector else "embedding_failed", "_embedding": vector})
     return rows
 
