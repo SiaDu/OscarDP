@@ -14,17 +14,25 @@ movie outputs and immutable release evidence live under
 [`docs/data_layout.md`](docs/data_layout.md) and
 [`docs/stage2_handoff.md`](docs/stage2_handoff.md).
 
-## WSL CUDA environment
+## Python and dependencies
 
-The production environment uses Python 3.12, PyTorch 2.13.0, and the official
-CUDA 12.6 wheel index. Install the CUDA build first, then install OscarDP:
+OscarDP supports Python 3.12+. PyTorch is declared as `>=2.7,<3` so pip can
+select a wheel compatible with the active Python version. For a CPU/local test
+environment, install all test, screenplay-context, and CV dependencies with:
+
+```bash
+python -m pip install -e ".[context,performance,test]"
+```
+
+For a WSL CUDA 12.6 environment, install the CUDA wheel first, then install
+OscarDP and the required test/context/CV extras:
 
 ```bash
 /home/sia/OscarDP/.venv/bin/python -m pip install -r requirements-cu126.txt
-/home/sia/OscarDP/.venv/bin/python -m pip install -e ".[test]"
+/home/sia/OscarDP/.venv/bin/python -m pip install -e ".[context,performance,test]"
 ```
 
-Install deterministic Stage 2 dependencies with:
+To install only deterministic Stage 2 dependencies (without OpenCV), use:
 
 ```bash
 .venv/bin/python -m pip install -e ".[context,test]"

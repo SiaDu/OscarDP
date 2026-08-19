@@ -46,9 +46,12 @@ dataset JSON/JSONL schema.
 
 ## CUDA dependency
 
-The project pins PyTorch 2.13.0 in `pyproject.toml`. WSL CUDA installations use
-`requirements-cu126.txt`, which points only the PyTorch installation at the
-official CUDA 12.6 wheel index. The project does not use uv yet, so it does not
+OscarDP supports Python 3.12+ and declares PyTorch as `>=2.7,<3`, allowing pip
+to select a wheel compatible with the active Python version. WSL CUDA 12.6
+installations use `requirements-cu126.txt`, which points only the PyTorch
+installation at the official CUDA 12.6 wheel index. CPU/local test environments
+install the standard PyPI wheel through `pip install -e
+".[context,performance,test]"`. The project does not use uv yet, so it does not
 carry `tool.uv.sources` or a synthetic `uv.lock`; those will be added together
 only if uv becomes the project's verified dependency workflow.
 
