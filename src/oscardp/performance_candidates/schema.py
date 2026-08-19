@@ -24,6 +24,7 @@ class MiningOptions:
     resume: bool = True
     overwrite: bool = False
     dry_run: bool = False
+    path_maps: tuple[tuple[Path, Path], ...] = ()
 
 
 @dataclass(frozen=True)

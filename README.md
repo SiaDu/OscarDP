@@ -8,6 +8,12 @@ TransNetV2. Stage 2 parses a screenplay PDF, cleans an SRT, aligns subtitle
 dialogue to existing screenplay blocks, and maps that context onto every
 existing shot. Stage 2 never modifies `shots.jsonl` or Stage 1 media/QC files.
 
+Project source, tests and reusable policy live in this repository; generated
+movie outputs and immutable release evidence live under
+`/mnt/g/datasets/oscar_movie_processed`. See
+[`docs/data_layout.md`](docs/data_layout.md) and
+[`docs/stage2_handoff.md`](docs/stage2_handoff.md).
+
 ## WSL CUDA environment
 
 The production environment uses Python 3.12, PyTorch 2.13.0, and the official
@@ -156,7 +162,7 @@ python -m oscardp.script_context prepare-review-context-v3-1 \
 
 python -m oscardp.script_context prepare-openai-batch-v3 \
   --requests /path/to/pilot_requests.v3_1.jsonl \
-  --annotation-policy /path/to/frozen_annotation_policy.md \
+  --annotation-policy docs/stage2_annotation_policy_v1.md \
   --output /path/to/pilot_batch_input.v3_1.jsonl \
   --model "$OPENAI_MODEL"
 ```
@@ -174,7 +180,7 @@ only generic reviewer instructions:
 ```bash
 python -m oscardp.script_context prepare-openai-batch-v3-2-policy \
   --requests /path/to/frozen_pilot_requests.jsonl \
-  --annotation-policy /path/to/frozen_annotation_policy.md \
+  --annotation-policy docs/stage2_annotation_policy_v1.md \
   --output /path/to/pilot_batch_input.v3_2_policy.jsonl \
   --model "$OPENAI_MODEL"
 ```
@@ -195,7 +201,7 @@ python -m oscardp.script_context prepare-review-action-context-v3-3 \
 
 python -m oscardp.script_context prepare-openai-batch-v3-3-action-context \
   --requests /path/to/pilot_requests.v3_3_action_context.jsonl \
-  --annotation-policy /path/to/frozen_annotation_policy.md \
+  --annotation-policy docs/stage2_annotation_policy_v1.md \
   --output /path/to/pilot_batch_input.v3_3_action_context.jsonl \
   --model "$OPENAI_MODEL"
 ```
@@ -546,6 +552,7 @@ face tracking. Install the optional CV dependency with `pip install -e
 ```bash
 python -m oscardp.performance_candidates mine \
   --release-manifest /mnt/g/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven/release_manifest.json \
+  --path-map /mnt/i=/mnt/g \
   --output-root /mnt/g/datasets/oscar_movie_processed/stage3 \
   --nominees-file /mnt/g/datasets/oscar_data/oscar_acting_nominees.csv \
   --movie-key tt12300742 \
@@ -690,7 +697,7 @@ and treat graphic or insert text as non-dialogue.
 ```bash
 python -m oscardp.script_context prepare-openai-batch-v3 \
   --requests /path/to/pilot_requests.jsonl \
-  --annotation-policy /path/to/annotation_policy_v1.md \
+  --annotation-policy docs/stage2_annotation_policy_v1.md \
   --output /path/to/pilot_batch_input_v3.jsonl \
   --model gpt-5.6-terra
 ```

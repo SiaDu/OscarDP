@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from oscardp.artifact_paths import PathMap, resolve_artifact_path
+
 from .pipeline import _write_atomic, _write_json, _write_jsonl
 from .schema import read_jsonl
 
@@ -49,6 +51,7 @@ def _movie_index(document: dict[str, Any], label: str) -> dict[str, dict[str, An
 
 def _manifest_path(
     output_root: Path, movie_id: str, status_movie: dict[str, Any], inventory_movie: dict[str, Any],
+    path_maps: tuple[PathMap, ...],
 ) -> Path:
     candidates = [
         status_movie.get("production_manifest_path"),
@@ -57,7 +60,7 @@ def _manifest_path(
     ]
     for value in candidates:
         if value:
-            return Path(value)
+            return resolve_artifact_path(value, path_maps)
     directory = output_root / movie_id / "review/openai/production_v3_2_1_retrieval_v3"
     matches = []
     for path in sorted(directory.glob("production_manifest*.json")):
@@ -72,20 +75,28 @@ def _manifest_path(
     return matches[0]
 
 
-def _verify_artifact(path: Path, expected_sha256: str, label: str) -> dict[str, Any]:
+def _verify_artifact(
+    path: Path, expected_sha256: str, label: str, path_maps: tuple[PathMap, ...] = (),
+) -> dict[str, Any]:
+    declared = path
+    path = resolve_artifact_path(path, path_maps)
     if not path.is_file():
         raise RuntimeError(f"missing {label}: {path}")
     actual = _sha(path)
     if actual != expected_sha256:
         raise RuntimeError(f"hash mismatch for {label}: {path}")
-    result: dict[str, Any] = {"path": path.as_posix(), "sha256": actual}
+    result: dict[str, Any] = {
+        "path": path.as_posix(), "declared_path": declared.as_posix(),
+        "resolved_path": path.as_posix(), "sha256": actual,
+    }
     if path.suffix == ".jsonl":
         result["line_count"] = sum(1 for line in path.open(encoding="utf-8") if line.strip())
     return result
 
 
-def _verify_protected(label: str, source: dict[str, Any]) -> dict[str, Any]:
-    path = Path(source["path"])
+def _verify_protected(label: str, source: dict[str, Any], path_maps: tuple[PathMap, ...] = ()) -> dict[str, Any]:
+    declared = Path(source["path"])
+    path = resolve_artifact_path(declared, path_maps)
     if not path.is_file() or not source.get("unchanged"):
         raise RuntimeError(f"protected artifact is missing or was not previously verified: {label}")
     expected = source.get("expected_sha256")
@@ -100,7 +111,8 @@ def _verify_protected(label: str, source: dict[str, Any]) -> dict[str, Any]:
         if source.get("actual_sha256") not in {None, expected}:
             raise RuntimeError(f"protected video prior SHA-256 verification is inconsistent: {path}")
         return {
-            "path": path.as_posix(), "sha256": expected, "stat_fingerprint": current_stat,
+            "path": path.as_posix(), "declared_path": declared.as_posix(),
+            "resolved_path": path.as_posix(), "sha256": expected, "stat_fingerprint": current_stat,
             "verification_method": (
                 "prior_completed_manifest_sha256_plus_recorded_stat_fingerprint"
                 if recorded_stat is not None else
@@ -111,7 +123,8 @@ def _verify_protected(label: str, source: dict[str, Any]) -> dict[str, Any]:
     if actual != expected:
         raise RuntimeError(f"protected artifact changed: {path}")
     return {
-        "path": path.as_posix(), "sha256": actual, "stat_fingerprint": current_stat,
+        "path": path.as_posix(), "declared_path": declared.as_posix(),
+        "resolved_path": path.as_posix(), "sha256": actual, "stat_fingerprint": current_stat,
         "verification_method": "release_sha256",
     }
 
@@ -143,7 +156,10 @@ def _batch_records(production_dir: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _ambiguity_rows(movie_id: str, title: str, audit_path: Path, release_id: str) -> list[dict[str, Any]]:
+def _ambiguity_rows(
+    movie_id: str, title: str, audit_path: Path, release_id: str, path_maps: tuple[PathMap, ...] = (),
+) -> list[dict[str, Any]]:
+    audit_path = resolve_artifact_path(audit_path, path_maps)
     result = []
     for row in read_jsonl(audit_path):
         classification = (row.get("diagnostics") or {}).get("no_candidate_match_classification")
@@ -181,7 +197,7 @@ def _stage3_handoff(release_id: str, movies: list[dict[str, Any]], ambiguity_cou
 
 def _resume_frozen_release(
     release_dir: Path, release_id: str, code_commit: str,
-    inventory: dict[str, Any], status: dict[str, Any], experiments_path: Path,
+    inventory: dict[str, Any], status: dict[str, Any], experiments_path: Path, path_maps: tuple[PathMap, ...],
 ) -> dict[str, Any] | None:
     manifest_path = release_dir / "release_manifest.json"
     validation_path = release_dir / "release_validation.json"
@@ -199,10 +215,10 @@ def _resume_frozen_release(
         return None
     for movie in manifest.get("movies", []):
         for name, artifact in movie.get("artifacts", {}).items():
-            _verify_artifact(Path(artifact["path"]), artifact["sha256"], f"resume {movie.get('movie_id')} {name}")
+            _verify_artifact(Path(artifact.get("declared_path") or artifact["path"]), artifact["sha256"], f"resume {movie.get('movie_id')} {name}", path_maps)
     for label in ("pending_human_ambiguities", "stage3_handoff"):
         artifact = manifest[label]
-        _verify_artifact(Path(artifact["path"]), artifact["sha256"], f"resume {label}")
+        _verify_artifact(Path(artifact.get("declared_path") or artifact["path"]), artifact["sha256"], f"resume {label}", path_maps)
     experiment_rows = read_jsonl(experiments_path)
     if not any(row.get("event") == "production_release_frozen" and row.get("release_id") == release_id for row in experiment_rows):
         return None
@@ -220,13 +236,13 @@ def _resume_frozen_release(
 
 def freeze_stage2_release(
     inventory_path: Path, status_path: Path, experiments_path: Path, output_root: Path,
-    release_dir: Path, code_commit: str, *, release_id: str = RELEASE_ID,
+    release_dir: Path, code_commit: str, *, release_id: str = RELEASE_ID, path_maps: tuple[PathMap, ...] = (),
 ) -> dict[str, Any]:
     if not re.fullmatch(r"[0-9a-f]{40}", code_commit):
         raise ValueError("code commit must be a full 40-character Git SHA")
     inventory, status = _load_json(inventory_path), _load_json(status_path)
     resumed = _resume_frozen_release(
-        release_dir, release_id, code_commit, inventory, status, experiments_path,
+        release_dir, release_id, code_commit, inventory, status, experiments_path, path_maps,
     )
     if resumed is not None:
         return resumed
@@ -246,7 +262,7 @@ def freeze_stage2_release(
     reviewer_manifest_hashes: set[str] = set()
     for movie_id in completed:
         status_movie, inventory_movie = status_movies[movie_id], inventory_movies[movie_id]
-        manifest_path = _manifest_path(output_root, movie_id, status_movie, inventory_movie)
+        manifest_path = _manifest_path(output_root, movie_id, status_movie, inventory_movie, path_maps)
         manifest = _load_json(manifest_path)
         if manifest.get("movie_id") != movie_id or manifest.get("status") != "COMPLETE":
             raise RuntimeError(f"invalid final production manifest for {movie_id}")
@@ -256,7 +272,7 @@ def freeze_stage2_release(
         if int(counts.get("unresolved_ambiguities", -1)) > 5:
             raise RuntimeError(f"too many unresolved ambiguities for {movie_id}")
         artifacts = {
-            name: _verify_artifact(Path(source["path"]), source["sha256"], f"{movie_id} {name}")
+            name: _verify_artifact(Path(source["path"]), source["sha256"], f"{movie_id} {name}", path_maps)
             for name, source in manifest.get("artifacts", {}).items()
         }
         for name in ("reviewed_alignment", "reviewed_shot_context", "high_risk_audit", "qc_report", "reviewer_manifest"):
@@ -276,11 +292,17 @@ def freeze_stage2_release(
                 raise RuntimeError(f"final QC {key} is not zero for {movie_id}")
         if qc.get("unresolved_ambiguity_count") != counts.get("unresolved_ambiguities"):
             raise RuntimeError(f"final QC ambiguity count mismatch for {movie_id}")
-        protected = {name: _verify_protected(name, source) for name, source in manifest.get("protected_hashes", {}).items()}
+        protected = {
+            name: _verify_protected(name, source, path_maps)
+            for name, source in manifest.get("protected_hashes", {}).items()
+        }
         reviewer_manifest_hashes.add(artifacts["reviewer_manifest"]["sha256"])
         production_dir = manifest_path.parent
         batches = _batch_records(production_dir)
-        ambiguity = _ambiguity_rows(movie_id, inventory_movie.get("title") or movie_id, Path(artifacts["high_risk_audit"]["path"]), release_id)
+        ambiguity = _ambiguity_rows(
+            movie_id, inventory_movie.get("title") or movie_id,
+            Path(artifacts["high_risk_audit"]["declared_path"]), release_id, path_maps,
+        )
         if len(ambiguity) != counts.get("unresolved_ambiguities"):
             raise RuntimeError(f"pending ambiguity extraction mismatch for {movie_id}")
         ambiguities.extend(ambiguity)

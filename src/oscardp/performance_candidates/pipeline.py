@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from oscardp.artifact_paths import resolve_artifact_path
 from .cv import (
     FACE_POSITIVE_SAMPLE_MIN,
     MIN_FACE_AREA_RATIO,
@@ -34,23 +35,29 @@ from .targeting import (
 DetectorFactory = Callable[[Path], YuNetDetector]
 
 
-def _verify(path: Path, expected: str | None, label: str) -> dict[str, Any]:
+def _verify(path: Path, expected: str | None, label: str, *, declared_path: Path | None = None) -> dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"Missing {label}: {path}")
     actual = sha256_file(path)
     if expected and actual != expected:
         raise RuntimeError(f"SHA-256 mismatch for {label}: {path}")
-    return {"path": path.resolve().as_posix(), "sha256": actual, "size": path.stat().st_size}
+    declared = (declared_path or path).as_posix()
+    resolved = path.resolve().as_posix()
+    return {
+        "path": resolved, "declared_path": declared, "resolved_path": resolved,
+        "sha256": actual, "size": path.stat().st_size,
+    }
 
 
-def _artifact(movie: dict[str, Any], group: str, name: str) -> tuple[Path, str | None]:
+def _artifact(movie: dict[str, Any], group: str, name: str, path_maps: tuple[tuple[Path, Path], ...]) -> tuple[Path, Path, str | None]:
     value = movie.get(group, {}).get(name)
     if not isinstance(value, dict) or not value.get("path"):
         raise ValueError(f"Release movie lacks {group}.{name}")
-    return Path(value["path"]), value.get("sha256")
+    declared = Path(value["path"])
+    return resolve_artifact_path(declared, path_maps), declared, value.get("sha256")
 
 
-def _verify_video_artifact(movie: dict[str, Any]) -> dict[str, Any]:
+def _verify_video_artifact(movie: dict[str, Any], path_maps: tuple[tuple[Path, Path], ...]) -> dict[str, Any]:
     """Reuse the frozen release's completed video hash plus stat fingerprint.
 
     Stage 2 deliberately avoids re-hashing multi-gigabyte protected videos at
@@ -61,18 +68,20 @@ def _verify_video_artifact(movie: dict[str, Any]) -> dict[str, Any]:
     value = movie.get("protected_artifacts", {}).get("video")
     if not isinstance(value, dict) or not value.get("path") or not value.get("sha256"):
         raise ValueError("Release movie lacks protected_artifacts.video")
-    path = Path(value["path"])
+    declared = Path(value["path"])
+    path = resolve_artifact_path(declared, path_maps)
     if not path.is_file():
         raise FileNotFoundError(f"Missing video: {path}")
     stat = path.stat()
     current = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
     recorded = value.get("stat_fingerprint")
     if recorded is None:
-        return _verify(path, value["sha256"], "video")
+        return _verify(path, value["sha256"], "video", declared_path=declared)
     if current != recorded:
         raise RuntimeError(f"Protected video stat fingerprint changed: {path}")
     return {
-        "path": path.resolve().as_posix(), "sha256": value["sha256"], "size": stat.st_size,
+        "path": path.resolve().as_posix(), "declared_path": declared.as_posix(),
+        "resolved_path": path.resolve().as_posix(), "sha256": value["sha256"], "size": stat.st_size,
         "stat_fingerprint": current,
         "verification_method": "frozen_release_sha256_plus_stat_fingerprint",
     }
@@ -91,25 +100,28 @@ def _release_inputs(options: MiningOptions) -> tuple[dict[str, Any], dict[str, A
         raise RuntimeError(f"Stage 3 refuses non-COMPLETE movie: {options.movie_key}")
 
     paths = {
-        "reviewed_shot_context": _artifact(movie, "artifacts", "reviewed_shot_context"),
-        "screenplay_context": _artifact(movie, "protected_artifacts", "deterministic_screenplay_context"),
-        "shots": _artifact(movie, "protected_artifacts", "shots"),
+        "reviewed_shot_context": _artifact(movie, "artifacts", "reviewed_shot_context", options.path_maps),
+        "screenplay_context": _artifact(movie, "protected_artifacts", "deterministic_screenplay_context", options.path_maps),
+        "shots": _artifact(movie, "protected_artifacts", "shots", options.path_maps),
     }
     inputs: dict[str, Any] = {"release_manifest": release_info}
-    for label, (path, expected) in paths.items():
-        inputs[label] = _verify(path, expected, label)
-    inputs["video"] = _verify_video_artifact(movie)
+    for label, (path, declared, expected) in paths.items():
+        inputs[label] = _verify(path, expected, label, declared_path=declared)
+    inputs["video"] = _verify_video_artifact(movie, options.path_maps)
     inputs["face_model"] = _verify(options.face_model, options.face_model_sha256, "YuNet face model")
     inputs["nominees_file"] = _verify(options.nominees_file, None, "nominees metadata")
     return release, movie, inputs
 
 
-def _pending_subtitle_ids(release: dict[str, Any], movie_key: str) -> set[str]:
+def _pending_subtitle_ids(
+    release: dict[str, Any], movie_key: str, path_maps: tuple[tuple[Path, Path], ...],
+) -> set[str]:
     artifact = release.get("pending_human_ambiguities")
     if not isinstance(artifact, dict) or not artifact.get("path"):
         return set()
-    path = Path(artifact["path"])
-    _verify(path, artifact.get("sha256"), "pending human ambiguities")
+    declared = Path(artifact["path"])
+    path = resolve_artifact_path(declared, path_maps)
+    _verify(path, artifact.get("sha256"), "pending human ambiguities", declared_path=declared)
     return {
         str(row["subtitle_id"])
         for row in read_jsonl(path)
@@ -246,7 +258,7 @@ def mine(
     screenplay = read_json(screenplay_path)
     source_shots = read_jsonl(shots_path)
     _validate_source_pairing(context_rows, source_shots)
-    pending_ids = _pending_subtitle_ids(release, options.movie_key)
+    pending_ids = _pending_subtitle_ids(release, options.movie_key, options.path_maps)
     excluded_shots = {
         row["shot_id"] for row in context_rows
         if any(subtitle.get("subtitle_id") in pending_ids for subtitle in row.get("subtitles", []))

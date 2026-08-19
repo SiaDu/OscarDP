@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from oscardp.artifact_paths import parse_path_maps
 from oscardp.shots.schema import json_dumps
 
 from .pipeline import MiningOptions, mine
@@ -35,6 +36,10 @@ def build_parser() -> argparse.ArgumentParser:
     behavior.add_argument("--resume", action="store_true", default=True)
     behavior.add_argument("--overwrite", action="store_true")
     mining.add_argument("--dry-run", action="store_true")
+    mining.add_argument(
+        "--path-map", action="append", default=[], metavar="OLD=NEW",
+        help="explicitly resolve immutable manifest paths after a dataset mount relocation",
+    )
     validate = commands.add_parser("validate", help="validate an existing Stage 3 run")
     validate.add_argument("--run-dir", type=Path, required=True)
     review = commands.add_parser("prepare-review-sample", help="build deterministic shot/event review packages")
@@ -80,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
                 semantic_override_threshold=args.semantic_override_threshold,
                 max_event_duration_sec=args.max_event_duration_sec,
                 resume=args.resume and not args.overwrite, overwrite=args.overwrite, dry_run=args.dry_run,
+                path_maps=parse_path_maps(args.path_map),
             )
             print(json_dumps(mine(options), pretty=True)); return 0
         if args.command == "validate":

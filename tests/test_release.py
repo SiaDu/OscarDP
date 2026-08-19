@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from oscardp.artifact_paths import parse_path_maps
 from oscardp.script_context.release import (
     EXPECTED_MOVIE_IDS,
     PRODUCTION_REVIEWER_VERSION,
@@ -159,3 +160,33 @@ def test_freeze_release_rejects_noncompleted_batch_evidence(tmp_path: Path) -> N
 
     with pytest.raises(RuntimeError, match="completed fetch evidence"):
         freeze_stage2_release(inventory, status, experiments, output_root, output_root / "release", "d" * 40)
+
+
+def test_frozen_release_resume_supports_explicit_historical_mount_map(tmp_path: Path) -> None:
+    inventory, status, experiments, output_root = release_fixture(tmp_path)
+    release_dir = output_root / "release"
+    commit = "e" * 40
+    freeze_stage2_release(inventory, status, experiments, output_root, release_dir, commit)
+
+    historical_root = "/historical/processed"
+    actual_root = output_root.as_posix()
+    manifest_path = release_dir / "release_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    for movie in manifest["movies"]:
+        for group in ("artifacts", "protected_artifacts"):
+            for artifact in movie.get(group, {}).values():
+                artifact["path"] = artifact["path"].replace(actual_root, historical_root, 1)
+                artifact["declared_path"] = artifact["path"]
+    for artifact in (manifest["pending_human_ambiguities"], manifest["stage3_handoff"]):
+        artifact["path"] = artifact["path"].replace(actual_root, historical_root, 1)
+        artifact["declared_path"] = artifact["path"]
+    write_json(manifest_path, manifest)
+    before = manifest_path.read_bytes()
+
+    resumed = freeze_stage2_release(
+        inventory, status, experiments, output_root, release_dir, commit,
+        path_maps=parse_path_maps([f"{historical_root}={output_root}"]),
+    )
+
+    assert resumed["resumed"] is True
+    assert manifest_path.read_bytes() == before

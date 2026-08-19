@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from oscardp.artifact_paths import parse_path_maps
 from oscardp.shots.schema import json_dumps
 
 from .alignment import align_subtitles
@@ -196,6 +197,10 @@ def build_parser() -> argparse.ArgumentParser:
     production_release.add_argument("--release-dir", type=Path, required=True)
     production_release.add_argument("--code-commit", required=True)
     production_release.add_argument("--release-id", default="v3_2_1_production_3_final_seven")
+    production_release.add_argument(
+        "--path-map", action="append", default=[], metavar="OLD=NEW",
+        help="explicitly resolve immutable manifest paths after a dataset mount relocation",
+    )
     composite = commands.add_parser("build-openai-composite-audit")
     composite.add_argument("--requests", type=Path, required=True); composite.add_argument("--validated-responses", type=Path, required=True)
     composite.add_argument("--output", type=Path, required=True); composite.add_argument("--summary", type=Path, required=True)
@@ -420,6 +425,7 @@ def main(argv: list[str] | None = None) -> int:
             result = freeze_stage2_release(
                 args.inventory, args.status, args.experiments, args.output_root,
                 args.release_dir, args.code_commit, release_id=args.release_id,
+                path_maps=parse_path_maps(args.path_map),
             )
             print(json_dumps(result, pretty=True)); return 0
         if args.command == "build-openai-composite-audit":

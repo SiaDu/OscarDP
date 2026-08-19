@@ -32,6 +32,11 @@ pending-ambiguity package, and Stage 3 handoff. Stage 3 must use only the
 reviewed shot-context paths named by that release and must exclude the blocked
 movie from resolved-quality claims.
 
+The frozen manifest retains historical `/mnt/i` absolute artifact paths, while
+the current dataset is mounted at `/mnt/g`. Do not rewrite the manifest; use
+`--path-map /mnt/i=/mnt/g` with release consumers. Repository-owned guidance is
+in [`stage2_handoff.md`](stage2_handoff.md) and [`data_layout.md`](data_layout.md).
+
 ## Current milestone
 
 Stage 3 target-performer performance candidate mining is implemented as the separate

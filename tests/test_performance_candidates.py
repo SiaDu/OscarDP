@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from oscardp.artifact_paths import parse_path_maps
 from oscardp.performance_candidates.__main__ import build_parser
 from oscardp.performance_candidates.cv import visual_eligibility
 from oscardp.performance_candidates.grouping import group_events
@@ -171,6 +172,29 @@ def test_mine_rejects_release_bound_input_hash_change(tmp_path: Path) -> None:
         mine(options, detector_factory=DummyDetector, extractor=fake_extract)
 
 
+def test_mine_reads_historical_release_paths_only_with_explicit_map(tmp_path: Path) -> None:
+    options, run_dir = stage3_fixture(tmp_path)
+    release = json.loads(options.release_manifest.read_text())
+    source = tmp_path / "source"
+    historical = "/historical/source"
+    for group in ("artifacts", "protected_artifacts"):
+        for artifact in release["movies"][0][group].values():
+            artifact["path"] = artifact["path"].replace(source.as_posix(), historical, 1)
+    release["pending_human_ambiguities"]["path"] = release["pending_human_ambiguities"]["path"].replace(source.as_posix(), historical, 1)
+    write_json(options.release_manifest, release)
+
+    with pytest.raises(FileNotFoundError, match="Missing reviewed_shot_context"):
+        mine(options, detector_factory=DummyDetector, extractor=fake_extract)
+
+    mapped = MiningOptions(**{**options.__dict__, "path_maps": parse_path_maps([f"{historical}={source}"])})
+    result = mine(mapped, detector_factory=DummyDetector, extractor=fake_extract)
+    assert result["performance_shot_count"] == 1
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    input_info = manifest["fingerprint"]["inputs"]["reviewed_shot_context"]
+    assert input_info["declared_path"].startswith(historical)
+    assert input_info["resolved_path"].startswith(source.as_posix())
+
+
 def test_event_grouping_does_not_bridge_unselected_or_scene_boundary() -> None:
     def selected(index: int, scene: str = "scene_001") -> dict:
         row = context_row(index)
@@ -248,6 +272,12 @@ def test_cli_exposes_stage3_commands() -> None:
     parser = build_parser()
     args = parser.parse_args(["validate", "--run-dir", "/tmp/run"])
     assert args.command == "validate"
+    mined = parser.parse_args([
+        "mine", "--release-manifest", "/tmp/release.json", "--output-root", "/tmp/output",
+        "--nominees-file", "/tmp/nominees.csv", "--face-model", "/tmp/yunet.onnx",
+        "--path-map", "/mnt/i=/mnt/g", "--path-map", "/old=/new",
+    ])
+    assert mined.path_map == ["/mnt/i=/mnt/g", "/old=/new"]
 
 
 def test_targeting_high_medium_none_and_metadata_resolution(tmp_path: Path) -> None:
