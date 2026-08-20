@@ -1,136 +1,61 @@
 #!/usr/bin/env python3
-"""Create a reproducible ffprobe inventory for the Oscar movie source tree."""
-
+"""Stage 0B movie-level inventory built from a Stage 0A preflight report."""
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import subprocess
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".m4v", ".avi", ".webm"}
-HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
+from oscardp.stage0.media import GIB, is_english, inventory_classification, profile_reasons, probe, stream_language, video_bitrate
+from oscardp.stage0.preflight import SUBTITLE_EXTENSIONS, _subtitle_language
 
-
-def probe(path: Path) -> dict:
-    command = [
-        "ffprobe", "-v", "error", "-show_entries",
-        "format=duration,size,bit_rate:stream=index,codec_type,codec_name,"
-        "width,height,avg_frame_rate,r_frame_rate,bit_rate,bits_per_raw_sample,"
-        "pix_fmt,color_transfer,color_primaries,color_space,side_data_list",
-        "-of", "json", str(path),
-    ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=True)
-    return json.loads(completed.stdout)
+FIELDS = [
+    "movie_id", "movie_key", "movie_folder", "source_video_relpath", "source_video_filename", "resolution", "width", "height", "fps", "video_codec", "container", "pixel_format", "bit_depth", "dynamic_range", "duration_sec", "video_bitrate_mbps", "video_bitrate_source", "audio_codecs", "audio_tracks", "audio_languages", "embedded_subtitle_count", "embedded_subtitle_languages", "external_subtitle_count", "external_subtitle_formats", "external_subtitle_languages", "english_subtitle_count", "english_subtitle_paths", "has_english_subtitle", "filesize_bytes", "filesize_gib", "classification", "classification_reasons", "manual_review_required", "manual_review_reasons", "ffprobe_error",
+]
 
 
-def fraction(value: str | None) -> float | None:
-    if not value or value == "0/0":
-        return None
-    numerator, denominator = value.split("/", 1)
-    return float(numerator) / float(denominator) if float(denominator) else None
+def _jsonl(path: Path) -> list[dict[str, object]]:
+    with path.open(encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
 
 
-def bit_depth(stream: dict) -> int | None:
-    raw = stream.get("bits_per_raw_sample")
-    if raw and raw.isdigit():
-        return int(raw)
-    pixel_format = stream.get("pix_fmt", "")
-    for depth in (16, 14, 12, 10, 9, 8):
-        if str(depth) in pixel_format:
-            return depth
-    return 8 if pixel_format else None
-
-
-def is_hdr(stream: dict) -> bool:
-    if stream.get("color_transfer", "").lower() in HDR_TRANSFERS:
-        return True
-    return any(
-        side_data.get("side_data_type") in {
-            "DOVI configuration record", "Mastering display metadata", "Content light level metadata"
-        }
-        for side_data in stream.get("side_data_list", [])
-    )
-
-
-def decimal(value: float | int | None, digits: int = 3) -> str:
-    return "" if value is None else f"{value:.{digits}f}"
-
-
-def classify(video: dict, size_bytes: int, fps: float | None, hdr: bool, depth: int | None, bitrate: int | None) -> tuple[str, str]:
-    # Default delivery profile: SDR 1080p or lower, H.264/H.265 8-bit, <=30 fps,
-    # <=10 Mbps video bitrate, <=20 GiB file size. First matching class wins.
-    reasons: list[str] = []
-    if hdr:
-        reasons.append("HDR metadata detected")
-    if size_bytes > 20 * 1024**3:
-        reasons.append("filesize exceeds 20 GiB")
-    if (video.get("width") or 0) > 1920 or (video.get("height") or 0) > 1080:
-        reasons.append("resolution exceeds 1920x1080")
-    if video.get("codec_name") not in {"h264", "hevc"}:
-        reasons.append(f"unsupported video codec: {video.get('codec_name') or 'unknown'}")
-    if depth not in {None, 8}:
-        reasons.append(f"bit depth is {depth}-bit")
-    if fps is not None and fps > 30.01:
-        reasons.append(f"fps exceeds 30: {fps:.3f}")
-    if bitrate is not None and bitrate > 10_000_000:
-        reasons.append(f"video bitrate exceeds 10 Mbps: {bitrate / 1_000_000:.3f}")
-    if hdr:
-        return "HDR_TONEMAP", "; ".join(reasons)
-    if size_bytes > 20 * 1024**3:
-        return "OVERSIZE", "; ".join(reasons)
-    return ("TRANSCODE", "; ".join(reasons)) if reasons else ("PASS", "meets default delivery profile")
+def _external_subtitles(folder: Path, root: Path) -> list[tuple[Path, str]]:
+    return [(path, _subtitle_language(path)) for path in sorted(folder.rglob("*"), key=lambda item: item.as_posix().lower()) if path.is_file() and path.suffix.lower() in SUBTITLE_EXTENSIONS]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Stage 0B movie-level inventory; requires Stage 0A dry-run report.")
     parser.add_argument("--input-root", type=Path, required=True)
+    parser.add_argument("--preflight", type=Path, required=True, help="stage0_source_preflight.jsonl from Stage 0A")
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    root = args.input_root.resolve()
-    paths = sorted(path for path in root.rglob("*") if path.is_file() and not any(part.startswith(".") for part in path.relative_to(root).parts) and path.suffix.lower() in VIDEO_EXTENSIONS)
+    args = parser.parse_args(); root = args.input_root.resolve()
+    if not root.is_dir(): parser.error(f"Input root does not exist: {root}")
+    if not args.preflight.is_file(): parser.error(f"Preflight report does not exist: {args.preflight}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    fields = ["source_video_relpath", "resolution", "fps", "video_codec", "bit_depth", "dynamic_range", "duration_sec", "video_bitrate_mbps", "video_bitrate_source", "audio_codecs", "audio_tracks", "filesize_bytes", "filesize_gib", "classification", "classification_reason", "ffprobe_error"]
     with args.output.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        for position, path in enumerate(paths, 1):
-            row = {"source_video_relpath": path.relative_to(root).as_posix()}
+        writer = csv.DictWriter(handle, fieldnames=FIELDS); writer.writeheader()
+        for preflight in _jsonl(args.preflight):
+            movie_folder = str(preflight["movie_folder"]); folder = root / movie_folder
+            source_relpath = str(preflight.get("primary_video_path") or "")
+            row: dict[str, object] = {"movie_id": preflight.get("movie_id", ""), "movie_key": preflight.get("movie_key", ""), "movie_folder": movie_folder, "source_video_relpath": source_relpath, "source_video_filename": Path(source_relpath).name if source_relpath else "", "manual_review_required": preflight.get("manual_review_required", False), "manual_review_reasons": preflight.get("manual_review_reasons", ""), "ffprobe_error": ""}
+            subtitles = _external_subtitles(folder, root) if folder.is_dir() else []
+            english_paths = [path.relative_to(root).as_posix() for path, language in subtitles if is_english(language)]
+            row.update({"external_subtitle_count": len(subtitles), "external_subtitle_formats": ";".join(sorted({path.suffix.lower().lstrip(".") for path, _ in subtitles})), "external_subtitle_languages": ";".join(language for _path, language in subtitles), "english_subtitle_count": len(english_paths), "english_subtitle_paths": ";".join(english_paths)})
+            if not source_relpath:
+                row.update({"classification": "MANUAL_REVIEW", "classification_reasons": "no unambiguous primary video", "has_english_subtitle": bool(english_paths)})
+                writer.writerow(row); continue
+            source = root / source_relpath
             try:
-                data = probe(path)
-                streams = data.get("streams", [])
-                video = next(stream for stream in streams if stream.get("codec_type") == "video")
-                audio = [stream for stream in streams if stream.get("codec_type") == "audio"]
-                size = int(data.get("format", {}).get("size", path.stat().st_size))
-                fps = fraction(video.get("avg_frame_rate")) or fraction(video.get("r_frame_rate"))
-                depth = bit_depth(video)
-                hdr = is_hdr(video)
-                duration = float(data.get("format", {}).get("duration", 0))
-                stream_bitrate = int(video["bit_rate"]) if str(video.get("bit_rate", "")).isdigit() else None
-                # Matroska often omits per-stream bit rates.  Its container
-                # average is retained as a clearly labelled fallback instead
-                # of leaving the requested bitrate column blank.
-                bitrate = stream_bitrate or (round(size * 8 / duration) if duration > 0 else None)
-                bitrate_source = "video_stream" if stream_bitrate else "container_average_estimate"
-                label, reason = classify(video, size, fps, hdr, depth, bitrate)
-                row.update({
-                    "resolution": f"{video.get('width', '')}x{video.get('height', '')}",
-                    "fps": decimal(fps), "video_codec": video.get("codec_name", ""),
-                    "bit_depth": depth or "", "dynamic_range": "HDR" if hdr else "SDR",
-                    "duration_sec": decimal(duration),
-                    "video_bitrate_mbps": decimal((bitrate / 1_000_000) if bitrate else None),
-                    "video_bitrate_source": bitrate_source if bitrate else "unavailable",
-                    "audio_codecs": ";".join(stream.get("codec_name", "unknown") for stream in audio),
-                    "audio_tracks": len(audio), "filesize_bytes": size,
-                    "filesize_gib": decimal(size / 1024**3), "classification": label,
-                    "classification_reason": reason,
-                })
-            except (subprocess.CalledProcessError, StopIteration, json.JSONDecodeError, OSError) as error:
-                row.update({"classification": "TRANSCODE", "classification_reason": "ffprobe failed or no video stream", "ffprobe_error": str(error)})
+                info = probe(source); bitrate, bitrate_source = video_bitrate(info, source)
+                embedded_languages = [stream_language(stream) for stream in info.subtitle_streams]
+                row.update({"resolution": f"{info.width}x{info.height}", "width": info.width, "height": info.height, "fps": f"{info.fps:.3f}", "video_codec": info.codec, "container": info.container, "pixel_format": info.pixel_format, "bit_depth": info.bit_depth, "dynamic_range": info.dynamic_range, "duration_sec": f"{info.duration_sec:.3f}", "video_bitrate_mbps": f"{bitrate / 1_000_000:.3f}" if bitrate else "", "video_bitrate_source": bitrate_source, "audio_codecs": ";".join(str(stream.get("codec_name") or "unknown") for stream in info.audio_streams), "audio_tracks": len(info.audio_streams), "audio_languages": ";".join(stream_language(stream) for stream in info.audio_streams), "embedded_subtitle_count": len(info.subtitle_streams), "embedded_subtitle_languages": ";".join(embedded_languages), "has_english_subtitle": bool(english_paths or any(is_english(language) for language in embedded_languages)), "filesize_bytes": source.stat().st_size, "filesize_gib": f"{source.stat().st_size / GIB:.3f}", "classification": inventory_classification(info), "classification_reasons": "; ".join(profile_reasons(info)) or "meets target media profile"})
+            except Exception as exc:
+                row.update({"classification": "ERROR", "classification_reasons": "ffprobe failed or no video stream", "has_english_subtitle": bool(english_paths), "ffprobe_error": str(exc)})
             writer.writerow(row)
-            print(f"[{position}/{len(paths)}] {row['source_video_relpath']}", flush=True)
     return 0
 
 

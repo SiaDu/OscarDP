@@ -8,6 +8,10 @@ from pathlib import Path
 
 GIB = 1024 ** 3
 HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".m4v", ".avi", ".webm", ".ts", ".m2ts"}
+SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx"}
+TARGET_CODECS = {"h264", "hevc"}
+TARGET_MAX_SIZE_GIB = 4.5
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,8 @@ class MediaInfo:
     color_transfer: str
     color_space: str
     audio_streams: tuple[dict[str, object], ...]
+    subtitle_streams: tuple[dict[str, object], ...] = ()
+    video_bitrate: int | None = None
 
     def as_dict(self) -> dict[str, object]:
         value = asdict(self)
@@ -66,20 +72,25 @@ def run_checked(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, text=True, capture_output=True, check=True)
 
 
-def probe(path: Path) -> MediaInfo:
+def probe_payload(path: Path) -> dict[str, object]:
     command = [
         "ffprobe", "-v", "error", "-show_entries",
-        "format=format_name,duration,size:stream=index,codec_type,codec_name,width,height,"
+        "format=format_name,duration,size,bit_rate:stream=index,codec_type,codec_name,width,height,bit_rate,"
         "avg_frame_rate,r_frame_rate,bits_per_raw_sample,pix_fmt,color_transfer,"
         "color_primaries,color_space,disposition:stream_tags=language:stream_side_data",
         "-of", "json", str(path),
     ]
-    payload = json.loads(run_checked(command).stdout)
+    return json.loads(run_checked(command).stdout)
+
+
+def probe(path: Path) -> MediaInfo:
+    payload = probe_payload(path)
     streams = payload.get("streams") or []
     video = next((item for item in streams if item.get("codec_type") == "video"), None)
     if not isinstance(video, dict):
         raise ValueError(f"No video stream: {path}")
     audio = tuple(item for item in streams if isinstance(item, dict) and item.get("codec_type") == "audio")
+    subtitles = tuple(item for item in streams if isinstance(item, dict) and item.get("codec_type") == "subtitle")
     form = payload.get("format") or {}
     duration = float(form.get("duration") or 0.0)
     size = int(form.get("size") or path.stat().st_size)
@@ -93,7 +104,27 @@ def probe(path: Path) -> MediaInfo:
         color_transfer=str(video.get("color_transfer") or ""),
         color_space=str(video.get("color_space") or ""),
         audio_streams=audio,
+        subtitle_streams=subtitles,
+        video_bitrate=int(video["bit_rate"]) if str(video.get("bit_rate") or "").isdigit() else None,
     )
+
+
+def stream_language(stream: dict[str, object]) -> str:
+    tags = stream.get("tags") if isinstance(stream.get("tags"), dict) else {}
+    raw = str(tags.get("language") or "").strip().lower()
+    return {"en": "en", "eng": "en", "english": "en", "und": "und"}.get(raw, raw or "und")
+
+
+def is_english(language: str) -> bool:
+    return language.lower() in {"en", "eng", "english"}
+
+
+def video_bitrate(info: MediaInfo, path: Path) -> tuple[int | None, str]:
+    if info.video_bitrate is not None:
+        return info.video_bitrate, "video_stream"
+    if info.duration_sec <= 0:
+        return None, "unavailable"
+    return round(path.stat().st_size * 8 / info.duration_sec), "container_average_estimate"
 
 
 def target_dimensions(info: MediaInfo) -> tuple[int, int]:
@@ -101,23 +132,43 @@ def target_dimensions(info: MediaInfo) -> tuple[int, int]:
     return max(2, int(info.width * factor) // 2 * 2), max(2, int(info.height * factor) // 2 * 2)
 
 
-def transcode_reasons(info: MediaInfo, max_size_gib: float) -> list[str]:
+def profile_reasons(info: MediaInfo, max_size_gib: float = TARGET_MAX_SIZE_GIB) -> list[str]:
     reasons: list[str] = []
-    if info.size_gib > max_size_gib:
-        reasons.append("TRANSCODE_SIZE")
-    if info.width > 1920 or info.height > 1080:
-        reasons.append("TRANSCODE_RESOLUTION")
     if info.dynamic_range != "SDR":
-        reasons.append("TRANSCODE_HDR")
+        reasons.append("HDR")
+    if info.size_gib > max_size_gib:
+        reasons.append(f"filesize exceeds {max_size_gib:g} GiB")
+    if info.width > 1920 or info.height > 1080:
+        reasons.append("resolution exceeds 1920x1080")
     if info.bit_depth > 8:
-        reasons.append("TRANSCODE_BIT_DEPTH")
+        reasons.append(f"bit depth is {info.bit_depth}-bit")
+    if info.codec not in TARGET_CODECS:
+        reasons.append(f"unsupported video codec: {info.codec or 'unknown'}")
     return reasons
 
 
+def inventory_classification(info: MediaInfo, max_size_gib: float = TARGET_MAX_SIZE_GIB) -> str:
+    if info.dynamic_range != "SDR":
+        return "HDR_TONEMAP"
+    if info.size_gib > max_size_gib:
+        return "OVERSIZE"
+    return "TRANSCODE" if profile_reasons(info, max_size_gib) else "PASS"
+
+
+def transcode_reasons(info: MediaInfo, max_size_gib: float) -> list[str]:
+    """Compatibility adapter for Stage 0C's existing report schema."""
+    return profile_reasons(info, max_size_gib)
+
+
 def classification(reasons: list[str]) -> str:
+    """Compatibility adapter; Stage 0B should use inventory_classification."""
     if not reasons:
         return "KEEP"
-    return reasons[0] if len(reasons) == 1 else "TRANSCODE_MULTIPLE"
+    if "HDR" in reasons:
+        return "HDR_TONEMAP"
+    if any(reason.startswith("filesize") for reason in reasons):
+        return "OVERSIZE"
+    return "TRANSCODE"
 
 
 def supports_hdr_tonemap() -> tuple[bool, str]:

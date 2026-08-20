@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from oscardp.stage0.media import MediaInfo, classification, target_dimensions, transcode_reasons
+from oscardp.stage0.media import MediaInfo, classification, inventory_classification, profile_reasons, target_dimensions, transcode_reasons
 from oscardp.stage0.pipeline import validate_output
 
 
@@ -15,7 +15,7 @@ def info(**changes: object) -> MediaInfo:
     return MediaInfo(**values)  # type: ignore[arg-type]
 
 
-def test_keep_ignores_container_codec_fps_and_audio() -> None:
+def test_profile_ignores_container_fps_and_audio() -> None:
     source = info(container="matroska,webm", codec="h264", fps=60.0)
     assert transcode_reasons(source, 4.5) == []
     assert classification([]) == "KEEP"
@@ -24,9 +24,17 @@ def test_keep_ignores_container_codec_fps_and_audio() -> None:
 def test_classification_records_all_independent_reasons() -> None:
     source = info(width=3840, height=2160, bit_depth=10, dynamic_range="HDR", size_gib=8.0)
     reasons = transcode_reasons(source, 4.5)
-    assert reasons == ["TRANSCODE_SIZE", "TRANSCODE_RESOLUTION", "TRANSCODE_HDR", "TRANSCODE_BIT_DEPTH"]
-    assert classification(reasons) == "TRANSCODE_MULTIPLE"
+    assert reasons == ["HDR", "filesize exceeds 4.5 GiB", "resolution exceeds 1920x1080", "bit depth is 10-bit"]
+    assert classification(reasons) == "HDR_TONEMAP"
+    assert inventory_classification(source) == "HDR_TONEMAP"
     assert target_dimensions(source) == (1920, 1080)
+
+
+def test_inventory_profile_prioritizes_oversize_and_does_not_use_fps_or_bitrate() -> None:
+    source = info(size_gib=5.0, fps=120.0)
+    assert inventory_classification(source) == "OVERSIZE"
+    assert profile_reasons(source) == ["filesize exceeds 4.5 GiB"]
+    assert inventory_classification(info(codec="vp9")) == "TRANSCODE"
 
 
 def test_target_dimensions_never_upscale_and_are_even() -> None:
