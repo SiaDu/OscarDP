@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from oscardp.stage0.media import MediaInfo, _is_hdr, classification, inventory_classification, profile_reasons, target_dimensions, transcode_reasons, video_filter
-from oscardp.stage0.pipeline import discover_videos, output_path, validate_output
+from oscardp.stage0.pipeline import discover_videos, ffmpeg_command, output_path, validate_output
 
 
 def info(**changes: object) -> MediaInfo:
@@ -94,3 +94,25 @@ def test_discovery_does_not_reprocess_standardized_derivatives(tmp_path) -> None
     derivative.touch()
 
     assert discover_videos(tmp_path, None, None, None) == [source]
+
+
+def test_ffmpeg_command_emits_machine_readable_progress(tmp_path) -> None:
+    command = ffmpeg_command(tmp_path / "source.mkv", tmp_path / "output.partial.mp4", info(), 25)
+
+    assert command[command.index("-progress") + 1] == "pipe:1"
+    assert "-nostats" in command
+
+
+def test_fast_command_uses_cuda_and_skips_hdr_tonemap(tmp_path) -> None:
+    command = ffmpeg_command(
+        tmp_path / "source.mkv", tmp_path / "output.partial.mp4",
+        info(bit_depth=10, dynamic_range="HDR"), 25, fast=True,
+    )
+    filters = command[command.index("-vf") + 1]
+
+    assert command[command.index("-hwaccel") + 1] == "cuda"
+    assert command[command.index("-preset") + 1] == "p1"
+    assert "scale_cuda" in filters
+    assert "tonemap" not in filters
+    assert "format=yuv420p" in filters
+    assert "-pix_fmt" not in command

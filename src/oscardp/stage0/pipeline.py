@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from oscardp.shots.progress import ProgressReporter
 
 from .media import HDR_FILTER_ORDERS, GIB, MediaInfo, classification, probe, select_audio_stream, supports_hdr_tonemap, target_dimensions, target_fps, transcode_reasons, video_filter
 
@@ -34,6 +38,8 @@ class NormalizeOptions:
     cq: int = 25
     max_size_gib: float = 4.5
     hdr_filter_order: str = "resize-first"
+    progress: bool = True
+    fast: bool = False
 
 
 def discover_videos(root: Path, movie_id: str | None, limit: int | None, inventory: Path | None) -> list[Path]:
@@ -107,9 +113,22 @@ def validate_output(path: Path, source: MediaInfo, max_size_gib: float) -> tuple
     return not problems, "; ".join(problems), output
 
 
-def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrate: int | None = None, hdr_filter_order: str = "resize-first") -> list[str]:
+def _fast_video_filter(info: MediaInfo) -> str:
+    width, height = target_dimensions(info)
+    scale = f"scale_cuda=w={width}:h={height}:interp_algo=bilinear"
+    if info.bit_depth > 8:
+        # scale_cuda cannot change 10-bit YUV to 8-bit YUV.  Resize on the GPU,
+        # then do only the inexpensive final pixel-format conversion on CPU.
+        return f"{scale},hwdownload,format=p010le,format=yuv420p"
+    return f"{scale}:format=yuv420p"
+
+
+def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrate: int | None = None, hdr_filter_order: str = "resize-first", fast: bool = False) -> list[str]:
     audio_stream = select_audio_stream(info)
-    command = ["ffmpeg", "-y", "-v", "error", "-i", str(source), "-map", "0:v:0"]
+    command = ["ffmpeg", "-y", "-v", "error", "-progress", "pipe:1", "-nostats"]
+    if fast:
+        command.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
+    command.extend(["-i", str(source), "-map", "0:v:0"])
     if audio_stream is not None:
         # Windows' built-in players are broadly compatible with AAC-LC stereo
         # in an MP4 container.  Do not copy a source surround track such as
@@ -119,7 +138,15 @@ def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrat
             "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "192k",
             "-ar", "48000", "-ac", "2",
         ])
-    command.extend(["-vf", video_filter(info, hdr_filter_order=hdr_filter_order), "-r", f"{target_fps(info):.6f}", "-c:v", "hevc_nvenc", "-preset", "p6", "-pix_fmt", "yuv420p"])
+    filters = _fast_video_filter(info) if fast else video_filter(info, hdr_filter_order=hdr_filter_order)
+    command.extend(["-vf", filters, "-r", f"{target_fps(info):.6f}", "-c:v", "hevc_nvenc", "-preset", "p1" if fast else "p6"])
+    # scale_cuda produces CUDA hardware frames.  Asking FFmpeg to force a
+    # software yuv420p frame after that filter inserts an unsupported GPU to
+    # software auto_scale conversion.  The NVENC encoder accepts the CUDA
+    # frame directly and emits 8-bit 4:2:0 because the fast filter explicitly
+    # requests yuv420p.  The CPU path still needs an explicit output format.
+    if not fast:
+        command.extend(["-pix_fmt", "yuv420p"])
     if bitrate is None:
         command.extend(["-rc", "vbr", "-cq", str(cq), "-b:v", "0"])
     else:
@@ -128,20 +155,44 @@ def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrat
     return command
 
 
+def _run_ffmpeg(command: list[str], info: MediaInfo, progress: ProgressReporter, label: str) -> None:
+    total_frames = max(1, math.ceil(info.duration_sec * target_fps(info)))
+    progress.stage(label, total_frames, estimated=True)
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as error_file:
+        process = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=error_file)
+        assert process.stdout is not None
+        for raw_line in process.stdout:
+            key, separator, value = raw_line.strip().partition("=")
+            if key == "frame" and separator:
+                try:
+                    progress.update(min(int(value), total_frames))
+                except ValueError:
+                    pass
+        returncode = process.wait()
+        error_file.seek(0)
+        error = error_file.read().strip()
+    if returncode:
+        progress.fail(error or f"FFmpeg exited with status {returncode}")
+        raise subprocess.CalledProcessError(returncode, command, stderr=error)
+    progress.update(total_frames)
+    progress.finish("encode complete")
+
+
 def encode(source: Path, final: Path, info: MediaInfo, options: NormalizeOptions) -> tuple[str, str]:
     final.parent.mkdir(parents=True, exist_ok=True)
     partial = final.with_name(final.stem + ".partial.mp4")
+    progress = ProgressReporter(enabled=options.progress)
     if partial.exists():
         partial.unlink()
     try:
-        subprocess.run(ffmpeg_command(source, partial, info, options.cq, hdr_filter_order=options.hdr_filter_order), text=True, capture_output=True, check=True)
+        _run_ffmpeg(ffmpeg_command(source, partial, info, options.cq, hdr_filter_order=options.hdr_filter_order, fast=options.fast), info, progress, "Fast GPU transcoding" if options.fast else "Transcoding")
         if partial.stat().st_size / GIB > options.max_size_gib:
             partial.unlink()
             target_bits = 4.3 * GIB * 8
             bitrate = int(target_bits / info.duration_sec - 192_000)
             if bitrate <= 0:
                 return "FAILED_OVERSIZE", "computed non-positive retry bitrate"
-            subprocess.run(ffmpeg_command(source, partial, info, options.cq, bitrate, options.hdr_filter_order), text=True, capture_output=True, check=True)
+            _run_ffmpeg(ffmpeg_command(source, partial, info, options.cq, bitrate, options.hdr_filter_order, options.fast), info, progress, "Retry transcoding for size limit")
         valid, message, _ = validate_output(partial, info, options.max_size_gib)
         if not valid:
             return ("FAILED_OVERSIZE" if partial.exists() and partial.stat().st_size / GIB > options.max_size_gib else "VALIDATION_FAILED"), message

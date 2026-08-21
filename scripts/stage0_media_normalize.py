@@ -26,6 +26,8 @@ def main() -> int:
     parser.add_argument("--movie-id")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--force", action="store_true", help="Allow replacing an invalid existing output; source is never changed")
+    parser.add_argument("--no-progress", action="store_true", help="Disable the FFmpeg frame progress bar")
+    parser.add_argument("--fast", action="store_true", help="Use CUDA decode/resize and fastest NVENC preset; skip HDR tone mapping, so colors may be inaccurate")
     parser.add_argument("--cq", type=int, default=25)
     parser.add_argument("--max-size-gib", type=float, default=4.5)
     parser.add_argument("--hdr-filter-order", choices=("resize-first", "tonemap-first"), default="resize-first", help="HDR CPU filter order; tonemap-first is retained only for visual QC comparison")
@@ -33,7 +35,7 @@ def main() -> int:
     if args.inventory and not args.inventory.is_file(): parser.error(f"Inventory does not exist: {args.inventory}")
     inventory = args.inventory.resolve() if args.inventory else find_inventory(args.input_root)
     if inventory: print(f"Using existing inventory as provenance: {inventory}")
-    rows = run(NormalizeOptions(input_root=args.input_root.resolve(), output_root=args.output_root.resolve(), inventory=inventory, execute=args.execute, movie_id=args.movie_id, limit=args.limit, force=args.force, cq=args.cq, max_size_gib=args.max_size_gib, hdr_filter_order=args.hdr_filter_order))
+    rows = run(NormalizeOptions(input_root=args.input_root.resolve(), output_root=args.output_root.resolve(), inventory=inventory, execute=args.execute, movie_id=args.movie_id, limit=args.limit, force=args.force, cq=args.cq, max_size_gib=args.max_size_gib, hdr_filter_order=args.hdr_filter_order, progress=not args.no_progress, fast=args.fast))
     print(f"Stage 0 complete: {len(rows)} movie files; reports: {args.output_root / 'stage0_media_inventory.csv'}")
     return 0
 
