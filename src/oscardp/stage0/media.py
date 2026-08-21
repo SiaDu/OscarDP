@@ -12,6 +12,8 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".m4v", ".avi", ".webm", ".ts", ".m2
 SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx"}
 TARGET_CODECS = {"h264", "hevc"}
 TARGET_MAX_SIZE_GIB = 4.5
+MAX_PASSTHROUGH_FPS = 30.0
+NORMALIZED_FPS = 24.0
 
 
 @dataclass(frozen=True)
@@ -142,6 +144,11 @@ def target_dimensions(info: MediaInfo) -> tuple[int, int]:
     return max(2, int(info.width * factor) // 2 * 2), max(2, int(info.height * factor) // 2 * 2)
 
 
+def target_fps(info: MediaInfo) -> float:
+    """Stage 0C output FPS; inventory remains informational-only."""
+    return NORMALIZED_FPS if info.fps > MAX_PASSTHROUGH_FPS else info.fps
+
+
 def profile_reasons(info: MediaInfo, max_size_gib: float = TARGET_MAX_SIZE_GIB) -> list[str]:
     reasons: list[str] = []
     if info.dynamic_range != "SDR":
@@ -166,8 +173,11 @@ def inventory_classification(info: MediaInfo, max_size_gib: float = TARGET_MAX_S
 
 
 def transcode_reasons(info: MediaInfo, max_size_gib: float) -> list[str]:
-    """Compatibility adapter for Stage 0C's existing report schema."""
-    return profile_reasons(info, max_size_gib)
+    """Stage 0C reasons, including the explicitly requested FPS normalization."""
+    reasons = profile_reasons(info, max_size_gib)
+    if info.fps > MAX_PASSTHROUGH_FPS:
+        reasons.append(f"fps exceeds {MAX_PASSTHROUGH_FPS:g}; normalize to {NORMALIZED_FPS:g} fps")
+    return reasons
 
 
 def classification(reasons: list[str]) -> str:

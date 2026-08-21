@@ -40,6 +40,7 @@ class PreflightOptions:
     report_dir: Path
     apply_renames: bool = False
     quarantine: bool = False
+    delete_planned: bool = False
     quarantine_root: Path | None = None
     include_unknown_quarantine: bool = False
     limit: int | None = None
@@ -125,6 +126,18 @@ def _rename_safely(source: Path, destination: Path) -> str:
     return "RENAMED"
 
 
+def _delete_safely(source: Path) -> str:
+    if not source.is_file():
+        return "SKIPPED_SOURCE_MISSING"
+    source.unlink()
+    return "DELETED"
+
+
+def _canonical_primary_name(movie_key: str, info: MediaInfo, suffix: str) -> str:
+    fps = f"{info.fps:.3f}".rstrip("0").rstrip(".")
+    return f"{movie_key}.{info.width}x{info.height}.{fps}fps.{info.codec}.{info.bit_depth}bit.{info.dynamic_range}{suffix.lower()}"
+
+
 def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
@@ -153,7 +166,7 @@ def run(options: PreflightOptions) -> tuple[list[dict[str, Any]], list[dict[str,
         embedded_languages = [stream_language(stream) for stream in embedded]
         canonical_name = ""; rename_required = False; rename_status = "NOT_REQUIRED"
         if primary:
-            source = primary["path"]; canonical_name = f"{folder.name}{source.suffix.lower()}"; target = source.with_name(canonical_name)
+            source = primary["path"]; canonical_name = _canonical_primary_name(folder.name, primary["info"], source.suffix); target = source.with_name(canonical_name)
             rename_required = source.name != canonical_name
             if rename_required:
                 status = _rename_safely(source, target) if options.apply_renames else "PLANNED"
@@ -170,25 +183,29 @@ def run(options: PreflightOptions) -> tuple[list[dict[str, Any]], list[dict[str,
         for item in videos:
             if item["auxiliary"]:
                 source = item["path"]; destination = quarantine_root / source.relative_to(options.input_root)
-                status = _move_safely(source, destination) if options.quarantine else "PLANNED"
-                plan.append({"movie_key": folder.name, "source_relpath": source.relative_to(options.input_root).as_posix(), "action": "QUARANTINE", "category": "AUXILIARY_VIDEO", "destination_relpath": destination.relative_to(quarantine_root).as_posix(), "status": status, "reason": "auxiliary name or short duration"})
+                action = "DELETE" if options.delete_planned else "QUARANTINE"
+                status = _delete_safely(source) if options.delete_planned else (_move_safely(source, destination) if options.quarantine else "PLANNED")
+                plan.append({"movie_key": folder.name, "source_relpath": source.relative_to(options.input_root).as_posix(), "action": action, "category": "AUXILIARY_VIDEO", "destination_relpath": "" if options.delete_planned else destination.relative_to(quarantine_root).as_posix(), "status": status, "reason": "auxiliary name or short duration"})
         for path in files:
             if path.suffix.lower() in VIDEO_EXTENSIONS | SUBTITLE_EXTENSIONS: continue
             category = _category(path)
             eligible = category in {"IMAGE_ASSET", "RELEASE_METADATA", "EXECUTABLE_OR_SCRIPT"} or (category == "UNKNOWN" and options.include_unknown_quarantine)
             if eligible:
                 destination = quarantine_root / path.relative_to(options.input_root)
-                status = _move_safely(path, destination) if options.quarantine else "PLANNED"
-                plan.append({"movie_key": folder.name, "source_relpath": path.relative_to(options.input_root).as_posix(), "action": "QUARANTINE", "category": category, "destination_relpath": destination.relative_to(quarantine_root).as_posix(), "status": status, "reason": "safe cleanup category"})
+                action = "DELETE" if options.delete_planned else "QUARANTINE"
+                status = _delete_safely(path) if options.delete_planned else (_move_safely(path, destination) if options.quarantine else "PLANNED")
+                plan.append({"movie_key": folder.name, "source_relpath": path.relative_to(options.input_root).as_posix(), "action": action, "category": category, "destination_relpath": "" if options.delete_planned else destination.relative_to(quarantine_root).as_posix(), "status": status, "reason": "safe cleanup category"})
         manual = selection_review or any(reason in {"MISSING_MOVIE_ID", "MULTIPLE_ENGLISH_SUBTITLES", "CANONICAL_FILENAME_CONFLICT"} for reason in reasons)
         has_embedded_english = any(is_english(language) for language in embedded_languages)
-        row = {"movie_id": movie_id, "movie_key": folder.name, "movie_folder": folder.relative_to(options.input_root).as_posix(), "primary_video_path": primary["path"].relative_to(options.input_root).as_posix() if primary else "", "primary_video_original_name": primary["path"].name if primary else "", "primary_video_canonical_name": canonical_name, "primary_video_confidence": confidence, "video_candidate_count": len(videos), "auxiliary_video_count": sum(item["auxiliary"] for item in videos), "multiple_full_movie_candidates": "MULTIPLE_FULL_MOVIE_CANDIDATES" in reasons, "external_subtitle_count": len(subtitles), "english_external_subtitle_count": len(english_subtitles), "embedded_subtitle_count": len(embedded), "has_embedded_english_subtitle": has_embedded_english, "has_english_subtitle": bool(english_subtitles or has_embedded_english), "image_asset_count": categories["IMAGE_ASSET"], "release_metadata_count": categories["RELEASE_METADATA"], "archive_count": categories["ARCHIVE"], "unknown_file_count": categories["UNKNOWN"], "rename_required": rename_required, "rename_status": rename_status, "cleanup_candidate_count": sum(item["movie_key"] == folder.name and item["action"] == "QUARANTINE" for item in plan), "cleanup_status": "PLANNED" if any(item["movie_key"] == folder.name and item["action"] == "QUARANTINE" for item in plan) else "NONE", "manual_review_required": manual, "manual_review_reasons": ";".join(dict.fromkeys(reasons))}
+        cleanup_actions = {"QUARANTINE", "DELETE"}
+        row = {"movie_id": movie_id, "movie_key": folder.name, "movie_folder": folder.relative_to(options.input_root).as_posix(), "primary_video_path": primary["path"].relative_to(options.input_root).as_posix() if primary else "", "primary_video_original_name": primary["path"].name if primary else "", "primary_video_canonical_name": canonical_name, "primary_video_confidence": confidence, "video_candidate_count": len(videos), "auxiliary_video_count": sum(item["auxiliary"] for item in videos), "multiple_full_movie_candidates": "MULTIPLE_FULL_MOVIE_CANDIDATES" in reasons, "external_subtitle_count": len(subtitles), "english_external_subtitle_count": len(english_subtitles), "embedded_subtitle_count": len(embedded), "has_embedded_english_subtitle": has_embedded_english, "has_english_subtitle": bool(english_subtitles or has_embedded_english), "image_asset_count": categories["IMAGE_ASSET"], "release_metadata_count": categories["RELEASE_METADATA"], "archive_count": categories["ARCHIVE"], "unknown_file_count": categories["UNKNOWN"], "rename_required": rename_required, "rename_status": rename_status, "cleanup_candidate_count": sum(item["movie_key"] == folder.name and item["action"] in cleanup_actions for item in plan), "cleanup_status": "PLANNED" if any(item["movie_key"] == folder.name and item["action"] in cleanup_actions for item in plan) else "NONE", "manual_review_required": manual, "manual_review_reasons": ";".join(dict.fromkeys(reasons))}
         rows.append(row)
     options.report_dir.mkdir(parents=True, exist_ok=True)
     _write_csv(options.report_dir / "stage0_source_preflight.csv", PREFLIGHT_FIELDS, rows)
     with (options.report_dir / "stage0_source_preflight.jsonl").open("w", encoding="utf-8") as handle:
         for row in rows: handle.write(json.dumps(row, ensure_ascii=False) + "\n")
     _write_csv(options.report_dir / "stage0_cleanup_plan.csv", PLAN_FIELDS, plan)
-    summary = {"movie_directory_count": len(rows), "primary_movies_confidently_identified": sum(row["primary_video_confidence"] == "high" for row in rows), "manual_review_count": sum(bool(row["manual_review_required"]) for row in rows), "multiple_video_candidate_count": sum(int(row["video_candidate_count"]) > 1 for row in rows), "external_english_subtitle_movie_count": sum(int(row["english_external_subtitle_count"]) > 0 for row in rows), "embedded_english_subtitle_movie_count": sum(bool(row["has_embedded_english_subtitle"]) for row in rows), "no_detected_english_subtitle_count": sum(not bool(row["has_english_subtitle"]) for row in rows), "image_asset_count": sum(int(row["image_asset_count"]) for row in rows), "release_metadata_count": sum(int(row["release_metadata_count"]) for row in rows), "archive_count": sum(int(row["archive_count"]) for row in rows), "auxiliary_video_count": sum(int(row["auxiliary_video_count"]) for row in rows), "unknown_file_count": sum(int(row["unknown_file_count"]) for row in rows), "planned_rename_count": sum(item["action"] == "RENAME" and item["status"] == "PLANNED" for item in plan), "quarantine_eligible_count": sum(item["action"] == "QUARANTINE" for item in plan), "file_categories": dict(Counter(item["category"] for item in plan if item["action"] == "QUARANTINE")), "manual_review_cases": [row["movie_key"] for row in rows if row["manual_review_required"]], "representative_planned_renames": [item for item in plan if item["action"] == "RENAME"][:10]}
+    cleanup_actions = {"QUARANTINE", "DELETE"}
+    summary = {"movie_directory_count": len(rows), "primary_movies_confidently_identified": sum(row["primary_video_confidence"] == "high" for row in rows), "manual_review_count": sum(bool(row["manual_review_required"]) for row in rows), "multiple_video_candidate_count": sum(int(row["video_candidate_count"]) > 1 for row in rows), "external_english_subtitle_movie_count": sum(int(row["english_external_subtitle_count"]) > 0 for row in rows), "embedded_english_subtitle_movie_count": sum(bool(row["has_embedded_english_subtitle"]) for row in rows), "no_detected_english_subtitle_count": sum(not bool(row["has_english_subtitle"]) for row in rows), "image_asset_count": sum(int(row["image_asset_count"]) for row in rows), "release_metadata_count": sum(int(row["release_metadata_count"]) for row in rows), "archive_count": sum(int(row["archive_count"]) for row in rows), "auxiliary_video_count": sum(int(row["auxiliary_video_count"]) for row in rows), "unknown_file_count": sum(int(row["unknown_file_count"]) for row in rows), "planned_rename_count": sum(item["action"] == "RENAME" and item["status"] == "PLANNED" for item in plan), "quarantine_eligible_count": sum(item["action"] in cleanup_actions for item in plan), "file_categories": dict(Counter(item["category"] for item in plan if item["action"] in cleanup_actions)), "manual_review_cases": [row["movie_key"] for row in rows if row["manual_review_required"]], "representative_planned_renames": [item for item in plan if item["action"] == "RENAME"][:10]}
     (options.report_dir / "stage0_cleanup_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return rows, plan, summary

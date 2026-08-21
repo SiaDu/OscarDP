@@ -6,18 +6,14 @@
   "external_english_subtitle_movie_count": 9,
   "embedded_english_subtitle_movie_count": 62,
   "no_detected_english_subtitle_count": 176,
-  "image_asset_count": 107,
-  "release_metadata_count": 74,
+  "image_asset_count": 0,
+  "release_metadata_count": 0,
   "archive_count": 0,
-  "auxiliary_video_count": 1,
+  "auxiliary_video_count": 0,
   "unknown_file_count": 21,
-  "planned_rename_count": 182,
-  "quarantine_eligible_count": 182,
-  "file_categories": {
-    "RELEASE_METADATA": 74,
-    "IMAGE_ASSET": 107,
-    "AUXILIARY_VIDEO": 1
-  },
+  "planned_rename_count": 0,
+  "quarantine_eligible_count": 0,
+  "file_categories": {},
   "manual_review_cases": [
     "tt0361748_InglouriousBasterds",
     "tt0380510_TheLovelyBones",
@@ -89,96 +85,5 @@
     "tt5580036_ITonya",
     "tt9100054_TheLostDaughter"
   ],
-  "representative_planned_renames": [
-    {
-      "movie_key": "tt0159365_ColdMountain",
-      "source_relpath": "tt0159365_ColdMountain/冷山 (2003) - 1080p.mkv",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0159365_ColdMountain/tt0159365_ColdMountain.mkv",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    },
-    {
-      "movie_key": "tt0217505_GangsofNewYork",
-      "source_relpath": "tt0217505_GangsofNewYork/Gangs.of.New.York.2002.mkv",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0217505_GangsofNewYork/tt0217505_GangsofNewYork.mkv",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    },
-    {
-      "movie_key": "tt0253474_ThePianist",
-      "source_relpath": "tt0253474_ThePianist/钢琴家.中英双字.2002.1080P.mp4",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0253474_ThePianist/tt0253474_ThePianist.mp4",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    },
-    {
-      "movie_key": "tt0257044_RoadtoPerdition",
-      "source_relpath": "tt0257044_RoadtoPerdition/毁灭之路.2002. [高分复仇] - Chosen1.mkv",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0257044_RoadtoPerdition/tt0257044_RoadtoPerdition.mkv",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    },
-    {
-      "movie_key": "tt0257360_AboutSchmidt",
-      "source_relpath": "tt0257360_AboutSchmidt/关于施密特.2002.1080P.中文字幕.mp4",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0257360_AboutSchmidt/tt0257360_AboutSchmidt.mp4",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    },
-    {
-      "movie_key": "tt0264464_CatchMeIfYouCan",
-      "source_relpath": "tt0264464_CatchMeIfYouCan/猫鼠游戏.中英双字.2002.1080P.mp4",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0264464_CatchMeIfYouCan/tt0264464_CatchMeIfYouCan.mp4",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    },
-    {
-      "movie_key": "tt0268126_Adaptation",
-      "source_relpath": "tt0268126_Adaptation/Adaptation.2002.1080p.BluRay.x264.DTS-WiKi.mkv",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0268126_Adaptation/tt0268126_Adaptation.mkv",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    },
-    {
-      "movie_key": "tt0274558_TheHours",
-      "source_relpath": "tt0274558_TheHours/时时刻刻.中英双字.2002.1080P.mp4",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0274558_TheHours/tt0274558_TheHours.mp4",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    },
-    {
-      "movie_key": "tt0297884_FarfromHeaven",
-      "source_relpath": "tt0297884_FarfromHeaven/远离天堂.Far.from.Heaven.2002.BluRay.720p.x264.AC3-CnSCG.mkv",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0297884_FarfromHeaven/tt0297884_FarfromHeaven.mkv",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    },
-    {
-      "movie_key": "tt0315733_21Grams",
-      "source_relpath": "tt0315733_21Grams/21k.2003.BD1080p.中英双字.mp4",
-      "action": "RENAME",
-      "category": "PRIMARY_VIDEO",
-      "destination_relpath": "tt0315733_21Grams/tt0315733_21Grams.mp4",
-      "status": "PLANNED",
-      "reason": "canonical primary filename"
-    }
-  ]
+  "representative_planned_renames": []
 }

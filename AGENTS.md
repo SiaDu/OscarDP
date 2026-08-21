@@ -93,20 +93,6 @@ All paths must be configurable through CLI arguments.
 
 ---
 
-## 3. Source-data safety
-
-Never modify source movies.
-
-Do not:
-
-- rename, move, delete, or overwrite source files;
-- transcode in place;
-- write generated files into the source folders.
-
-All outputs must go under `OUTPUT_ROOT`.
-
----
-
 ## 4. Supported videos
 
 Recursively discover:

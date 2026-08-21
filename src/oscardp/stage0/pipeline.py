@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .media import HDR_FILTER_ORDERS, GIB, MediaInfo, classification, probe, select_audio_stream, supports_hdr_tonemap, target_dimensions, transcode_reasons, video_filter
+from .media import HDR_FILTER_ORDERS, GIB, MediaInfo, classification, probe, select_audio_stream, supports_hdr_tonemap, target_dimensions, target_fps, transcode_reasons, video_filter
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".m4v", ".avi", ".webm"}
 FIELDS = [
@@ -19,6 +19,7 @@ FIELDS = [
     "output_exists", "output_size_gib", "ffmpeg_status", "validation_status", "error_message",
 ]
 ID_PATTERN = re.compile(r"(?i)(tt\d{7,10})")
+STANDARDIZED_SUFFIX = "_standardized"
 
 
 @dataclass(frozen=True)
@@ -53,11 +54,11 @@ def discover_videos(root: Path, movie_id: str | None, limit: int | None, invento
                     candidate.relative_to(root)
                 except ValueError:
                     continue
-                if candidate.is_file() and candidate.suffix.lower() in VIDEO_EXTENSIONS:
+                if candidate.is_file() and candidate.suffix.lower() in VIDEO_EXTENSIONS and not candidate.stem.lower().endswith(STANDARDIZED_SUFFIX):
                     paths.append(candidate)
         paths = sorted(set(paths), key=lambda item: item.as_posix().lower())
     if not paths:
-        paths = [path for path in sorted(root.rglob("*"), key=lambda item: item.as_posix().lower()) if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS and not any(part.startswith(".") for part in path.relative_to(root).parts)]
+        paths = [path for path in sorted(root.rglob("*"), key=lambda item: item.as_posix().lower()) if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS and not path.stem.lower().endswith(STANDARDIZED_SUFFIX) and not any(part.startswith(".") for part in path.relative_to(root).parts)]
     if movie_id:
         wanted = movie_id.lower()
         paths = [path for path in paths if wanted in path.as_posix().lower()]
@@ -73,8 +74,9 @@ def movie_identity(path: Path, input_root: Path) -> tuple[str, str]:
 
 
 def output_path(path: Path, input_root: Path, output_root: Path) -> Path:
-    relative = path.relative_to(input_root)
-    return output_root / relative.parent / f"{path.stem}_standardized.mp4"
+    """Return a derivative beside its source; roots remain report/provenance inputs."""
+    del input_root, output_root
+    return path.with_name(f"{path.stem}{STANDARDIZED_SUFFIX}.mp4")
 
 
 def source_fields(info: MediaInfo) -> dict[str, object]:
@@ -100,7 +102,8 @@ def validate_output(path: Path, source: MediaInfo, max_size_gib: float) -> tuple
         problems.append("output color metadata is not BT.709")
     if output.size_gib > max_size_gib: problems.append(f"size exceeds {max_size_gib} GiB")
     if abs(output.duration_sec - source.duration_sec) > 0.5: problems.append("duration differs by over 0.5 sec")
-    if source.fps and abs(output.fps - source.fps) > max(0.01, source.fps * 0.001): problems.append("fps changed")
+    expected_fps = target_fps(source)
+    if expected_fps and abs(output.fps - expected_fps) > max(0.01, expected_fps * 0.001): problems.append(f"fps is {output.fps}, expected {expected_fps}")
     return not problems, "; ".join(problems), output
 
 
@@ -108,8 +111,15 @@ def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrat
     audio_stream = select_audio_stream(info)
     command = ["ffmpeg", "-y", "-v", "error", "-i", str(source), "-map", "0:v:0"]
     if audio_stream is not None:
-        command.extend(["-map", f"0:{audio_stream}", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"])
-    command.extend(["-vf", video_filter(info, hdr_filter_order=hdr_filter_order), "-c:v", "hevc_nvenc", "-preset", "p6", "-pix_fmt", "yuv420p"])
+        # Windows' built-in players are broadly compatible with AAC-LC stereo
+        # in an MP4 container.  Do not copy a source surround track such as
+        # AAC 7.1, TrueHD, DTS, or E-AC-3 into the standardized derivative.
+        command.extend([
+            "-map", f"0:{audio_stream}",
+            "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "192k",
+            "-ar", "48000", "-ac", "2",
+        ])
+    command.extend(["-vf", video_filter(info, hdr_filter_order=hdr_filter_order), "-r", f"{target_fps(info):.6f}", "-c:v", "hevc_nvenc", "-preset", "p6", "-pix_fmt", "yuv420p"])
     if bitrate is None:
         command.extend(["-rc", "vbr", "-cq", str(cq), "-b:v", "0"])
     else:
@@ -172,7 +182,7 @@ def run(options: NormalizeOptions) -> list[dict[str, object]]:
         row: dict[str, object] = {"movie_id": movie_id, "movie_title": title, "source_path": str(source), "output_path": str(final), "target_codec": "hevc", "target_dynamic_range": "SDR", "target_size_limit_gib": options.max_size_gib, "output_exists": final.exists(), "output_size_gib": round(final.stat().st_size / GIB, 6) if final.exists() else "", "error_message": ""}
         try:
             info = probe(source); row.update(source_fields(info))
-            width, height = target_dimensions(info); row.update({"target_width": width, "target_height": height, "target_fps": round(info.fps, 6)})
+            width, height = target_dimensions(info); row.update({"target_width": width, "target_height": height, "target_fps": round(target_fps(info), 6)})
             reasons = transcode_reasons(info, options.max_size_gib); row.update({"classification": classification(reasons), "transcode_required": bool(reasons), "transcode_reasons": ";".join(reasons)})
             if not reasons:
                 row.update({"processing_source_path": str(source), "ffmpeg_status": "NOT_REQUIRED", "validation_status": "KEEP"})

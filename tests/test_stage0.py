@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from oscardp.stage0.media import MediaInfo, _is_hdr, classification, inventory_classification, profile_reasons, target_dimensions, transcode_reasons, video_filter
-from oscardp.stage0.pipeline import validate_output
+from oscardp.stage0.pipeline import discover_videos, output_path, validate_output
 
 
 def info(**changes: object) -> MediaInfo:
@@ -17,10 +17,11 @@ def info(**changes: object) -> MediaInfo:
     return MediaInfo(**values)  # type: ignore[arg-type]
 
 
-def test_profile_ignores_container_fps_and_audio() -> None:
+def test_inventory_ignores_fps_but_normalization_schedules_high_fps() -> None:
     source = info(container="matroska,webm", codec="h264", fps=60.0)
-    assert transcode_reasons(source, 4.5) == []
-    assert classification([]) == "KEEP"
+    assert inventory_classification(source) == "PASS"
+    assert transcode_reasons(source, 4.5) == ["fps exceeds 30; normalize to 24 fps"]
+    assert classification(transcode_reasons(source, 4.5)) == "TRANSCODE"
 
 
 def test_classification_records_all_independent_reasons() -> None:
@@ -70,3 +71,26 @@ def test_validation_requires_bt709(monkeypatch, tmp_path) -> None:
     passed, message, _ = validate_output(output, info(), 4.5)
     assert not passed
     assert "BT.709" in message
+
+
+def test_standardized_output_is_written_beside_source(tmp_path) -> None:
+    input_root = tmp_path / "movies"
+    source = input_root / "tt1234567" / "Feature.mkv"
+    report_root = tmp_path / "stage0_reports"
+    source.parent.mkdir(parents=True)
+    source.touch()
+
+    result = output_path(source, input_root, report_root)
+
+    assert result == source.parent / "Feature_standardized.mp4"
+    assert result != source
+
+
+def test_discovery_does_not_reprocess_standardized_derivatives(tmp_path) -> None:
+    source = tmp_path / "tt1234567" / "Feature.mkv"
+    derivative = source.with_name("Feature_standardized.mp4")
+    source.parent.mkdir(parents=True)
+    source.touch()
+    derivative.touch()
+
+    assert discover_videos(tmp_path, None, None, None) == [source]
