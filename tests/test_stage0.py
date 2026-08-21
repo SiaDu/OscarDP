@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from oscardp.stage0.media import MediaInfo, classification, inventory_classification, profile_reasons, target_dimensions, transcode_reasons
+import pytest
+
+from oscardp.stage0.media import MediaInfo, _is_hdr, classification, inventory_classification, profile_reasons, target_dimensions, transcode_reasons, video_filter
 from oscardp.stage0.pipeline import validate_output
 
 
@@ -40,6 +42,26 @@ def test_inventory_profile_prioritizes_oversize_and_does_not_use_fps_or_bitrate(
 def test_target_dimensions_never_upscale_and_are_even() -> None:
     assert target_dimensions(info(width=1281, height=719)) == (1280, 718)
     assert target_dimensions(info(width=3840, height=1600)) == (1920, 800)
+
+
+def test_hdr_resize_first_is_default_and_scales_before_tonemap() -> None:
+    source = info(width=3840, height=2160, bit_depth=10, dynamic_range="HDR")
+    candidate = video_filter(source)
+    reference = video_filter(source, hdr_filter_order="tonemap-first")
+    assert candidate.startswith("zscale=w=1920:h=1080:t=linear:npl=100")
+    assert candidate.index("zscale=w=1920:h=1080") < candidate.index("tonemap=mobius")
+    assert ",scale=" not in candidate
+    assert reference.index("tonemap=mobius") < reference.index("scale=1920:1080")
+    with pytest.raises(ValueError, match="Unknown HDR filter order"):
+        video_filter(source, hdr_filter_order="not-a-mode")
+
+
+def test_explicit_bt709_is_sdr_even_if_static_hdr_side_data_is_retained() -> None:
+    static_hdr = [{"side_data_type": "Mastering display metadata"}]
+    assert not _is_hdr({"color_transfer": "bt709", "side_data_list": static_hdr})
+    assert _is_hdr({"color_transfer": "", "side_data_list": static_hdr})
+    assert _is_hdr({"color_transfer": "smpte2084", "side_data_list": []})
+    assert _is_hdr({"color_transfer": "bt709", "side_data_list": [{"side_data_type": "DOVI configuration record"}]})
 
 
 def test_validation_requires_bt709(monkeypatch, tmp_path) -> None:

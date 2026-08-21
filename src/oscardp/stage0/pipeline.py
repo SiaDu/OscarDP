@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .media import GIB, MediaInfo, classification, probe, select_audio_stream, supports_hdr_tonemap, target_dimensions, transcode_reasons, video_filter
+from .media import HDR_FILTER_ORDERS, GIB, MediaInfo, classification, probe, select_audio_stream, supports_hdr_tonemap, target_dimensions, transcode_reasons, video_filter
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".m4v", ".avi", ".webm"}
 FIELDS = [
@@ -32,6 +32,7 @@ class NormalizeOptions:
     force: bool = False
     cq: int = 25
     max_size_gib: float = 4.5
+    hdr_filter_order: str = "resize-first"
 
 
 def discover_videos(root: Path, movie_id: str | None, limit: int | None, inventory: Path | None) -> list[Path]:
@@ -103,12 +104,12 @@ def validate_output(path: Path, source: MediaInfo, max_size_gib: float) -> tuple
     return not problems, "; ".join(problems), output
 
 
-def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrate: int | None = None) -> list[str]:
+def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrate: int | None = None, hdr_filter_order: str = "resize-first") -> list[str]:
     audio_stream = select_audio_stream(info)
     command = ["ffmpeg", "-y", "-v", "error", "-i", str(source), "-map", "0:v:0"]
     if audio_stream is not None:
         command.extend(["-map", f"0:{audio_stream}", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"])
-    command.extend(["-vf", video_filter(info), "-c:v", "hevc_nvenc", "-preset", "p6", "-pix_fmt", "yuv420p"])
+    command.extend(["-vf", video_filter(info, hdr_filter_order=hdr_filter_order), "-c:v", "hevc_nvenc", "-preset", "p6", "-pix_fmt", "yuv420p"])
     if bitrate is None:
         command.extend(["-rc", "vbr", "-cq", str(cq), "-b:v", "0"])
     else:
@@ -123,14 +124,14 @@ def encode(source: Path, final: Path, info: MediaInfo, options: NormalizeOptions
     if partial.exists():
         partial.unlink()
     try:
-        subprocess.run(ffmpeg_command(source, partial, info, options.cq), text=True, capture_output=True, check=True)
+        subprocess.run(ffmpeg_command(source, partial, info, options.cq, hdr_filter_order=options.hdr_filter_order), text=True, capture_output=True, check=True)
         if partial.stat().st_size / GIB > options.max_size_gib:
             partial.unlink()
             target_bits = 4.3 * GIB * 8
             bitrate = int(target_bits / info.duration_sec - 192_000)
             if bitrate <= 0:
                 return "FAILED_OVERSIZE", "computed non-positive retry bitrate"
-            subprocess.run(ffmpeg_command(source, partial, info, options.cq, bitrate), text=True, capture_output=True, check=True)
+            subprocess.run(ffmpeg_command(source, partial, info, options.cq, bitrate, options.hdr_filter_order), text=True, capture_output=True, check=True)
         valid, message, _ = validate_output(partial, info, options.max_size_gib)
         if not valid:
             return ("FAILED_OVERSIZE" if partial.exists() and partial.stat().st_size / GIB > options.max_size_gib else "VALIDATION_FAILED"), message
@@ -162,6 +163,8 @@ def _write_reports(rows: list[dict[str, object]], output_root: Path) -> None:
 
 def run(options: NormalizeOptions) -> list[dict[str, object]]:
     if options.limit is not None and options.limit < 1: raise ValueError("--limit must be at least 1")
+    if options.hdr_filter_order not in HDR_FILTER_ORDERS:
+        raise ValueError(f"Unknown HDR filter order: {options.hdr_filter_order}")
     rows: list[dict[str, object]] = []
     for source in discover_videos(options.input_root, options.movie_id, options.limit, options.inventory):
         movie_id, title = movie_identity(source, options.input_root)

@@ -58,11 +58,21 @@ def _bit_depth(stream: dict[str, object]) -> int:
 
 
 def _is_hdr(stream: dict[str, object]) -> bool:
-    if str(stream.get("color_transfer") or "").lower() in HDR_TRANSFERS:
+    transfer = str(stream.get("color_transfer") or "").lower()
+    if transfer in HDR_TRANSFERS:
         return True
-    for item in stream.get("side_data_list") or []:
+    side_data = stream.get("side_data_list") or []
+    if any(isinstance(item, dict) and item.get("side_data_type") == "DOVI configuration record" for item in side_data):
+        return True
+    # NVENC can retain static mastering/CLL side data even after zscale has
+    # produced an explicitly tagged BT.709 SDR frame.  Explicit SDR transfer
+    # metadata is authoritative; use the remaining static fields only as a
+    # fallback for streams whose transfer characteristic is absent.
+    if transfer:
+        return False
+    for item in side_data:
         if isinstance(item, dict) and item.get("side_data_type") in {
-            "DOVI configuration record", "Mastering display metadata", "Content light level metadata",
+            "Mastering display metadata", "Content light level metadata",
         }:
             return True
     return False
@@ -194,10 +204,26 @@ def select_audio_stream(info: MediaInfo) -> int | None:
     return int(info.audio_streams[0]["index"])
 
 
-def video_filter(info: MediaInfo) -> str:
+HDR_FILTER_ORDERS = {"resize-first", "tonemap-first"}
+
+
+def video_filter(info: MediaInfo, hdr_filter_order: str = "resize-first") -> str:
+    """Return the Stage 0 video filter chain.
+
+    ``tonemap-first`` is kept solely as a visual-QC reference.  Resizing
+    during the first zscale step means the expensive float RGB tone mapping
+    operates at delivery resolution instead of source (often 4K) resolution.
+    """
+    if hdr_filter_order not in HDR_FILTER_ORDERS:
+        raise ValueError(f"Unknown HDR filter order: {hdr_filter_order}")
     width, height = target_dimensions(info)
     scale = f"scale={width}:{height}"
     if info.dynamic_range == "HDR":
+        if hdr_filter_order == "resize-first":
+            return (
+                f"zscale=w={width}:h={height}:t=linear:npl=100,format=gbrpf32le,"
+                "tonemap=mobius:desat=0,zscale=p=bt709:t=bt709:m=bt709:r=tv,format=yuv420p"
+            )
         return (
             "zscale=t=linear:npl=100,format=gbrpf32le,tonemap=mobius:desat=0,"
             f"zscale=p=bt709:t=bt709:m=bt709:r=tv,{scale},format=yuv420p"
