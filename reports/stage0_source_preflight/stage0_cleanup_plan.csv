@@ -1,24 +1,117 @@
 movie_key,source_relpath,action,category,destination_relpath,status,reason
+tt0159365_ColdMountain,tt0159365_ColdMountain/冷山 (2003) - 1080p.mkv,RENAME,PRIMARY_VIDEO,tt0159365_ColdMountain/tt0159365_ColdMountain.mkv,PLANNED,canonical primary filename
+tt0159365_ColdMountain,tt0159365_ColdMountain/冷山 (2003) - 1080p.nfo,QUARANTINE,RELEASE_METADATA,tt0159365_ColdMountain/冷山 (2003) - 1080p.nfo,PLANNED,safe cleanup category
+tt0217505_GangsofNewYork,tt0217505_GangsofNewYork/Gangs.of.New.York.2002.mkv,RENAME,PRIMARY_VIDEO,tt0217505_GangsofNewYork/tt0217505_GangsofNewYork.mkv,PLANNED,canonical primary filename
+tt0253474_ThePianist,tt0253474_ThePianist/钢琴家.中英双字.2002.1080P.mp4,RENAME,PRIMARY_VIDEO,tt0253474_ThePianist/tt0253474_ThePianist.mp4,PLANNED,canonical primary filename
+tt0257044_RoadtoPerdition,tt0257044_RoadtoPerdition/毁灭之路.2002. [高分复仇] - Chosen1.mkv,RENAME,PRIMARY_VIDEO,tt0257044_RoadtoPerdition/tt0257044_RoadtoPerdition.mkv,PLANNED,canonical primary filename
+tt0257360_AboutSchmidt,tt0257360_AboutSchmidt/关于施密特.2002.1080P.中文字幕.mp4,RENAME,PRIMARY_VIDEO,tt0257360_AboutSchmidt/tt0257360_AboutSchmidt.mp4,PLANNED,canonical primary filename
+tt0264464_CatchMeIfYouCan,tt0264464_CatchMeIfYouCan/猫鼠游戏.中英双字.2002.1080P.mp4,RENAME,PRIMARY_VIDEO,tt0264464_CatchMeIfYouCan/tt0264464_CatchMeIfYouCan.mp4,PLANNED,canonical primary filename
+tt0268126_Adaptation,tt0268126_Adaptation/Adaptation.2002.1080p.BluRay.x264.DTS-WiKi.mkv,RENAME,PRIMARY_VIDEO,tt0268126_Adaptation/tt0268126_Adaptation.mkv,PLANNED,canonical primary filename
+tt0274558_TheHours,tt0274558_TheHours/时时刻刻.中英双字.2002.1080P.mp4,RENAME,PRIMARY_VIDEO,tt0274558_TheHours/tt0274558_TheHours.mp4,PLANNED,canonical primary filename
+tt0297884_FarfromHeaven,tt0297884_FarfromHeaven/远离天堂.Far.from.Heaven.2002.BluRay.720p.x264.AC3-CnSCG.mkv,RENAME,PRIMARY_VIDEO,tt0297884_FarfromHeaven/tt0297884_FarfromHeaven.mkv,PLANNED,canonical primary filename
+tt0315733_21Grams,tt0315733_21Grams/21k.2003.BD1080p.中英双字.mp4,RENAME,PRIMARY_VIDEO,tt0315733_21Grams/tt0315733_21Grams.mp4,PLANNED,canonical primary filename
+tt0325710_TheLastSamurai,tt0325710_TheLastSamurai/最后的武士 (2003) - 1080p.mkv,RENAME,PRIMARY_VIDEO,tt0325710_TheLastSamurai/tt0325710_TheLastSamurai.mkv,PLANNED,canonical primary filename
+tt0325710_TheLastSamurai,tt0325710_TheLastSamurai/The.Last.Samuri.2003.720p.BrRip.x264.English.srt,RENAME,ENGLISH_SUBTITLE,tt0325710_TheLastSamurai/tt0325710_TheLastSamurai.en.srt,PLANNED,canonical English subtitle filename
+tt0327056_MysticRiver,tt0327056_MysticRiver/神秘河.2003.BD1080P.英语中字.mp4,RENAME,PRIMARY_VIDEO,tt0327056_MysticRiver/tt0327056_MysticRiver.mp4,PLANNED,canonical primary filename
+tt0328538_Thirteen,tt0328538_Thirteen/Thirteen.2003.720p.BluRay.x264.mp4,RENAME,PRIMARY_VIDEO,tt0328538_Thirteen/tt0328538_Thirteen.mp4,PLANNED,canonical primary filename
+tt0335266_LostinTranslation,tt0335266_LostinTranslation/迷失东京.Lost.in.Translation.2003.BD1080P.X264.AAC.Mandarin&English.CHS-ENG.mp4,RENAME,PRIMARY_VIDEO,tt0335266_LostinTranslation/tt0335266_LostinTranslation.mp4,PLANNED,canonical primary filename
+tt0338013_EternalSunshineoftheSpotlessMind,tt0338013_EternalSunshineoftheSpotlessMind/暖暖内含光.国英双语.中英双字.2004.1080P.mp4,RENAME,PRIMARY_VIDEO,tt0338013_EternalSunshineoftheSpotlessMind/tt0338013_EternalSunshineoftheSpotlessMind.mp4,PLANNED,canonical primary filename
+tt0338751_TheAviator,tt0338751_TheAviator/飞行家1080p[btbbt.cc][MFL].mp4,RENAME,PRIMARY_VIDEO,tt0338751_TheAviator/tt0338751_TheAviator.mp4,PLANNED,canonical primary filename
+tt0340855_Monster,tt0340855_Monster/女魔头.蓝光1080P.中英特效字幕.亿万同人字幕组.mp4,RENAME,PRIMARY_VIDEO,tt0340855_Monster/tt0340855_Monster.mp4,PLANNED,canonical primary filename
+tt0352248_CinderellaMan,tt0352248_CinderellaMan/Cinderella.Man.铁拳男人.双语字幕.HR-HDTV.AC3.960X528.x264-[公g号：七七云享](1).avi,RENAME,PRIMARY_VIDEO,tt0352248_CinderellaMan/tt0352248_CinderellaMan.avi,PLANNED,canonical primary filename
+tt0369339_Collateral,tt0369339_Collateral/借刀杀人.Collateral.2004.1080P.英语中字.mkv,RENAME,PRIMARY_VIDEO,tt0369339_Collateral/tt0369339_Collateral.mkv,PLANNED,canonical primary filename
+tt0375063_Sideways,tt0375063_Sideways/杯酒人生 Sideways (2004).avi,RENAME,PRIMARY_VIDEO,tt0375063_Sideways/tt0375063_Sideways.avi,PLANNED,canonical primary filename
+tt0375679_Crash,tt0375679_Crash/Top131.撞车(导演剪辑版).Crash.2004.Directors.Cut.Bluray.1080p.x265.AAC(5.1).2Audios.GREENOTEA.mkv,RENAME,PRIMARY_VIDEO,tt0375679_Crash/tt0375679_Crash.mkv,PLANNED,canonical primary filename
+tt0379725_Capote,tt0379725_Capote/Capote.2005.BluRay.1080p.x265-MiniHD.mkv,RENAME,PRIMARY_VIDEO,tt0379725_Capote/tt0379725_Capote.mkv,PLANNED,canonical primary filename
+tt0379725_Capote,tt0379725_Capote/Capote.2005.BluRay.1080p.x265-MiniHD.nfo.txt,QUARANTINE,RELEASE_METADATA,tt0379725_Capote/Capote.2005.BluRay.1080p.x265-MiniHD.nfo.txt,PLANNED,safe cleanup category
+tt0388795_BrokebackMountain,tt0388795_BrokebackMountain/Brokeback.Mountain.2005.BluRay.1080p.x265.10bit.MNHD-FRDS.mkv,RENAME,PRIMARY_VIDEO,tt0388795_BrokebackMountain/tt0388795_BrokebackMountain.mkv,PLANNED,canonical primary filename
+tt0388795_BrokebackMountain,tt0388795_BrokebackMountain/Brokeback.Mountain.2005.BluRay.1080p.x265.10bit.MNHD-FRDS.nfo,QUARANTINE,RELEASE_METADATA,tt0388795_BrokebackMountain/Brokeback.Mountain.2005.BluRay.1080p.x265.10bit.MNHD-FRDS.nfo,PLANNED,safe cleanup category
+tt0390221_MariaFullofGrace,tt0390221_MariaFullofGrace/w福m丽y.2004.BD1080p.中文字幕.mp4,RENAME,PRIMARY_VIDEO,tt0390221_MariaFullofGrace/tt0390221_MariaFullofGrace.mp4,PLANNED,canonical primary filename
+tt0395169_HotelRwanda,tt0395169_HotelRwanda/Top122.卢旺达饭店.Hotel.Rwanda.2004.Bluray.1080p.x265.AAC(5.1).2Audios.GREENOTEA.mkv,RENAME,PRIMARY_VIDEO,tt0395169_HotelRwanda/tt0395169_HotelRwanda.mkv,PLANNED,canonical primary filename
+tt0395972_NorthCountry,tt0395972_NorthCountry/决不让步.2005.B1080P.AAC.H264.CHS.mp4,RENAME,PRIMARY_VIDEO,tt0395972_NorthCountry/tt0395972_NorthCountry.mp4,PLANNED,canonical primary filename
+tt0399146_AHistoryofViolence,tt0399146_AHistoryofViolence/暴力史.mp4,RENAME,PRIMARY_VIDEO,tt0399146_AHistoryofViolence/tt0399146_AHistoryofViolence.mp4,PLANNED,canonical primary filename
+tt0404203_LittleChildren,tt0404203_LittleChildren/身为人母.Little.Children.2006.BD1080P.中英双字.mp4,RENAME,PRIMARY_VIDEO,tt0404203_LittleChildren/tt0404203_LittleChildren.mp4,PLANNED,canonical primary filename
+tt0405159_MillionDollarBaby,tt0405159_MillionDollarBaby/Million Dollar Baby (2004) (1080p BluRay x265 afm72).mkv,RENAME,PRIMARY_VIDEO,tt0405159_MillionDollarBaby/tt0405159_MillionDollarBaby.mkv,PLANNED,canonical primary filename
+tt0405159_MillionDollarBaby,tt0405159_MillionDollarBaby/Million Dollar Baby (2004) (1080p BluRay x265 afm72).EN.srt,RENAME,ENGLISH_SUBTITLE,tt0405159_MillionDollarBaby/tt0405159_MillionDollarBaby.en.srt,PLANNED,canonical English subtitle filename
+tt0407887_TheDeparted,tt0407887_TheDeparted/无间道风云 (2006) - 1080p.mkv,RENAME,PRIMARY_VIDEO,tt0407887_TheDeparted/tt0407887_TheDeparted.mkv,PLANNED,canonical primary filename
+tt0410097_HustleFlow,tt0410097_HustleFlow/season.nfo,QUARANTINE,RELEASE_METADATA,tt0410097_HustleFlow/season.nfo,PLANNED,safe cleanup category
+tt0410097_HustleFlow,tt0410097_HustleFlow/川流熙攘 2160p remux (2005).nfo,QUARANTINE,RELEASE_METADATA,tt0410097_HustleFlow/川流熙攘 2160p remux (2005).nfo,PLANNED,safe cleanup category
+tt0414055_ElizabethTheGoldenAge,tt0414055_ElizabethTheGoldenAge/第2部：黄金时代.2007.中英字幕.HDrip.720P.mp4,RENAME,PRIMARY_VIDEO,tt0414055_ElizabethTheGoldenAge/tt0414055_ElizabethTheGoldenAge.mp4,PLANNED,canonical primary filename
+tt0433383_GoodNightandGoodLuck,"tt0433383_GoodNightandGoodLuck/Good.Night,.And.Good.Luck.2005.BluRay.1080p.DTS-HDMA5.1.x265.10bit-Xiaomi.mkv",RENAME,PRIMARY_VIDEO,tt0433383_GoodNightandGoodLuck/tt0433383_GoodNightandGoodLuck.mkv,PLANNED,canonical primary filename
+tt0436697_TheQueen,tt0436697_TheQueen/女王.2006.1080p.REMUX.h264.DTSHD-MA.5.1-404.mkv,RENAME,PRIMARY_VIDEO,tt0436697_TheQueen/tt0436697_TheQueen.mkv,PLANNED,canonical primary filename
+tt0449059_LittleMissSunshine,tt0449059_LittleMissSunshine/Little.Miss.Sunshine.2006.BluRay.1080p.x265.10bit.2Audio-MiniHD.mkv,RENAME,PRIMARY_VIDEO,tt0449059_LittleMissSunshine/tt0449059_LittleMissSunshine.mkv,PLANNED,canonical primary filename
+tt0449059_LittleMissSunshine,tt0449059_LittleMissSunshine/Little.Miss.Sunshine.2006.BluRay.1080p.x265.10bit.2Audio-MiniHD.nfo.txt,QUARANTINE,RELEASE_METADATA,tt0449059_LittleMissSunshine/Little.Miss.Sunshine.2006.BluRay.1080p.x265.10bit.2Audio-MiniHD.nfo.txt,PLANNED,safe cleanup category
+tt0449467_Babel,tt0449467_Babel/通天塔.Babel.2006.2160p.WEB-DL.H265.HDR.DDP5.1.mkv,RENAME,PRIMARY_VIDEO,tt0449467_Babel/tt0449467_Babel.mkv,PLANNED,canonical primary filename
+tt0450259_BloodDiamond,tt0450259_BloodDiamond/Top225.血钻.Blood.Diamond.2006.Bluray.1080p.x265.AAC(5.1).2Audios.GREENOTEA.mkv,RENAME,PRIMARY_VIDEO,tt0450259_BloodDiamond/tt0450259_BloodDiamond.mkv,PLANNED,canonical primary filename
+tt0452623_GoneBabyGone,tt0452623_GoneBabyGone/失踪宝贝.1080p.国英双语.HD中英双字无水印.mkv,RENAME,PRIMARY_VIDEO,tt0452623_GoneBabyGone/tt0452623_GoneBabyGone.mkv,PLANNED,canonical primary filename
+tt0454921_ThePursuitofHappyness,tt0454921_ThePursuitofHappyness/当幸福来敲门.1080P.国英双语.BD中英双字.mkv,RENAME,PRIMARY_VIDEO,tt0454921_ThePursuitofHappyness/tt0454921_ThePursuitofHappyness.mkv,PLANNED,canonical primary filename
+tt0458352_TheDevilWearsPrada,tt0458352_TheDevilWearsPrada/穿普拉达的女王 (2006) - 1080p.mkv,RENAME,PRIMARY_VIDEO,tt0458352_TheDevilWearsPrada/tt0458352_TheDevilWearsPrada.mkv,PLANNED,canonical primary filename
+tt0465538_MichaelClayton,tt0465538_MichaelClayton/m克e·k莱d.2007.BD1080p.中英双字.mp4,RENAME,PRIMARY_VIDEO,tt0465538_MichaelClayton/tt0465538_MichaelClayton.mp4,PLANNED,canonical primary filename
+tt0467406_Juno,tt0467406_Juno/朱诺.中英双字.2007.1080P.mp4,RENAME,PRIMARY_VIDEO,tt0467406_Juno/tt0467406_Juno.mp4,PLANNED,canonical primary filename
+tt0469494_ThereWillBeBlood,tt0469494_ThereWillBeBlood/血色将至.There.Will.Be.Blood.2007.BluRay.1080p.x265.10bit.2Audio.MNHD-FRDS.mkv,RENAME,PRIMARY_VIDEO,tt0469494_ThereWillBeBlood/tt0469494_ThereWillBeBlood.mkv,PLANNED,canonical primary filename
+tt0472062_CharlieWilsonsWar,tt0472062_CharlieWilsonsWar/Charlie.Wilsons.War.2007.查理·威尔逊的战争.双语字幕.HR-HDTV.AC3.1024X576.X264-人人影视制作.mkv,RENAME,PRIMARY_VIDEO,tt0472062_CharlieWilsonsWar/tt0472062_CharlieWilsonsWar.mkv,PLANNED,canonical primary filename
+tt0477348_NoCountryforOldMen,tt0477348_NoCountryforOldMen/No.Country.for.Old.Men.2007.CC.1080p.BluRay.x265.10bit.DTS.2Audio-SONYHD.mkv,RENAME,PRIMARY_VIDEO,tt0477348_NoCountryforOldMen/tt0477348_NoCountryforOldMen.mkv,PLANNED,canonical primary filename
+tt0478134_IntheValleyofElah,tt0478134_IntheValleyofElah/j战y拉g.2007.BD1080p.中英双字.mp4,RENAME,PRIMARY_VIDEO,tt0478134_IntheValleyofElah/tt0478134_IntheValleyofElah.mp4,PLANNED,canonical primary filename
+tt0758758_IntotheWild,tt0758758_IntotheWild/荒野生存 (2007) - 1080p.mkv,RENAME,PRIMARY_VIDEO,tt0758758_IntotheWild/tt0758758_IntotheWild.mkv,PLANNED,canonical primary filename
+tt0765429_AmericanGangster,tt0765429_AmericanGangster/美国黑帮.加长版.2007.BD1080P.AAC.H264.CHS-ENG.mp4,RENAME,PRIMARY_VIDEO,tt0765429_AmericanGangster/tt0765429_AmericanGangster.mp4,PLANNED,canonical primary filename
+tt0775529_TheSavages,tt0775529_TheSavages/萨维奇一家.中英双字.2007.1080P.mp4,RENAME,PRIMARY_VIDEO,tt0775529_TheSavages/tt0775529_TheSavages.mp4,PLANNED,canonical primary filename
+tt0783233_Atonement,tt0783233_Atonement/赎罪.Atonement.2007.mp4,RENAME,PRIMARY_VIDEO,tt0783233_Atonement/tt0783233_Atonement.mp4,PLANNED,canonical primary filename
+tt0887912_TheHurtLocker,tt0887912_TheHurtLocker/season.nfo,QUARANTINE,RELEASE_METADATA,tt0887912_TheHurtLocker/season.nfo,PLANNED,safe cleanup category
+tt0887912_TheHurtLocker,tt0887912_TheHurtLocker/拆弹部队 2160p remux (2008).nfo,QUARANTINE,RELEASE_METADATA,tt0887912_TheHurtLocker/拆弹部队 2160p remux (2008).nfo,PLANNED,safe cleanup category
+tt0935075_RabbitHole,tt0935075_RabbitHole/season.nfo,QUARANTINE,RELEASE_METADATA,tt0935075_RabbitHole/season.nfo,PLANNED,safe cleanup category
+tt0935075_RabbitHole,tt0935075_RabbitHole/兔子洞 1080p remux (2010).nfo,QUARANTINE,RELEASE_METADATA,tt0935075_RabbitHole/兔子洞 1080p remux (2010).nfo,PLANNED,safe cleanup category
+tt0942385_TropicThunder,tt0942385_TropicThunder/season.nfo,QUARANTINE,RELEASE_METADATA,tt0942385_TropicThunder/season.nfo,PLANNED,safe cleanup category
+tt0942385_TropicThunder,tt0942385_TropicThunder/热带惊雷 - Theatrical Edition 2160p remux (2008).nfo,QUARANTINE,RELEASE_METADATA,tt0942385_TropicThunder/热带惊雷 - Theatrical Edition 2160p remux (2008).nfo,PLANNED,safe cleanup category
 tt10095582_TheTragedyofMacbeth,tt10095582_TheTragedyofMacbeth/[麦克白的悲剧].The.Tragedy.of.Macbeth.2021.2160p.ATVP.WEB-DL.H265.10bit.DDP5.1.Atmos-UBWEB.mkv,RENAME,PRIMARY_VIDEO,tt10095582_TheTragedyofMacbeth/tt10095582_TheTragedyofMacbeth.mkv,PLANNED,canonical primary filename
 tt10272386_TheFather,tt10272386_TheFather/困在时JLD父亲.mp4,RENAME,PRIMARY_VIDEO,tt10272386_TheFather/tt10272386_TheFather.mp4,PLANNED,canonical primary filename
 tt10293406_ThePowerOfTheDog,tt10293406_ThePowerOfTheDog/The.Power.of.the.Dog.2021.2160p.NF.WEB-DL.DDP5.1.Atmos.HDR.H.265-PLEW.mkv,RENAME,PRIMARY_VIDEO,tt10293406_ThePowerOfTheDog/tt10293406_ThePowerOfTheDog.mkv,PLANNED,canonical primary filename
 tt10366460_CODA,tt10366460_CODA/健听女孩.官方中字.Coda.2021..mp4,RENAME,PRIMARY_VIDEO,tt10366460_CODA/tt10366460_CODA.mp4,PLANNED,canonical primary filename
+tt1045658_SilverLiningsPlaybook,tt1045658_SilverLiningsPlaybook/clearlogo.png,QUARANTINE,IMAGE_ASSET,tt1045658_SilverLiningsPlaybook/clearlogo.png,PLANNED,safe cleanup category
+tt1045658_SilverLiningsPlaybook,tt1045658_SilverLiningsPlaybook/fanart.jpg,QUARANTINE,IMAGE_ASSET,tt1045658_SilverLiningsPlaybook/fanart.jpg,PLANNED,safe cleanup category
+tt1045658_SilverLiningsPlaybook,tt1045658_SilverLiningsPlaybook/movie.nfo,QUARANTINE,RELEASE_METADATA,tt1045658_SilverLiningsPlaybook/movie.nfo,PLANNED,safe cleanup category
+tt1045658_SilverLiningsPlaybook,tt1045658_SilverLiningsPlaybook/poster.jpg,QUARANTINE,IMAGE_ASSET,tt1045658_SilverLiningsPlaybook/poster.jpg,PLANNED,safe cleanup category
+tt1045658_SilverLiningsPlaybook,tt1045658_SilverLiningsPlaybook/乌云背后的幸福线 Silver Linings Playbook 1080p remux (2012).nfo,QUARANTINE,RELEASE_METADATA,tt1045658_SilverLiningsPlaybook/乌云背后的幸福线 Silver Linings Playbook 1080p remux (2012).nfo,PLANNED,safe cleanup category
 tt10514222_MaRaineysBlackBottom,tt10514222_MaRaineysBlackBottom/Ma.Raineys.Black.Bottom.2020.1080p.mp4,RENAME,PRIMARY_VIDEO,tt10514222_MaRaineysBlackBottom/tt10514222_MaRaineysBlackBottom.mp4,PLANNED,canonical primary filename
 tt10612922_OneNightinMiami,tt10612922_OneNightinMiami/One.Night.in.Miami.2020.1080p.中英字幕.mp4,RENAME,PRIMARY_VIDEO,tt10612922_OneNightinMiami/tt10612922_OneNightinMiami.mp4,PLANNED,canonical primary filename
 tt10618286_Mank,tt10618286_Mank/Mank.2020.2160p.Web.SDR.DDP5.1-老K.mkv,RENAME,PRIMARY_VIDEO,tt10618286_Mank/tt10618286_Mank.mkv,PLANNED,canonical primary filename
+tt10633456_Minari,tt10633456_Minari/【QY-404】米纳里.Minari.2020.720p.WEBSCR.X264.AC3-QYDY.mp4,RENAME,PRIMARY_VIDEO,tt10633456_Minari/tt10633456_Minari.mp4,PLANNED,canonical primary filename
 tt1070874_TheTrialoftheChicago7,tt1070874_TheTrialoftheChicago7/芝加哥.mp4,RENAME,PRIMARY_VIDEO,tt1070874_TheTrialoftheChicago7/tt1070874_TheTrialoftheChicago7.mp4,PLANNED,canonical primary filename
+tt1120985_BlueValentine,tt1120985_BlueValentine/【必看】防走失!更多实时同步更新优品资源/更多资源进群加VX：kj66zj88.jpg,QUARANTINE,IMAGE_ASSET,tt1120985_BlueValentine/【必看】防走失!更多实时同步更新优品资源/更多资源进群加VX：kj66zj88.jpg,PLANNED,safe cleanup category
 tt11563598_ACompleteUnkown,tt11563598_ACompleteUnkown/1080中英.mp4,RENAME,PRIMARY_VIDEO,tt11563598_ACompleteUnkown/tt11563598_ACompleteUnkown.mp4,PLANNED,canonical primary filename
 tt11813216_TheBansheesOfInisherin,tt11813216_TheBansheesOfInisherin/The Banshees of Inisherin.2022.1080p.Blu-ray.DTS 5.1.H.265.mkv,RENAME,PRIMARY_VIDEO,tt11813216_TheBansheesOfInisherin/tt11813216_TheBansheesOfInisherin.mkv,PLANNED,canonical primary filename
 tt11813216_TheBansheesOfInisherin,tt11813216_TheBansheesOfInisherin/The Banshees of Inisherin.2022.1080p.Blu-ray.DTS 5.1.H.265.nfo,QUARANTINE,RELEASE_METADATA,tt11813216_TheBansheesOfInisherin/The Banshees of Inisherin.2022.1080p.Blu-ray.DTS 5.1.H.265.nfo,PLANNED,safe cleanup category
+tt1193138_UpintheAir,tt1193138_UpintheAir/抖音快手代发睁米.jpg,QUARANTINE,IMAGE_ASSET,tt1193138_UpintheAir/抖音快手代发睁米.jpg,PLANNED,safe cleanup category
 tt12300742_Bugonia,tt12300742_Bugonia/【4KUHD】拯救地球.中英双字.Bugonia.2025.BluRay.2160p.TrueHD7.1.HDR.x265.10bit.mkv,RENAME,PRIMARY_VIDEO,tt12300742_Bugonia/tt12300742_Bugonia.mkv,PLANNED,canonical primary filename
 tt12300742_Bugonia,tt12300742_Bugonia/Bugonia.2025.1080p.BluRay.x264.AAC5.1-[YTS.LT]ENG-en.srt,RENAME,ENGLISH_SUBTITLE,tt12300742_Bugonia/tt12300742_Bugonia.en.srt,PLANNED,canonical English subtitle filename
 tt12536294_Spencer,tt12536294_Spencer/Spencer.2021.BluRay.1080p.DTS-HD.MA.5.1.x265-OPT.mkv,RENAME,PRIMARY_VIDEO,tt12536294_Spencer/tt12536294_Spencer.mkv,PLANNED,canonical primary filename
 tt12618926_Parallelmothers,tt12618926_Parallelmothers/Madres.paralelas.AKA.Parallel.Mothers.2021.1080p.BluRay.DD+5.1.x265.10bit-NewHD.mkv,RENAME,PRIMARY_VIDEO,tt12618926_Parallelmothers/tt12618926_Parallelmothers.mkv,PLANNED,canonical primary filename
 tt1262426_Wicked,tt1262426_Wicked/魔法坏女巫.Wicked.2024.1080p.BluRay.CHS&ENG-HAN.CHAOSPACE.mp4,RENAME,PRIMARY_VIDEO,tt1262426_Wicked/tt1262426_Wicked.mp4,PLANNED,canonical primary filename
 tt12789558_Belfast,tt12789558_Belfast/Belfast.2021.2160p.WEB-DL.x265.10bit.SDR.DDP5.1.Atmos-NOGRP.mkv,RENAME,PRIMARY_VIDEO,tt12789558_Belfast/tt12789558_Belfast.mkv,PLANNED,canonical primary filename
+tt1285016_TheSocialNetwork,tt1285016_TheSocialNetwork/season.nfo,QUARANTINE,RELEASE_METADATA,tt1285016_TheSocialNetwork/season.nfo,PLANNED,safe cleanup category
+tt1285016_TheSocialNetwork,tt1285016_TheSocialNetwork/社交网络 2160p remux (2010).nfo,QUARANTINE,RELEASE_METADATA,tt1285016_TheSocialNetwork/社交网络 2160p remux (2010).nfo,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/movie.nfo,QUARANTINE,RELEASE_METADATA,tt1291584_Warrior/movie.nfo,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-banner.jpg,QUARANTINE,IMAGE_ASSET,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-banner.jpg,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-clearart.png,QUARANTINE,IMAGE_ASSET,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-clearart.png,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-clearlogo.png,QUARANTINE,IMAGE_ASSET,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-clearlogo.png,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-discart.png,QUARANTINE,IMAGE_ASSET,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-discart.png,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-fanart.jpg,QUARANTINE,IMAGE_ASSET,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-fanart.jpg,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-keyart.jpg,QUARANTINE,IMAGE_ASSET,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-keyart.jpg,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-landscape.jpg,QUARANTINE,IMAGE_ASSET,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-landscape.jpg,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-poster.jpg,QUARANTINE,IMAGE_ASSET,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos-poster.jpg,PLANNED,safe cleanup category
+tt1291584_Warrior,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos.nfo,QUARANTINE,RELEASE_METADATA,tt1291584_Warrior/勇士 (2011) 2160p TrueHD Atmos.nfo,PLANNED,safe cleanup category
 tt1312221_Frankenstein,tt1312221_Frankenstein/Frankenstein.2025.1080p.NF.WEB-DL.H.264.DDP5.1.Atmos.mkv,RENAME,PRIMARY_VIDEO,tt1312221_Frankenstein/tt1312221_Frankenstein.mkv,PLANNED,canonical primary filename
 tt1312221_Frankenstein,tt1312221_Frankenstein/Frankenstein.2025.1080p.WEBRip.x264.AAC5.1-LAMA-en.srt,RENAME,ENGLISH_SUBTITLE,tt1312221_Frankenstein/tt1312221_Frankenstein.en.srt,PLANNED,canonical English subtitle filename
 tt13143964_BoratSubsequentMoviefilm,tt13143964_BoratSubsequentMoviefilm/borat.subsequent.moviefilm.1080p.mp4,RENAME,PRIMARY_VIDEO,tt13143964_BoratSubsequentMoviefilm/tt13143964_BoratSubsequentMoviefilm.mp4,PLANNED,canonical primary filename
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/banner.jpg,QUARANTINE,IMAGE_ASSET,tt1322269_AugustOsageCounty/banner.jpg,PLANNED,safe cleanup category
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/clearart.png,QUARANTINE,IMAGE_ASSET,tt1322269_AugustOsageCounty/clearart.png,PLANNED,safe cleanup category
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/clearlogo.png,QUARANTINE,IMAGE_ASSET,tt1322269_AugustOsageCounty/clearlogo.png,PLANNED,safe cleanup category
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/disc.png,QUARANTINE,IMAGE_ASSET,tt1322269_AugustOsageCounty/disc.png,PLANNED,safe cleanup category
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/fanart.jpg,QUARANTINE,IMAGE_ASSET,tt1322269_AugustOsageCounty/fanart.jpg,PLANNED,safe cleanup category
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/keyart.jpg,QUARANTINE,IMAGE_ASSET,tt1322269_AugustOsageCounty/keyart.jpg,PLANNED,safe cleanup category
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/movie.nfo,QUARANTINE,RELEASE_METADATA,tt1322269_AugustOsageCounty/movie.nfo,PLANNED,safe cleanup category
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/poster.jpg,QUARANTINE,IMAGE_ASSET,tt1322269_AugustOsageCounty/poster.jpg,PLANNED,safe cleanup category
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/thumb.jpg,QUARANTINE,IMAGE_ASSET,tt1322269_AugustOsageCounty/thumb.jpg,PLANNED,safe cleanup category
+tt1322269_AugustOsageCounty,tt1322269_AugustOsageCounty/八月：奥色治郡 August - Osage County 1080p remux (2013).nfo,QUARANTINE,RELEASE_METADATA,tt1322269_AugustOsageCounty/八月：奥色治郡 August - Osage County 1080p remux (2013).nfo,PLANNED,safe cleanup category
 tt13833688_TheWhale,tt13833688_TheWhale/The.Whale.2022.2160p.iT.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-FLUX.mkv,RENAME,PRIMARY_VIDEO,tt13833688_TheWhale/tt13833688_TheWhale.mkv,PLANNED,canonical primary filename
 tt1403865_TrueGrit,tt1403865_TrueGrit/season.nfo,QUARANTINE,RELEASE_METADATA,tt1403865_TrueGrit/season.nfo,PLANNED,safe cleanup category
 tt1403865_TrueGrit,tt1403865_TrueGrit/大地惊雷 1080p remux (2010).nfo,QUARANTINE,RELEASE_METADATA,tt1403865_TrueGrit/大地惊雷 1080p remux (2010).nfo,PLANNED,safe cleanup category
@@ -42,14 +135,17 @@ tt1517451_AStarIsBorn,tt1517451_AStarIsBorn/一个明星的诞生.2018.1080p.txt
 tt15398776_Oppenheimer,tt15398776_Oppenheimer/奥本海默 .mp4,RENAME,PRIMARY_VIDEO,tt15398776_Oppenheimer/tt15398776_Oppenheimer.mp4,PLANNED,canonical primary filename
 tt1596363_TheBigShort,tt1596363_TheBigShort/season.nfo,QUARANTINE,RELEASE_METADATA,tt1596363_TheBigShort/season.nfo,PLANNED,safe cleanup category
 tt1596363_TheBigShort,tt1596363_TheBigShort/大空头 1080p remux (2015).nfo,QUARANTINE,RELEASE_METADATA,tt1596363_TheBigShort/大空头 1080p remux (2015).nfo,PLANNED,safe cleanup category
+tt1602098_AlbertNobbs,tt1602098_AlbertNobbs/Albert.Nobbs.2011.雌雄莫辨.双语字幕.HR-HDTV.AC3.1024X576.x264-人人影视制作.mkv,RENAME,PRIMARY_VIDEO,tt1602098_AlbertNobbs/tt1602098_AlbertNobbs.mkv,PLANNED,canonical primary filename
 tt1619029_Jackie,tt1619029_Jackie/season.nfo,QUARANTINE,RELEASE_METADATA,tt1619029_Jackie/season.nfo,PLANNED,safe cleanup category
 tt1619029_Jackie,tt1619029_Jackie/第一夫人 1080p remux (2016).nfo,QUARANTINE,RELEASE_METADATA,tt1619029_Jackie/第一夫人 1080p remux (2016).nfo,PLANNED,safe cleanup category
 tt1655389_Blonde,tt1655389_Blonde/Blonde.2022.金发梦露.中英字幕.1080p.mp4,RENAME,PRIMARY_VIDEO,tt1655389_Blonde/tt1655389_Blonde.mp4,PLANNED,canonical primary filename
+tt1655420_MyWeekwithMarilyn,tt1655420_MyWeekwithMarilyn/我与梦露的一周 My Week with Marilyn 1080p remux (2011).mkv,RENAME,PRIMARY_VIDEO,tt1655420_MyWeekwithMarilyn/tt1655420_MyWeekwithMarilyn.mkv,PLANNED,canonical primary filename
 tt1655420_MyWeekwithMarilyn,tt1655420_MyWeekwithMarilyn/clearlogo.png,QUARANTINE,IMAGE_ASSET,tt1655420_MyWeekwithMarilyn/clearlogo.png,PLANNED,safe cleanup category
 tt1655420_MyWeekwithMarilyn,tt1655420_MyWeekwithMarilyn/fanart.jpg,QUARANTINE,IMAGE_ASSET,tt1655420_MyWeekwithMarilyn/fanart.jpg,PLANNED,safe cleanup category
 tt1655420_MyWeekwithMarilyn,tt1655420_MyWeekwithMarilyn/movie.nfo,QUARANTINE,RELEASE_METADATA,tt1655420_MyWeekwithMarilyn/movie.nfo,PLANNED,safe cleanup category
 tt1655420_MyWeekwithMarilyn,tt1655420_MyWeekwithMarilyn/poster.jpg,QUARANTINE,IMAGE_ASSET,tt1655420_MyWeekwithMarilyn/poster.jpg,PLANNED,safe cleanup category
 tt1655420_MyWeekwithMarilyn,tt1655420_MyWeekwithMarilyn/我与梦露的一周 My Week with Marilyn 1080p remux (2011).nfo,QUARANTINE,RELEASE_METADATA,tt1655420_MyWeekwithMarilyn/我与梦露的一周 My Week with Marilyn 1080p remux (2011).nfo,PLANNED,safe cleanup category
+tt1655442_TheArtist,tt1655442_TheArtist/y术j.2011.BD1080p.中文字幕.mp4,RENAME,PRIMARY_VIDEO,tt1655442_TheArtist/tt1655442_TheArtist.mp4,PLANNED,canonical primary filename
 tt1663202_TheRevenant,tt1663202_TheRevenant/backdrop.jpg,QUARANTINE,IMAGE_ASSET,tt1663202_TheRevenant/backdrop.jpg,PLANNED,safe cleanup category
 tt1663202_TheRevenant,tt1663202_TheRevenant/background.jpg,QUARANTINE,IMAGE_ASSET,tt1663202_TheRevenant/background.jpg,PLANNED,safe cleanup category
 tt1663202_TheRevenant,tt1663202_TheRevenant/banner.jpg,QUARANTINE,IMAGE_ASSET,tt1663202_TheRevenant/banner.jpg,PLANNED,safe cleanup category
@@ -63,8 +159,13 @@ tt17009710_AnatomyOfAFall,tt17009710_AnatomyOfAFall/Anatomy.of.a.Fall.2023.1080p
 tt1727824_BohemianRhapsody,tt1727824_BohemianRhapsody/Bohemian.Rhapsody.2018.BluRay.1080p.x265.10bit.MNHD-FRDS.mkv,RENAME,PRIMARY_VIDEO,tt1727824_BohemianRhapsody/tt1727824_BohemianRhapsody.mkv,PLANNED,canonical primary filename
 tt1727824_BohemianRhapsody,tt1727824_BohemianRhapsody/Bohemian.Rhapsody.2018.BluRay.1080p.x265.10bit.MNHD-FRDS.nfo,QUARANTINE,RELEASE_METADATA,tt1727824_BohemianRhapsody/Bohemian.Rhapsody.2018.BluRay.1080p.x265.10bit.MNHD-FRDS.nfo,PLANNED,safe cleanup category
 tt17526714_TheSubstance,tt17526714_TheSubstance/The.Substance.2024.1080p.BluRay.x265.10bit.DTS.mkv,RENAME,PRIMARY_VIDEO,tt17526714_TheSubstance/tt17526714_TheSubstance.mkv,PLANNED,canonical primary filename
+tt1790885_ZeroDarkThirty,tt1790885_ZeroDarkThirty/Zero.Dark.Thirty.2012.BluRay.1080p.x265.10bit-MiniHD.mkv,RENAME,PRIMARY_VIDEO,tt1790885_ZeroDarkThirty/tt1790885_ZeroDarkThirty.mkv,PLANNED,canonical primary filename
+tt1800241_AmericanHustle,tt1800241_AmericanHustle/American.Hustle.2013.2160p.WEB-DL.x265.10bit.SDR.DTS-HD.MA.5.1-SWTYBLZ.mkv,RENAME,PRIMARY_VIDEO,tt1800241_AmericanHustle/tt1800241_AmericanHustle.mkv,PLANNED,canonical primary filename
+tt1821549_Nebraska,tt1821549_Nebraska/Nebraska.2013.内布拉斯加.双语字幕.HR-HDTV.AC3.1024X576.x264(1).mkv,RENAME,PRIMARY_VIDEO,tt1821549_Nebraska/tt1821549_Nebraska.mkv,PLANNED,canonical primary filename
 tt18382850_IfIHadLegsIdKickYou,tt18382850_IfIHadLegsIdKickYou/如果有腿，我会踢你.2025.BD1080P.mp4,RENAME,PRIMARY_VIDEO,tt18382850_IfIHadLegsIdKickYou/tt18382850_IfIHadLegsIdKickYou.mp4,PLANNED,canonical primary filename
 tt18382850_IfIHadLegsIdKickYou,tt18382850_IfIHadLegsIdKickYou/If I Had Legs I_d Kick You (2025)-en.srt,RENAME,ENGLISH_SUBTITLE,tt18382850_IfIHadLegsIdKickYou/tt18382850_IfIHadLegsIdKickYou.en.srt,PLANNED,canonical English subtitle filename
+tt1853728_DjangoUnchained,tt1853728_DjangoUnchained/141.被解救的姜戈.mp4,RENAME,PRIMARY_VIDEO,tt1853728_DjangoUnchained/tt1853728_DjangoUnchained.mp4,PLANNED,canonical primary filename
+tt1895587_Spotlight,tt1895587_Spotlight/聚焦 (2015) - 1080p.mkv,RENAME,PRIMARY_VIDEO,tt1895587_Spotlight/tt1895587_Spotlight.mkv,PLANNED,canonical primary filename
 tt1895587_Spotlight,tt1895587_Spotlight/background.jpg,QUARANTINE,IMAGE_ASSET,tt1895587_Spotlight/background.jpg,PLANNED,safe cleanup category
 tt1895587_Spotlight,tt1895587_Spotlight/banner.jpg,QUARANTINE,IMAGE_ASSET,tt1895587_Spotlight/banner.jpg,PLANNED,safe cleanup category
 tt1895587_Spotlight,tt1895587_Spotlight/fanart.jpg,QUARANTINE,IMAGE_ASSET,tt1895587_Spotlight/fanart.jpg,PLANNED,safe cleanup category
@@ -72,9 +173,12 @@ tt1895587_Spotlight,tt1895587_Spotlight/logo.png,QUARANTINE,IMAGE_ASSET,tt189558
 tt1895587_Spotlight,tt1895587_Spotlight/poster.jpg,QUARANTINE,IMAGE_ASSET,tt1895587_Spotlight/poster.jpg,PLANNED,safe cleanup category
 tt1895587_Spotlight,tt1895587_Spotlight/thumb.jpg,QUARANTINE,IMAGE_ASSET,tt1895587_Spotlight/thumb.jpg,PLANNED,safe cleanup category
 tt1895587_Spotlight,tt1895587_Spotlight/聚焦 (2015) - 1080p.nfo,QUARANTINE,RELEASE_METADATA,tt1895587_Spotlight/聚焦 (2015) - 1080p.nfo,PLANNED,safe cleanup category
+tt1907668_Flight,tt1907668_Flight/迫降航班..Flight.2012.1080p.60fps.WEB-DL.HEVC.DDP2.0-ZmWeb.mp4,RENAME,PRIMARY_VIDEO,tt1907668_Flight/tt1907668_Flight.mp4,PLANNED,canonical primary filename
 tt19770238_Aftersun,tt19770238_Aftersun/晒后假日 2022.mp4,RENAME,PRIMARY_VIDEO,tt19770238_Aftersun/tt19770238_Aftersun.mp4,PLANNED,canonical primary filename
 tt20215234_Conclave,tt20215234_Conclave/秘密会议.Conclave.2024.UHD.Bluray..2160p.REMUXHDR10.HEVC.Atmos.TrueHD.7.1-UBits.mkv,RENAME,PRIMARY_VIDEO,tt20215234_Conclave/tt20215234_Conclave.mkv,PLANNED,canonical primary filename
 tt20221436_EmiliaPerez,tt20221436_EmiliaPerez/艾米莉亚·佩雷斯.Emilia Pérez.2024.1080p中英字幕.mp4,RENAME,PRIMARY_VIDEO,tt20221436_EmiliaPerez/tt20221436_EmiliaPerez.mp4,PLANNED,canonical primary filename
+tt2084970_TheImitationGame,tt2084970_TheImitationGame/151.模仿游戏.mp4,RENAME,PRIMARY_VIDEO,tt2084970_TheImitationGame/tt2084970_TheImitationGame.mp4,PLANNED,canonical primary filename
+tt2119532_HacksawRidge,tt2119532_HacksawRidge/[血战钢锯岭]中英字幕.Hacksaw.Ridge.2016.1080p.BluRay.x264.AC3-CnSCG-CnSCG.mkv,RENAME,PRIMARY_VIDEO,tt2119532_HacksawRidge/tt2119532_HacksawRidge.mkv,PLANNED,canonical primary filename
 tt2119532_HacksawRidge,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172039.png,QUARANTINE,IMAGE_ASSET,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172039.png,PLANNED,safe cleanup category
 tt2119532_HacksawRidge,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172058.png,QUARANTINE,IMAGE_ASSET,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172058.png,PLANNED,safe cleanup category
 tt2119532_HacksawRidge,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172125.png,QUARANTINE,IMAGE_ASSET,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172125.png,PLANNED,safe cleanup category
@@ -82,22 +186,32 @@ tt2119532_HacksawRidge,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172210.png
 tt2119532_HacksawRidge,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172230.png,QUARANTINE,IMAGE_ASSET,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172230.png,PLANNED,safe cleanup category
 tt2119532_HacksawRidge,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172308.png,QUARANTINE,IMAGE_ASSET,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172308.png,PLANNED,safe cleanup category
 tt2119532_HacksawRidge,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172355.png,QUARANTINE,IMAGE_ASSET,tt2119532_HacksawRidge/屏幕截图 2025-03-25 172355.png,PLANNED,safe cleanup category
+tt2125435_BeastsoftheSouthernWild,tt2125435_BeastsoftheSouthernWild/南国野兽.Beasts of the Southern Wild.2012.mkv,RENAME,PRIMARY_VIDEO,tt2125435_BeastsoftheSouthernWild/tt2125435_BeastsoftheSouthernWild.mkv,PLANNED,canonical primary filename
+tt2179136_AmericanSniper,tt2179136_AmericanSniper/美国狙击手 American Sniper(2014).mkv,RENAME,PRIMARY_VIDEO,tt2179136_AmericanSniper/tt2179136_AmericanSniper.mkv,PLANNED,canonical primary filename
 tt2179136_AmericanSniper,tt2179136_AmericanSniper/movie.nfo,QUARANTINE,RELEASE_METADATA,tt2179136_AmericanSniper/movie.nfo,PLANNED,safe cleanup category
 tt2179136_AmericanSniper,tt2179136_AmericanSniper/poster.jpg,QUARANTINE,IMAGE_ASSET,tt2179136_AmericanSniper/poster.jpg,PLANNED,safe cleanup category
 tt2179136_AmericanSniper,tt2179136_AmericanSniper/美国狙击手 American Sniper(2014).nfo,QUARANTINE,RELEASE_METADATA,tt2179136_AmericanSniper/美国狙击手 American Sniper(2014).nfo,PLANNED,safe cleanup category
+tt2180411_IntotheWoods,tt2180411_IntotheWoods/Into.The.Woods.2014.BluRay.1080p.DTS-HD.MA7.1.x265.10bit-DreamHD.mkv,RENAME,PRIMARY_VIDEO,tt2180411_IntotheWoods/tt2180411_IntotheWoods.mkv,PLANNED,canonical primary filename
 tt2180411_IntotheWoods,tt2180411_IntotheWoods/Into.The.Woods.2014.BluRay.1080p.DTS-HD.MA7.1.x265.10bit-DreamHD.nfo.txt,QUARANTINE,RELEASE_METADATA,tt2180411_IntotheWoods/Into.The.Woods.2014.BluRay.1080p.DTS-HD.MA7.1.x265.10bit-DreamHD.nfo.txt,PLANNED,safe cleanup category
 tt21823606_ARealPain,tt21823606_ARealPain/真正的痛苦.中英双字.2024.1080P.mkv,RENAME,PRIMARY_VIDEO,tt21823606_ARealPain/tt21823606_ARealPain.mkv,PLANNED,canonical primary filename
+tt2267998_GoneGirl,tt2267998_GoneGirl/118.消失的爱人.mp4,RENAME,PRIMARY_VIDEO,tt2267998_GoneGirl/tt2267998_GoneGirl.mp4,PLANNED,canonical primary filename
+tt2305051_Wild,tt2305051_Wild/涉足荒野 2160p remux (2014).mkv,RENAME,PRIMARY_VIDEO,tt2305051_Wild/tt2305051_Wild.mkv,PLANNED,canonical primary filename
 tt2305051_Wild,tt2305051_Wild/season.nfo,QUARANTINE,RELEASE_METADATA,tt2305051_Wild/season.nfo,PLANNED,safe cleanup category
 tt2305051_Wild,tt2305051_Wild/涉足荒野 2160p remux (2014).nfo,QUARANTINE,RELEASE_METADATA,tt2305051_Wild/涉足荒野 2160p remux (2014).nfo,PLANNED,safe cleanup category
+tt2334873_BlueJasmine,tt2334873_BlueJasmine/蓝色茉莉.2013.BD1080.mp4,RENAME,PRIMARY_VIDEO,tt2334873_BlueJasmine/tt2334873_BlueJasmine.mp4,PLANNED,canonical primary filename
 tt23561236_AmericanFiction,tt23561236_AmericanFiction/【电影】美国小说.中英双字.1080P.mp4,RENAME,PRIMARY_VIDEO,tt23561236_AmericanFiction/tt23561236_AmericanFiction.mp4,PLANNED,canonical primary filename
+tt2381111_Brooklyn,tt2381111_Brooklyn/布鲁克林 Brooklyn 1080p remux (2015).mkv,RENAME,PRIMARY_VIDEO,tt2381111_Brooklyn/tt2381111_Brooklyn.mkv,PLANNED,canonical primary filename
 tt2381111_Brooklyn,tt2381111_Brooklyn/clearlogo.png,QUARANTINE,IMAGE_ASSET,tt2381111_Brooklyn/clearlogo.png,PLANNED,safe cleanup category
 tt2381111_Brooklyn,tt2381111_Brooklyn/fanart.jpg,QUARANTINE,IMAGE_ASSET,tt2381111_Brooklyn/fanart.jpg,PLANNED,safe cleanup category
 tt2381111_Brooklyn,tt2381111_Brooklyn/movie.nfo,QUARANTINE,RELEASE_METADATA,tt2381111_Brooklyn/movie.nfo,PLANNED,safe cleanup category
 tt2381111_Brooklyn,tt2381111_Brooklyn/poster.jpg,QUARANTINE,IMAGE_ASSET,tt2381111_Brooklyn/poster.jpg,PLANNED,safe cleanup category
 tt2381111_Brooklyn,tt2381111_Brooklyn/布鲁克林 Brooklyn 1080p remux (2015).nfo,QUARANTINE,RELEASE_METADATA,tt2381111_Brooklyn/布鲁克林 Brooklyn 1080p remux (2015).nfo,PLANNED,safe cleanup category
+tt2402927_Carol,tt2402927_Carol/[卡罗尔].Carol.2015.FRA.BluRay.1080p.x264.DTS-CMCT.mkv,RENAME,PRIMARY_VIDEO,tt2402927_Carol/tt2402927_Carol.mkv,PLANNED,canonical primary filename
+tt2446980_Joy,tt2446980_Joy/奋斗的乔伊.2015.BD1080p.中文字幕.mp4,RENAME,PRIMARY_VIDEO,tt2446980_Joy/tt2446980_Joy.mp4,PLANNED,canonical primary filename
 tt2562232_BirdmanorTheUnexpectedVirtueofIgnorance,tt2562232_BirdmanorTheUnexpectedVirtueofIgnorance/season.nfo,QUARANTINE,RELEASE_METADATA,tt2562232_BirdmanorTheUnexpectedVirtueofIgnorance/season.nfo,PLANNED,safe cleanup category
 tt2562232_BirdmanorTheUnexpectedVirtueofIgnorance,tt2562232_BirdmanorTheUnexpectedVirtueofIgnorance/鸟人 1080p remux (2014).nfo,QUARANTINE,RELEASE_METADATA,tt2562232_BirdmanorTheUnexpectedVirtueofIgnorance/鸟人 1080p remux (2014).nfo,PLANNED,safe cleanup category
 tt2582782_HellorHighWater,tt2582782_HellorHighWater/最新可进裙免费资源.jpg,QUARANTINE,IMAGE_ASSET,tt2582782_HellorHighWater/最新可进裙免费资源.jpg,PLANNED,safe cleanup category
+tt2582802_Whiplash,tt2582802_Whiplash/爆裂鼓手 (2014) - 2160p.mkv,RENAME,PRIMARY_VIDEO,tt2582802_Whiplash/tt2582802_Whiplash.mkv,PLANNED,canonical primary filename
 tt2582802_Whiplash,tt2582802_Whiplash/background.jpg,QUARANTINE,IMAGE_ASSET,tt2582802_Whiplash/background.jpg,PLANNED,safe cleanup category
 tt2582802_Whiplash,tt2582802_Whiplash/banner.jpg,QUARANTINE,IMAGE_ASSET,tt2582802_Whiplash/banner.jpg,PLANNED,safe cleanup category
 tt2582802_Whiplash,tt2582802_Whiplash/fanart.jpg,QUARANTINE,IMAGE_ASSET,tt2582802_Whiplash/fanart.jpg,PLANNED,safe cleanup category
@@ -114,16 +228,36 @@ tt27847051_TheSecretAgent,tt27847051_TheSecretAgent/The.Secret.Agent.2025.2160p.
 tt27847051_TheSecretAgent,tt27847051_TheSecretAgent/The Secret Agent (O Agente Secreto) 2025 - Director & Writer_Kleber Mendonça Filho.srt-en.srt,RENAME,ENGLISH_SUBTITLE,tt27847051_TheSecretAgent/tt27847051_TheSecretAgent.en.srt,PLANNED,canonical English subtitle filename
 tt28479262_SingSing,tt28479262_SingSing/监狱剧院.Sing.Sing.人工中英字幕2023.1080p.MS.WEBDL.mp4,RENAME,PRIMARY_VIDEO,tt28479262_SingSing/tt28479262_SingSing.mp4,PLANNED,canonical primary filename
 tt28607951_Anora,tt28607951_Anora/2024.2160p.AMZN.WEB-DL.H265.HDR10+.DDP5.1.mkv,RENAME,PRIMARY_VIDEO,tt28607951_Anora/tt28607951_Anora.mkv,PLANNED,canonical primary filename
-tt28607951_TheApprentice,tt28607951_TheApprentice/2026.2160p.WEB-DL.H.265.HDR.60fps.DDP2.0.mp4,RENAME,PRIMARY_VIDEO,tt28607951_TheApprentice/tt28607951_TheApprentice.mp4,PLANNED,canonical primary filename
+tt2980516_TheTheoryofEverything,tt2980516_TheTheoryofEverything/《万物理论》The.Theory.of.Everything.2014.mp4,RENAME,PRIMARY_VIDEO,tt2980516_TheTheoryofEverything/tt2980516_TheTheoryofEverything.mp4,PLANNED,canonical primary filename
 tt30343021_SongSungBlue,tt30343021_SongSungBlue/Song.Sung.Blue.2025.HDR.2160p.WEB-DL.H.265.Atmos-HamiltonShare.mkv,RENAME,PRIMARY_VIDEO,tt30343021_SongSungBlue/tt30343021_SongSungBlue.mkv,PLANNED,canonical primary filename
+tt3076658_Creed,tt3076658_Creed/奎迪 2160p remux (2015).mkv,RENAME,PRIMARY_VIDEO,tt3076658_Creed/tt3076658_Creed.mkv,PLANNED,canonical primary filename
 tt3076658_Creed,tt3076658_Creed/season.nfo,QUARANTINE,RELEASE_METADATA,tt3076658_Creed/season.nfo,PLANNED,safe cleanup category
 tt3076658_Creed,tt3076658_Creed/奎迪 2160p remux (2015).nfo,QUARANTINE,RELEASE_METADATA,tt3076658_Creed/奎迪 2160p remux (2015).nfo,PLANNED,safe cleanup category
 tt31193180_Sinners,tt31193180_Sinners/Sinners (2025) 4K HDR10+流媒体版 杜比全景声DDP5.1 简英特效字幕 .mkv,RENAME,PRIMARY_VIDEO,tt31193180_Sinners/tt31193180_Sinners.mkv,PLANNED,canonical primary filename
 tt31193180_Sinners,tt31193180_Sinners/Sinners20251080pHEVCEnglishWEBRip51x265-HDHub4uMs[_26261]-en.srt,RENAME,ENGLISH_SUBTITLE,tt31193180_Sinners/tt31193180_Sinners.en.srt,PLANNED,canonical English subtitle filename
+tt3170832_Room,tt3170832_Room/房间.Room.2015.mkv,RENAME,PRIMARY_VIDEO,tt3170832_Room/tt3170832_Room.mkv,PLANNED,canonical primary filename
+tt3203606_Trumbo,tt3203606_Trumbo/Trumbo.2015.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-老K.mkv,RENAME,PRIMARY_VIDEO,tt3203606_Trumbo/tt3203606_Trumbo.mkv,PLANNED,canonical primary filename
+tt3203606_Trumbo,tt3203606_Trumbo/必看2000T免费资源大合集.png,QUARANTINE,IMAGE_ASSET,tt3203606_Trumbo/必看2000T免费资源大合集.png,PLANNED,safe cleanup category
+tt3203606_Trumbo,tt3203606_Trumbo/抖音快手代发挣米.jpg,QUARANTINE,IMAGE_ASSET,tt3203606_Trumbo/抖音快手代发挣米.jpg,PLANNED,safe cleanup category
+tt3203606_Trumbo,tt3203606_Trumbo/特朗勃 好莱坞的黑名单.jpg,QUARANTINE,IMAGE_ASSET,tt3203606_Trumbo/特朗勃 好莱坞的黑名单.jpg,PLANNED,safe cleanup category
 tt3224458_ABeautifulDayInTheNeighborhood,tt3224458_ABeautifulDayInTheNeighborhood/邻里一MH的一天.mp4,RENAME,PRIMARY_VIDEO,tt3224458_ABeautifulDayInTheNeighborhood/tt3224458_ABeautifulDayInTheNeighborhood.mp4,PLANNED,canonical primary filename
 tt32536315_BlueMoon,tt32536315_BlueMoon/Blue.Moon.2025.2160p.WEB-DL.SDR.H.265..DDP5.1.Atmos-HamiltonShare.mkv,RENAME,PRIMARY_VIDEO,tt32536315_BlueMoon/tt32536315_BlueMoon.mkv,PLANNED,canonical primary filename
 tt3281548_LittleWomen,tt3281548_LittleWomen/小妇人 (2019) - 1080p 中英字幕.mkv,RENAME,PRIMARY_VIDEO,tt3281548_LittleWomen/tt3281548_LittleWomen.mkv,PLANNED,canonical primary filename
 tt32916440_MartySupreme,tt32916440_MartySupreme/Marty Supreme 2025 USA A24 BluRay 1080p TrueHD7.1 x265 10bit-CHD (1).mp4,RENAME,PRIMARY_VIDEO,tt32916440_MartySupreme/tt32916440_MartySupreme.mp4,PLANNED,canonical primary filename
+tt3316960_StillAlice,tt3316960_StillAlice/依然爱丽丝 2160p remux (2014).mkv,RENAME,PRIMARY_VIDEO,tt3316960_StillAlice/tt3316960_StillAlice.mkv,PLANNED,canonical primary filename
+tt3316960_StillAlice,tt3316960_StillAlice/season.nfo,QUARANTINE,RELEASE_METADATA,tt3316960_StillAlice/season.nfo,PLANNED,safe cleanup category
+tt3316960_StillAlice,tt3316960_StillAlice/依然爱丽丝 2160p remux (2014).nfo,QUARANTINE,RELEASE_METADATA,tt3316960_StillAlice/依然爱丽丝 2160p remux (2014).nfo,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/八恶人 The Hateful Eight 1080p remux (2015).mkv,RENAME,PRIMARY_VIDEO,tt3460252_TheHatefulEight/tt3460252_TheHatefulEight.mkv,PLANNED,canonical primary filename
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/banner.jpg,QUARANTINE,IMAGE_ASSET,tt3460252_TheHatefulEight/banner.jpg,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/clearart.png,QUARANTINE,IMAGE_ASSET,tt3460252_TheHatefulEight/clearart.png,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/clearlogo.png,QUARANTINE,IMAGE_ASSET,tt3460252_TheHatefulEight/clearlogo.png,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/disc.png,QUARANTINE,IMAGE_ASSET,tt3460252_TheHatefulEight/disc.png,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/fanart.jpg,QUARANTINE,IMAGE_ASSET,tt3460252_TheHatefulEight/fanart.jpg,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/keyart.jpg,QUARANTINE,IMAGE_ASSET,tt3460252_TheHatefulEight/keyart.jpg,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/movie.nfo,QUARANTINE,RELEASE_METADATA,tt3460252_TheHatefulEight/movie.nfo,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/poster.jpg,QUARANTINE,IMAGE_ASSET,tt3460252_TheHatefulEight/poster.jpg,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/thumb.jpg,QUARANTINE,IMAGE_ASSET,tt3460252_TheHatefulEight/thumb.jpg,PLANNED,safe cleanup category
+tt3460252_TheHatefulEight,tt3460252_TheHatefulEight/八恶人 The Hateful Eight 1080p remux (2015).nfo,QUARANTINE,RELEASE_METADATA,tt3460252_TheHatefulEight/八恶人 The Hateful Eight 1080p remux (2015).nfo,PLANNED,safe cleanup category
 tt3553976_CaptainFantastic,tt3553976_CaptainFantastic/Captain Fantastic (2016) (1080p BluRay x265 afm72).mkv,RENAME,PRIMARY_VIDEO,tt3553976_CaptainFantastic/tt3553976_CaptainFantastic.mkv,PLANNED,canonical primary filename
 tt3581652_WestSideStory,tt3581652_WestSideStory/West.Side.Story.2021.2160p.WEB-DL.x265.8bit.SDR.DTS-HD.MA.7.1-NOGRP.mkv,RENAME,PRIMARY_VIDEO,tt3581652_WestSideStory/tt3581652_WestSideStory.mkv,PLANNED,canonical primary filename
 tt3659388_TheMartian,tt3659388_TheMartian/236.火星救援.mp4,RENAME,PRIMARY_VIDEO,tt3659388_TheMartian/tt3659388_TheMartian.mp4,PLANNED,canonical primary filename
@@ -171,8 +305,16 @@ tt5363618_SoundofMetal,tt5363618_SoundofMetal/[金属之声].Sound.of.Metal.2019
 tt5537002_KillersOfTheFlowerMoon,tt5537002_KillersOfTheFlowerMoon/KiIIers.of.the.FIower.Moon.2023.2160p.UHD.BluRay.REMUX.DV.HDR.HEVC.DTS-HD.MA.5.1.mkv,RENAME,PRIMARY_VIDEO,tt5537002_KillersOfTheFlowerMoon/tt5537002_KillersOfTheFlowerMoon.mkv,PLANNED,canonical primary filename
 tt5580036_ITonya,"tt5580036_ITonya/[我，花样女王].I,.Tonya.2017.2160p.WEB-DL.60Fps.HQ.H265.10bit.AAC.2Audios-UBWEB.mkv",QUARANTINE,AUXILIARY_VIDEO,"tt5580036_ITonya/[我，花样女王].I,.Tonya.2017.2160p.WEB-DL.60Fps.HQ.H265.10bit.AAC.2Audios-UBWEB.mkv",PLANNED,auxiliary name or short duration
 tt5580390_TheShapeofWater,tt5580390_TheShapeofWater/[水形物语].The.Shape.of.Water.2017.BluRay.1080p.x264.DTS.2Audios-CMCT.mkv,RENAME,PRIMARY_VIDEO,tt5580390_TheShapeofWater/tt5580390_TheShapeofWater.mkv,PLANNED,canonical primary filename
+tt5649144_TheFloridaProject,tt5649144_TheFloridaProject/The.Florida.Project.2017.UHD.BluRay.REMUX.DV.HDR.HEVC.DTS-HD.MA.5.1-老K.mkv,RENAME,PRIMARY_VIDEO,tt5649144_TheFloridaProject/tt5649144_TheFloridaProject.mkv,PLANNED,canonical primary filename
+tt5649144_TheFloridaProject,tt5649144_TheFloridaProject/佛罗里达乐园.jpg,QUARANTINE,IMAGE_ASSET,tt5649144_TheFloridaProject/佛罗里达乐园.jpg,PLANNED,safe cleanup category
+tt5649144_TheFloridaProject,tt5649144_TheFloridaProject/老K+片源+重要+必看.txt,QUARANTINE,RELEASE_METADATA,tt5649144_TheFloridaProject/老K+片源+重要+必看.txt,PLANNED,safe cleanup category
+tt5649144_TheFloridaProject,tt5649144_TheFloridaProject/老K的腾讯频道.png,QUARANTINE,IMAGE_ASSET,tt5649144_TheFloridaProject/老K的腾讯频道.png,PLANNED,safe cleanup category
 tt5726616_CallMebyYourName,tt5726616_CallMebyYourName/103.请以你的名字呼唤我.mp4,RENAME,PRIMARY_VIDEO,tt5726616_CallMebyYourName/tt5726616_CallMebyYourName.mp4,PLANNED,canonical primary filename
 tt5776858_PhantomThread,tt5776858_PhantomThread/魅影缝匠 (2017) 1080p AAC.mp4,RENAME,PRIMARY_VIDEO,tt5776858_PhantomThread/tt5776858_PhantomThread.mp4,PLANNED,canonical primary filename
+tt6000478_RomanJIsraelEsq,tt6000478_RomanJIsraelEsq/罗曼先生，你好 1080p remux (2017).ts,RENAME,PRIMARY_VIDEO,tt6000478_RomanJIsraelEsq/tt6000478_RomanJIsraelEsq.ts,PLANNED,canonical primary filename
+tt6000478_RomanJIsraelEsq,tt6000478_RomanJIsraelEsq/罗曼先生，你好 1080p remux (2017).chs-eng.srt,RENAME,ENGLISH_SUBTITLE,tt6000478_RomanJIsraelEsq/tt6000478_RomanJIsraelEsq.en.srt,PLANNED,canonical English subtitle filename
+tt6000478_RomanJIsraelEsq,tt6000478_RomanJIsraelEsq/season.nfo,QUARANTINE,RELEASE_METADATA,tt6000478_RomanJIsraelEsq/season.nfo,PLANNED,safe cleanup category
+tt6000478_RomanJIsraelEsq,tt6000478_RomanJIsraelEsq/罗曼先生，你好 1080p remux (2017).nfo,QUARANTINE,RELEASE_METADATA,tt6000478_RomanJIsraelEsq/罗曼先生，你好 1080p remux (2017).nfo,PLANNED,safe cleanup category
 tt6155172_Roma,tt6155172_Roma/罗马.内嵌中字.2018.1080P.mp4,RENAME,PRIMARY_VIDEO,tt6155172_Roma/tt6155172_Roma.mp4,PLANNED,canonical primary filename
 tt6266538_Vice,tt6266538_Vice/副总统.Vice.2018.HD1080P.X264.AAC.English.CHS-ENG.Mp4Ba.mp4,RENAME,PRIMARY_VIDEO,tt6266538_Vice/tt6266538_Vice.mp4,PLANNED,canonical primary filename
 tt6294822_ThePost,tt6294822_ThePost/华盛顿邮报 2160p remux (2017).mkv,RENAME,PRIMARY_VIDEO,tt6294822_ThePost/tt6294822_ThePost.mkv,PLANNED,canonical primary filename
@@ -200,6 +342,7 @@ tt7653254_MarriageStory,tt7653254_MarriageStory/movie.nfo,QUARANTINE,RELEASE_MET
 tt7653254_MarriageStory,tt7653254_MarriageStory/poster.jpg,QUARANTINE,IMAGE_ASSET,tt7653254_MarriageStory/poster.jpg,PLANNED,safe cleanup category
 tt7653254_MarriageStory,tt7653254_MarriageStory/婚姻故事 Marriage Story 1080p remux (2019).nfo,QUARANTINE,RELEASE_METADATA,tt7653254_MarriageStory/婚姻故事 Marriage Story 1080p remux (2019).nfo,PLANNED,safe cleanup category
 tt8291806_PainandGlory,tt8291806_PainandGlory/痛苦Y荣耀.2019   720P.西班牙语中字.mp4,RENAME,PRIMARY_VIDEO,tt8291806_PainandGlory/tt8291806_PainandGlory.mp4,PLANNED,canonical primary filename
+tt8368368_TheApprentice,tt8368368_TheApprentice/2026.2160p.WEB-DL.H.265.HDR.60fps.DDP2.0.mp4,RENAME,PRIMARY_VIDEO,tt8368368_TheApprentice/tt8368368_TheApprentice.mp4,PLANNED,canonical primary filename
 tt8721424_TickTickBoom,"tt8721424_TickTickBoom/tick, tick...BOOM!.mp4",RENAME,PRIMARY_VIDEO,tt8721424_TickTickBoom/tt8721424_TickTickBoom.mp4,PLANNED,canonical primary filename
 tt8999762_TheBrutalist,tt8999762_TheBrutalist/The.Brutalist.2024.1080p.WEBRip.x264.AAC5.1.mp4,RENAME,PRIMARY_VIDEO,tt8999762_TheBrutalist/tt8999762_TheBrutalist.mp4,PLANNED,canonical primary filename
 tt9051908_Living,tt9051908_Living/生之欲 Living 1080p remux (2022).mkv,RENAME,PRIMARY_VIDEO,tt9051908_Living/tt9051908_Living.mkv,PLANNED,canonical primary filename
