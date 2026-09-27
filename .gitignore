@@ -16,6 +16,7 @@ data/smoke_test/output/
 **/review/openai/raw_batch_errors.jsonl
 **/review/openai/fetch_metadata.json
 .env
+note.md
 
 # InsightFace pretrained models
 models/insightface/models/
