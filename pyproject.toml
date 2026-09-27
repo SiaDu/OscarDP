@@ -10,7 +10,8 @@ requires-python = ">=3.12"
 dependencies = [
   "numpy>=1.26,<3",
   "Pillow>=10,<12",
-  "torch>=2.7,<3",
+  "pysrt>=1.1.2",
+  "torch==2.14.*",
 ]
 
 [project.optional-dependencies]
