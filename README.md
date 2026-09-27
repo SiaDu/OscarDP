@@ -10,7 +10,7 @@ existing shot. Stage 2 never modifies `shots.jsonl` or Stage 1 media/QC files.
 
 Project source, tests and reusable policy live in this repository; generated
 movie outputs and immutable release evidence live under
-`/mnt/g/datasets/oscar_movie_processed`. See
+`/media/sdu/ERAZER G900/datasets/oscar_movie_processed`. See
 [`docs/data_layout.md`](docs/data_layout.md) and
 [`docs/stage2_handoff.md`](docs/stage2_handoff.md).
 
@@ -506,11 +506,11 @@ It is entirely local and never calls OpenAI.
 
 ```bash
 python -m oscardp.script_context freeze-production-release-v3 \
-  --inventory /mnt/g/datasets/oscar_movie_processed/stage2_goal_inventory.json \
-  --status /mnt/g/datasets/oscar_movie_processed/stage2_goal_status.json \
-  --experiments /mnt/g/datasets/oscar_movie_processed/stage2_reviewer_experiments.jsonl \
-  --output-root /mnt/g/datasets/oscar_movie_processed \
-  --release-dir /mnt/g/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven \
+  --inventory '/media/sdu/ERAZER G900/datasets/oscar_movie_processed/stage2_goal_inventory.json' \
+  --status '/media/sdu/ERAZER G900/datasets/oscar_movie_processed/stage2_goal_status.json' \
+  --experiments '/media/sdu/ERAZER G900/datasets/oscar_movie_processed/stage2_reviewer_experiments.jsonl' \
+  --output-root '/media/sdu/ERAZER G900/datasets/oscar_movie_processed' \
+  --release-dir '/media/sdu/ERAZER G900/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven' \
   --code-commit FULL_GIT_SHA
 ```
 
@@ -559,10 +559,10 @@ face tracking. Install the optional CV dependency with `pip install -e
 
 ```bash
 python -m oscardp.performance_candidates mine \
-  --release-manifest /mnt/g/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven/release_manifest.json \
-  --path-map /mnt/i=/mnt/g \
-  --output-root /mnt/g/datasets/oscar_movie_processed/stage3 \
-  --nominees-file /mnt/g/datasets/oscar_data/oscar_acting_nominees.csv \
+  --release-manifest '/media/sdu/ERAZER G900/datasets/oscar_movie_processed/stage2_releases/v3_2_1_production_3_final_seven/release_manifest.json' \
+  --path-map '/mnt/i=/media/sdu/ERAZER G900' \
+  --output-root '/media/sdu/ERAZER G900/datasets/oscar_movie_processed/stage3' \
+  --nominees-file '/media/sdu/ERAZER G900/datasets/oscar_data/oscar_acting_nominees.csv' \
   --movie-key tt12300742 \
   --performer-id nm1297015 \
   --face-model /path/to/face_detection_yunet.onnx

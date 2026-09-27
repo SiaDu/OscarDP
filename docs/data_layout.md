@@ -3,8 +3,8 @@
 | Location | Owns |
 |---|---|
 | `/home/sia/OscarDP` | Python source, tests, packaging, reusable policy, documentation and commands. |
-| `/mnt/g/datasets/oscar_movie` | Source video and subtitle inputs; never modify in place. |
-| `/mnt/g/datasets/oscar_movie_processed` | Generated Stage 1–3 outputs, Stage 2 status/inventory, Batch provenance, frozen gold, release manifests and delivery packages. |
+| `/media/sdu/ERAZER G900/datasets/oscar_movie` | Source video and subtitle inputs; never modify in place. |
+| `/media/sdu/ERAZER G900/datasets/oscar_movie_processed` | Generated Stage 1–3 outputs, Stage 2 status/inventory, Batch provenance, frozen gold, release manifests and delivery packages. |
 
 An artifact manifest is evidence, not a reusable project configuration. It may
 contain per-run absolute paths, hashes, time stamps, model IDs and Batch IDs;

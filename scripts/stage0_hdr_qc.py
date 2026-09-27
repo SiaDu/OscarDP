@@ -74,7 +74,7 @@ def _contact_sheet(pairs: list[tuple[Path, Path, str]], output: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Create paired HDR tone-map QC frames and diagnostics.")
     parser.add_argument("--video", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, default=Path("/mnt/g/datasets/oscar_movie_processed/stage0_hdr_qc"))
+    parser.add_argument("--output-dir", type=Path, default=Path("/media/sdu/ERAZER G900/datasets/oscar_movie_processed/stage0_hdr_qc"))
     parser.add_argument("--frame-count", type=int, default=12)
     parser.add_argument("--timestamps", nargs="*", type=float, help="Optional exact source timestamps in seconds")
     parser.add_argument("--clip-delta", type=float, default=0.01, help="Absolute clipping-fraction increase that flags review")

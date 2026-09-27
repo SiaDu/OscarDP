@@ -20,8 +20,8 @@ def find_inventory(input_root: Path) -> Path | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Stage 0 safe media normalization; dry-run by default.")
     parser.add_argument("--inventory", type=Path, help="Existing source inventory CSV (read as provenance; never overwritten)")
-    parser.add_argument("--input-root", type=Path, default=Path("/mnt/g/datasets/oscar_movie"))
-    parser.add_argument("--output-root", type=Path, default=Path("/mnt/g/datasets/oscar_movie_standardized"), help="Directory for Stage 0 reports; transcoded movies are written beside each source movie")
+    parser.add_argument("--input-root", type=Path, default=Path("/media/sdu/ERAZER G900/datasets/oscar_movie"))
+    parser.add_argument("--output-root", type=Path, default=Path("/media/sdu/ERAZER G900/datasets/oscar_movie_standardized"), help="Directory for Stage 0 reports; transcoded movies are written beside each source movie")
     parser.add_argument("--execute", action="store_true", help="Create a _standardized.mp4 copy beside each source movie; never remove the source")
     parser.add_argument("--movie-id")
     parser.add_argument("--limit", type=int)
