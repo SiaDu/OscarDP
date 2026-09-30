@@ -12,7 +12,7 @@ from pathlib import Path
 
 from oscardp.shots.progress import ProgressReporter
 
-from .media import HDR_FILTER_ORDERS, GIB, MediaInfo, classification, probe, select_audio_stream, supports_hdr_tonemap, target_dimensions, target_fps, transcode_reasons, video_filter
+from .media import HDR_FILTER_ORDERS, GIB, MediaInfo, classification, gpu_hdr_video_filter, probe, select_audio_stream, supports_gpu_hdr_tonemap, supports_hdr_tonemap, target_dimensions, target_fps, transcode_reasons, video_filter
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".m4v", ".avi", ".webm"}
 FIELDS = [
@@ -40,6 +40,7 @@ class NormalizeOptions:
     hdr_filter_order: str = "resize-first"
     progress: bool = True
     fast: bool = False
+    gpu_hdr: bool = False
 
 
 def discover_videos(root: Path, movie_id: str | None, limit: int | None, inventory: Path | None) -> list[Path]:
@@ -123,9 +124,11 @@ def _fast_video_filter(info: MediaInfo) -> str:
     return f"{scale}:format=yuv420p"
 
 
-def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrate: int | None = None, hdr_filter_order: str = "resize-first", fast: bool = False) -> list[str]:
+def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrate: int | None = None, hdr_filter_order: str = "resize-first", fast: bool = False, gpu_hdr: bool = False) -> list[str]:
     audio_stream = select_audio_stream(info)
     command = ["ffmpeg", "-y", "-v", "error", "-progress", "pipe:1", "-nostats"]
+    if gpu_hdr and info.dynamic_range == "HDR":
+        command.extend(["-init_hw_device", "vulkan=vk:0", "-filter_hw_device", "vk"])
     if fast:
         command.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
     command.extend(["-i", str(source), "-map", "0:v:0"])
@@ -138,7 +141,12 @@ def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrat
             "-c:a", "aac", "-profile:a", "aac_low", "-b:a", "192k",
             "-ar", "48000", "-ac", "2",
         ])
-    filters = _fast_video_filter(info) if fast else video_filter(info, hdr_filter_order=hdr_filter_order)
+    if fast:
+        filters = _fast_video_filter(info)
+    elif gpu_hdr and info.dynamic_range == "HDR":
+        filters = gpu_hdr_video_filter(info)
+    else:
+        filters = video_filter(info, hdr_filter_order=hdr_filter_order)
     command.extend(["-vf", filters, "-r", f"{target_fps(info):.6f}", "-c:v", "hevc_nvenc", "-preset", "p1" if fast else "p6"])
     # scale_cuda produces CUDA hardware frames.  Asking FFmpeg to force a
     # software yuv420p frame after that filter inserts an unsupported GPU to
@@ -155,7 +163,7 @@ def ffmpeg_command(source: Path, partial: Path, info: MediaInfo, cq: int, bitrat
     return command
 
 
-def _run_ffmpeg(command: list[str], info: MediaInfo, progress: ProgressReporter, label: str) -> None:
+def run_ffmpeg_with_progress(command: list[str], info: MediaInfo, progress: ProgressReporter, label: str) -> None:
     total_frames = max(1, math.ceil(info.duration_sec * target_fps(info)))
     progress.stage(label, total_frames, estimated=True)
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as error_file:
@@ -185,14 +193,20 @@ def encode(source: Path, final: Path, info: MediaInfo, options: NormalizeOptions
     if partial.exists():
         partial.unlink()
     try:
-        _run_ffmpeg(ffmpeg_command(source, partial, info, options.cq, hdr_filter_order=options.hdr_filter_order, fast=options.fast), info, progress, "Fast GPU transcoding" if options.fast else "Transcoding")
+        if options.gpu_hdr and info.dynamic_range == "HDR":
+            label = "GPU HDR transcoding"
+        elif options.fast:
+            label = "Fast GPU transcoding"
+        else:
+            label = "Transcoding"
+        run_ffmpeg_with_progress(ffmpeg_command(source, partial, info, options.cq, hdr_filter_order=options.hdr_filter_order, fast=options.fast, gpu_hdr=options.gpu_hdr), info, progress, label)
         if partial.stat().st_size / GIB > options.max_size_gib:
             partial.unlink()
             target_bits = 4.3 * GIB * 8
             bitrate = int(target_bits / info.duration_sec - 192_000)
             if bitrate <= 0:
                 return "FAILED_OVERSIZE", "computed non-positive retry bitrate"
-            _run_ffmpeg(ffmpeg_command(source, partial, info, options.cq, bitrate, options.hdr_filter_order, options.fast), info, progress, "Retry transcoding for size limit")
+            run_ffmpeg_with_progress(ffmpeg_command(source, partial, info, options.cq, bitrate=bitrate, hdr_filter_order=options.hdr_filter_order, fast=options.fast, gpu_hdr=options.gpu_hdr), info, progress, "Retry transcoding for size limit")
         valid, message, _ = validate_output(partial, info, options.max_size_gib)
         if not valid:
             return ("FAILED_OVERSIZE" if partial.exists() and partial.stat().st_size / GIB > options.max_size_gib else "VALIDATION_FAILED"), message
@@ -224,10 +238,14 @@ def _write_reports(rows: list[dict[str, object]], output_root: Path) -> None:
 
 def run(options: NormalizeOptions) -> list[dict[str, object]]:
     if options.limit is not None and options.limit < 1: raise ValueError("--limit must be at least 1")
+    if options.fast and options.gpu_hdr: raise ValueError("--fast and --gpu-hdr cannot be used together")
     if options.hdr_filter_order not in HDR_FILTER_ORDERS:
         raise ValueError(f"Unknown HDR filter order: {options.hdr_filter_order}")
+    sources = discover_videos(options.input_root, options.movie_id, options.limit, options.inventory)
+    if options.movie_id and not sources:
+        raise FileNotFoundError(f"No source video found for --movie-id {options.movie_id} under {options.input_root}")
     rows: list[dict[str, object]] = []
-    for source in discover_videos(options.input_root, options.movie_id, options.limit, options.inventory):
+    for source in sources:
         movie_id, title = movie_identity(source, options.input_root)
         final = output_path(source, options.input_root, options.output_root)
         row: dict[str, object] = {"movie_id": movie_id, "movie_title": title, "source_path": str(source), "output_path": str(final), "target_codec": "hevc", "target_dynamic_range": "SDR", "target_size_limit_gib": options.max_size_gib, "output_exists": final.exists(), "output_size_gib": round(final.stat().st_size / GIB, 6) if final.exists() else "", "error_message": ""}
@@ -235,10 +253,14 @@ def run(options: NormalizeOptions) -> list[dict[str, object]]:
             info = probe(source); row.update(source_fields(info))
             width, height = target_dimensions(info); row.update({"target_width": width, "target_height": height, "target_fps": round(target_fps(info), 6)})
             reasons = transcode_reasons(info, options.max_size_gib); row.update({"classification": classification(reasons), "transcode_required": bool(reasons), "transcode_reasons": ";".join(reasons)})
+            if info.dynamic_range == "HDR" and not options.fast:
+                hdr_available, hdr_error = supports_gpu_hdr_tonemap() if options.gpu_hdr else supports_hdr_tonemap()
+            else:
+                hdr_available, hdr_error = True, ""
             if not reasons:
                 row.update({"processing_source_path": str(source), "ffmpeg_status": "NOT_REQUIRED", "validation_status": "KEEP"})
-            elif info.dynamic_range == "HDR" and not supports_hdr_tonemap()[0]:
-                row.update({"processing_source_path": "", "ffmpeg_status": "FAILED_HDR_TONEMAP_UNAVAILABLE", "validation_status": "NOT_RUN", "error_message": supports_hdr_tonemap()[1]})
+            elif not hdr_available:
+                row.update({"processing_source_path": "", "ffmpeg_status": "FAILED_HDR_TONEMAP_UNAVAILABLE", "validation_status": "NOT_RUN", "error_message": hdr_error})
             elif final.exists() and not options.force:
                 valid, message, output = validate_output(final, info, options.max_size_gib)
                 row.update({"processing_source_path": str(final) if valid else "", "ffmpeg_status": "SKIPPED_EXISTING_VALID" if valid else "SKIPPED_EXISTING_INVALID", "validation_status": "PASS" if valid else "FAIL", "output_size_gib": round(output.size_gib, 6) if output else "", "error_message": message})

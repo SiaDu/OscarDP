@@ -200,6 +200,16 @@ def supports_hdr_tonemap() -> tuple[bool, str]:
     return (not missing, "" if not missing else f"Missing FFmpeg filters: {', '.join(missing)}")
 
 
+def supports_gpu_hdr_tonemap() -> tuple[bool, str]:
+    try:
+        output = run_checked(["ffmpeg", "-hide_banner", "-filters"]).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return False, f"Cannot inspect FFmpeg filters: {exc}"
+    if "libplacebo" not in output:
+        return False, "Missing FFmpeg filter: libplacebo"
+    return True, ""
+
+
 def select_audio_stream(info: MediaInfo) -> int | None:
     if not info.audio_streams:
         return None
@@ -215,6 +225,18 @@ def select_audio_stream(info: MediaInfo) -> int | None:
 
 
 HDR_FILTER_ORDERS = {"resize-first", "tonemap-first"}
+
+
+def gpu_hdr_video_filter(info: MediaInfo) -> str:
+    """Tone-map HDR on Vulkan after uploading the source's native 10-bit frames."""
+    width, height = target_dimensions(info)
+    return (
+        "hwupload,"
+        f"libplacebo=w={width}:h={height}:format=yuv420p:"
+        "colorspace=bt709:color_primaries=bt709:color_trc=bt709:"
+        "range=tv:tonemapping=mobius:peak_detect=false,"
+        "hwdownload,format=yuv420p"
+    )
 
 
 def video_filter(info: MediaInfo, hdr_filter_order: str = "resize-first") -> str:
