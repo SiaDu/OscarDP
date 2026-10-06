@@ -10,6 +10,6 @@ def test_stage2_repository_documents_identify_frozen_policy_source() -> None:
     layout = (ROOT / "docs/data_layout.md").read_text(encoding="utf-8")
 
     assert "0ac78ef566d1e84198528fd706d6d31e241ed6c37444c87aed0e2de4e34b74c3" in policy
-    assert "/media/sdu/ERAZER G900/datasets/oscar_movie_processed" in handoff
+    assert "/media/sdu/SiyaoDu/datasets/oscar_movie_processed" in handoff
     assert "--path-map '/mnt/i=/media/sdu/ERAZER G900'" in handoff
     assert "/home/sia/OscarDP" in layout

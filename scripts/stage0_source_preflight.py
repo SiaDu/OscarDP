@@ -13,12 +13,12 @@ from oscardp.stage0.preflight import PreflightOptions, run
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Stage 0A source preflight; no source mutation by default.")
-    parser.add_argument("--input-root", type=Path, default=Path("/media/sdu/ERAZER G900/datasets/oscar_movie"))
+    parser.add_argument("--input-root", type=Path, default=Path("/media/sdu/SiyaoDu/datasets/oscar_movie"))
     parser.add_argument("--report-dir", type=Path, default=Path("reports/stage0_source_preflight"))
     parser.add_argument("--apply-renames", action="store_true", help="Perform only collision-safe canonical filename renames.")
     parser.add_argument("--quarantine", action="store_true", help="Move planned disposable/auxiliary files; never deletes.")
     parser.add_argument("--delete-planned", action="store_true", help="Permanently delete only planned image/release-metadata/auxiliary files.")
-    parser.add_argument("--quarantine-root", type=Path, default=Path("/media/sdu/ERAZER G900/datasets/oscar_movie_cleanup_quarantine"))
+    parser.add_argument("--quarantine-root", type=Path, default=Path("/media/sdu/SiyaoDu/datasets/oscar_movie_cleanup_quarantine"))
     parser.add_argument("--include-unknown-quarantine", action="store_true", help="Also quarantine UNKNOWN files (off by default).")
     parser.add_argument("--delete-quarantine", action="store_true", help="Reserved explicit destructive action; intentionally not implemented.")
     parser.add_argument("--limit", type=int)

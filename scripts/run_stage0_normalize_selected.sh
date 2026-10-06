@@ -3,8 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-INPUT_ROOT='/media/sdu/ERAZER G900/datasets/oscar_movie'
-REPORT_ROOT='/media/sdu/ERAZER G900/datasets/oscar_movie_standardized'
+INPUT_ROOT='/media/sdu/SiyaoDu/datasets/oscar_movie'
+REPORT_ROOT='/media/sdu/SiyaoDu/datasets/oscar_movie_standardized'
 
 MOVIE_IDS=(
   tt0410097
