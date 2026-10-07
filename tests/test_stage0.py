@@ -79,7 +79,7 @@ def test_validation_uses_video_tail_when_subtitle_extends_container(monkeypatch,
     source_path.touch(); output.touch()
     source = info(duration_sec=100.0, subtitle_streams=({"duration": "100.0"},))
     monkeypatch.setattr("oscardp.stage0.pipeline.probe", lambda _: info(duration_sec=98.0))
-    monkeypatch.setattr("oscardp.stage0.pipeline.video_stream_tail_end_sec", lambda _: 98.0)
+    monkeypatch.setattr("oscardp.stage0.pipeline.video_stream_tail_end_sec", lambda *_: 98.0)
 
     passed, message, _ = validate_output(output, source, 4.5, source_path)
 
@@ -93,7 +93,7 @@ def test_validation_keeps_duration_failure_when_video_tails_do_not_match(monkeyp
     source_path.touch(); output.touch()
     source = info(duration_sec=100.0, subtitle_streams=({"duration": "100.0"},))
     monkeypatch.setattr("oscardp.stage0.pipeline.probe", lambda _: info(duration_sec=98.0))
-    monkeypatch.setattr("oscardp.stage0.pipeline.video_stream_tail_end_sec", lambda path: 98.0 if path == output else 97.0)
+    monkeypatch.setattr("oscardp.stage0.pipeline.video_stream_tail_end_sec", lambda path, *_: 98.0 if path == output else 97.0)
 
     passed, message, _ = validate_output(output, source, 4.5, source_path)
 

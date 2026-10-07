@@ -95,15 +95,17 @@ def probe_payload(path: Path) -> dict[str, object]:
     return json.loads(run_checked(command).stdout)
 
 
-def video_stream_tail_end_sec(path: Path, lookback_sec: int = 300) -> float | None:
+def video_stream_tail_end_sec(path: Path, container_duration_sec: float, lookback_sec: int = 300) -> float | None:
     """Return the end PTS of the primary video stream near EOF.
 
     Matroska's container duration can be extended by a subtitle that outlasts
-    the mapped video/audio streams.  Reading a short packet window from EOF is
-    enough to compare the actual video ends without rescanning the movie.
+    the mapped video/audio streams.  Reading a short interval near the known
+    container end is enough to compare the actual video ends without
+    rescanning the movie.  `ffprobe` does not support FFmpeg's `-sseof` flag.
     """
+    start_sec = max(0.0, container_duration_sec - lookback_sec)
     command = [
-        "ffprobe", "-v", "error", "-sseof", f"-{lookback_sec}",
+        "ffprobe", "-v", "error", "-read_intervals", f"{start_sec:.6f}%+{lookback_sec}",
         "-select_streams", "v:0", "-show_packets",
         "-show_entries", "packet=pts_time,duration_time", "-of", "json", str(path),
     ]

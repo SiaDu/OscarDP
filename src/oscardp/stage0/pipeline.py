@@ -123,8 +123,8 @@ def validate_output(path: Path, source: MediaInfo, max_size_gib: float, source_p
     if abs(output.duration_sec - source.duration_sec) > 0.5:
         video_ends_match = False
         if source_path is not None and _subtitle_sets_container_end(source):
-            source_video_end = video_stream_tail_end_sec(source_path)
-            output_video_end = video_stream_tail_end_sec(path)
+            source_video_end = video_stream_tail_end_sec(source_path, source.duration_sec)
+            output_video_end = video_stream_tail_end_sec(path, output.duration_sec)
             video_ends_match = (
                 source_video_end is not None
                 and output_video_end is not None
