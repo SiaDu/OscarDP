@@ -7,10 +7,10 @@ INPUT_ROOT='/media/sdu/SiyaoDu/datasets/oscar_movie'
 REPORT_ROOT='/media/sdu/SiyaoDu/datasets/oscar_movie_standardized'
 
 MOVIE_IDS=(
+  tt1065073
+  tt0491747
   tt0410097
-  tt0325980
-  tt0340855
-  tt0268126
+  tt0180073
 )
 
 for movie_id in "${MOVIE_IDS[@]}"; do

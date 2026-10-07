@@ -88,11 +88,40 @@ def probe_payload(path: Path) -> dict[str, object]:
     command = [
         "ffprobe", "-v", "error", "-show_entries",
         "format=format_name,duration,size,bit_rate:stream=index,codec_type,codec_name,width,height,bit_rate,"
-        "avg_frame_rate,r_frame_rate,bits_per_raw_sample,pix_fmt,color_transfer,"
+        "avg_frame_rate,r_frame_rate,duration,bits_per_raw_sample,pix_fmt,color_transfer,"
         "color_primaries,color_space,disposition:stream_tags=language:stream_side_data",
         "-of", "json", str(path),
     ]
     return json.loads(run_checked(command).stdout)
+
+
+def video_stream_tail_end_sec(path: Path, lookback_sec: int = 300) -> float | None:
+    """Return the end PTS of the primary video stream near EOF.
+
+    Matroska's container duration can be extended by a subtitle that outlasts
+    the mapped video/audio streams.  Reading a short packet window from EOF is
+    enough to compare the actual video ends without rescanning the movie.
+    """
+    command = [
+        "ffprobe", "-v", "error", "-sseof", f"-{lookback_sec}",
+        "-select_streams", "v:0", "-show_packets",
+        "-show_entries", "packet=pts_time,duration_time", "-of", "json", str(path),
+    ]
+    try:
+        payload = json.loads(run_checked(command).stdout)
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return None
+    ends: list[float] = []
+    for packet in payload.get("packets") or []:
+        if not isinstance(packet, dict):
+            continue
+        try:
+            pts = float(packet["pts_time"])
+            duration = float(packet.get("duration_time") or 0.0)
+        except (KeyError, TypeError, ValueError):
+            continue
+        ends.append(pts + duration)
+    return max(ends) if ends else None
 
 
 def probe(path: Path) -> MediaInfo:

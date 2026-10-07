@@ -73,6 +73,34 @@ def test_validation_requires_bt709(monkeypatch, tmp_path) -> None:
     assert "BT.709" in message
 
 
+def test_validation_uses_video_tail_when_subtitle_extends_container(monkeypatch, tmp_path) -> None:
+    source_path = tmp_path / "source.mkv"
+    output = tmp_path / "output.mp4"
+    source_path.touch(); output.touch()
+    source = info(duration_sec=100.0, subtitle_streams=({"duration": "100.0"},))
+    monkeypatch.setattr("oscardp.stage0.pipeline.probe", lambda _: info(duration_sec=98.0))
+    monkeypatch.setattr("oscardp.stage0.pipeline.video_stream_tail_end_sec", lambda _: 98.0)
+
+    passed, message, _ = validate_output(output, source, 4.5, source_path)
+
+    assert passed
+    assert message == ""
+
+
+def test_validation_keeps_duration_failure_when_video_tails_do_not_match(monkeypatch, tmp_path) -> None:
+    source_path = tmp_path / "source.mkv"
+    output = tmp_path / "output.mp4"
+    source_path.touch(); output.touch()
+    source = info(duration_sec=100.0, subtitle_streams=({"duration": "100.0"},))
+    monkeypatch.setattr("oscardp.stage0.pipeline.probe", lambda _: info(duration_sec=98.0))
+    monkeypatch.setattr("oscardp.stage0.pipeline.video_stream_tail_end_sec", lambda path: 98.0 if path == output else 97.0)
+
+    passed, message, _ = validate_output(output, source, 4.5, source_path)
+
+    assert not passed
+    assert "duration differs" in message
+
+
 def test_standardized_output_is_written_beside_source(tmp_path) -> None:
     input_root = tmp_path / "movies"
     source = input_root / "tt1234567" / "Feature.mkv"

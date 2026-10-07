@@ -12,7 +12,7 @@ from pathlib import Path
 
 from oscardp.shots.progress import ProgressReporter
 
-from .media import HDR_FILTER_ORDERS, GIB, MediaInfo, classification, gpu_hdr_video_filter, probe, select_audio_stream, supports_gpu_hdr_tonemap, supports_hdr_tonemap, target_dimensions, target_fps, transcode_reasons, video_filter
+from .media import HDR_FILTER_ORDERS, GIB, MediaInfo, classification, gpu_hdr_video_filter, probe, select_audio_stream, supports_gpu_hdr_tonemap, supports_hdr_tonemap, target_dimensions, target_fps, transcode_reasons, video_filter, video_stream_tail_end_sec
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".m4v", ".avi", ".webm"}
 FIELDS = [
@@ -95,7 +95,19 @@ def source_fields(info: MediaInfo) -> dict[str, object]:
     }
 
 
-def validate_output(path: Path, source: MediaInfo, max_size_gib: float) -> tuple[bool, str, MediaInfo | None]:
+def _subtitle_sets_container_end(source: MediaInfo) -> bool:
+    """Whether a subtitle's duration reaches the container's reported end."""
+    for subtitle in source.subtitle_streams:
+        try:
+            subtitle_duration = float(subtitle.get("duration") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if subtitle_duration > 0 and abs(subtitle_duration - source.duration_sec) <= 0.5:
+            return True
+    return False
+
+
+def validate_output(path: Path, source: MediaInfo, max_size_gib: float, source_path: Path | None = None) -> tuple[bool, str, MediaInfo | None]:
     try:
         output = probe(path)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
@@ -108,7 +120,18 @@ def validate_output(path: Path, source: MediaInfo, max_size_gib: float) -> tuple
     if (output.color_primaries, output.color_transfer, output.color_space) != ("bt709", "bt709", "bt709"):
         problems.append("output color metadata is not BT.709")
     if output.size_gib > max_size_gib: problems.append(f"size exceeds {max_size_gib} GiB")
-    if abs(output.duration_sec - source.duration_sec) > 0.5: problems.append("duration differs by over 0.5 sec")
+    if abs(output.duration_sec - source.duration_sec) > 0.5:
+        video_ends_match = False
+        if source_path is not None and _subtitle_sets_container_end(source):
+            source_video_end = video_stream_tail_end_sec(source_path)
+            output_video_end = video_stream_tail_end_sec(path)
+            video_ends_match = (
+                source_video_end is not None
+                and output_video_end is not None
+                and abs(output_video_end - source_video_end) <= 0.5
+            )
+        if not video_ends_match:
+            problems.append("duration differs by over 0.5 sec")
     expected_fps = target_fps(source)
     if expected_fps and abs(output.fps - expected_fps) > max(0.01, expected_fps * 0.001): problems.append(f"fps is {output.fps}, expected {expected_fps}")
     return not problems, "; ".join(problems), output
@@ -207,7 +230,7 @@ def encode(source: Path, final: Path, info: MediaInfo, options: NormalizeOptions
             if bitrate <= 0:
                 return "FAILED_OVERSIZE", "computed non-positive retry bitrate"
             run_ffmpeg_with_progress(ffmpeg_command(source, partial, info, options.cq, bitrate=bitrate, hdr_filter_order=options.hdr_filter_order, fast=options.fast, gpu_hdr=options.gpu_hdr), info, progress, "Retry transcoding for size limit")
-        valid, message, _ = validate_output(partial, info, options.max_size_gib)
+        valid, message, _ = validate_output(partial, info, options.max_size_gib, source)
         if not valid:
             return ("FAILED_OVERSIZE" if partial.exists() and partial.stat().st_size / GIB > options.max_size_gib else "VALIDATION_FAILED"), message
         os.replace(partial, final)
@@ -262,13 +285,13 @@ def run(options: NormalizeOptions) -> list[dict[str, object]]:
             elif not hdr_available:
                 row.update({"processing_source_path": "", "ffmpeg_status": "FAILED_HDR_TONEMAP_UNAVAILABLE", "validation_status": "NOT_RUN", "error_message": hdr_error})
             elif final.exists() and not options.force:
-                valid, message, output = validate_output(final, info, options.max_size_gib)
+                valid, message, output = validate_output(final, info, options.max_size_gib, source)
                 row.update({"processing_source_path": str(final) if valid else "", "ffmpeg_status": "SKIPPED_EXISTING_VALID" if valid else "SKIPPED_EXISTING_INVALID", "validation_status": "PASS" if valid else "FAIL", "output_size_gib": round(output.size_gib, 6) if output else "", "error_message": message})
             elif not options.execute:
                 row.update({"processing_source_path": str(final), "ffmpeg_status": "DRY_RUN", "validation_status": "NOT_RUN"})
             else:
                 status, error = encode(source, final, info, options)
-                valid, message, output = validate_output(final, info, options.max_size_gib) if status == "PASS" else (False, error, None)
+                valid, message, output = validate_output(final, info, options.max_size_gib, source) if status == "PASS" else (False, error, None)
                 row.update({"processing_source_path": str(final) if valid else "", "ffmpeg_status": status, "validation_status": "PASS" if valid else "FAIL", "output_exists": final.exists(), "output_size_gib": round(output.size_gib, 6) if output else "", "error_message": message})
         except Exception as exc:  # Per-movie isolation is intentional for batch processing.
             row.update({"processing_source_path": "", "classification": "ERROR", "transcode_required": "", "transcode_reasons": "", "ffmpeg_status": "FAILED_PROBE", "validation_status": "NOT_RUN", "error_message": str(exc)})
