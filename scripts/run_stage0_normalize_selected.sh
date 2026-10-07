@@ -12,6 +12,7 @@ MOVIE_IDS=(
   tt0410097
   tt0180073
 )
+failed_movies=()
 
 for movie_id in "${MOVIE_IDS[@]}"; do
   echo
@@ -19,15 +20,22 @@ for movie_id in "${MOVIE_IDS[@]}"; do
   echo "开始处理: ${movie_id}"
   echo "============================================================"
 
-  python scripts/stage0_media_normalize.py \
+  if python scripts/stage0_media_normalize.py \
     --input-root "$INPUT_ROOT" \
     --output-root "$REPORT_ROOT/$movie_id" \
     --movie-id "$movie_id" \
     --gpu-hdr \
-    --execute
-
-  echo "完成处理: ${movie_id}"
+    --execute; then
+    echo "完成处理: ${movie_id}"
+  else
+    echo "处理失败: ${movie_id}；查看 $REPORT_ROOT/$movie_id/stage0_errors.jsonl"
+    failed_movies+=("$movie_id")
+  fi
 done
 
 echo
+if ((${#failed_movies[@]})); then
+  echo "处理结束，失败: ${failed_movies[*]}"
+  exit 1
+fi
 echo "全部电影已完成。"

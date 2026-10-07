@@ -38,7 +38,12 @@ def main() -> int:
     inventory = args.inventory.resolve() if args.inventory else find_inventory(args.input_root)
     if inventory: print(f"Using existing inventory as provenance: {inventory}")
     rows = run(NormalizeOptions(input_root=args.input_root.resolve(), output_root=args.output_root.resolve(), inventory=inventory, execute=args.execute, movie_id=args.movie_id, limit=args.limit, force=args.force, cq=args.cq, max_size_gib=args.max_size_gib, hdr_filter_order=args.hdr_filter_order, progress=not args.no_progress, fast=args.fast, gpu_hdr=args.gpu_hdr))
-    print(f"Stage 0 complete: {len(rows)} movie files; reports: {args.output_root / 'stage0_media_inventory.csv'}")
+    failures = [row for row in rows if row.get("validation_status") == "FAIL" or str(row.get("ffmpeg_status", "")).startswith("FAILED")]
+    print(f"Stage 0 finished: {len(rows)} movie files; {len(failures)} failed; reports: {args.output_root / 'stage0_media_inventory.csv'}")
+    for row in failures:
+        print(f"Stage 0 FAILED for {row['movie_id']}: {row.get('error_message', '')}", file=sys.stderr)
+    if args.movie_id and failures:
+        return 1
     return 0
 
 

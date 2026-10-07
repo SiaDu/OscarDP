@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from oscardp.stage0 import media
 from oscardp.stage0.media import MediaInfo, _is_hdr, classification, inventory_classification, profile_reasons, target_dimensions, transcode_reasons, video_filter
 from oscardp.stage0.pipeline import discover_videos, ffmpeg_command, output_path, validate_output
 
@@ -117,11 +118,25 @@ def test_standardized_output_is_written_beside_source(tmp_path) -> None:
 def test_discovery_does_not_reprocess_standardized_derivatives(tmp_path) -> None:
     source = tmp_path / "tt1234567" / "Feature.mkv"
     derivative = source.with_name("Feature_standardized.mp4")
+    failed_candidate = source.with_name("Feature_standardized.validation_failed.mp4")
     source.parent.mkdir(parents=True)
     source.touch()
     derivative.touch()
+    failed_candidate.touch()
 
     assert discover_videos(tmp_path, None, None, None) == [source]
+
+
+def test_video_tail_probe_reads_to_eof_after_keyframe_seek(monkeypatch, tmp_path) -> None:
+    commands = []
+
+    def fake_run(command):
+        commands.append(command)
+        return type("Result", (), {"stdout": '{"packets": [{"pts_time": "98.0", "duration_time": "0.04"}]}'})()
+
+    monkeypatch.setattr(media, "run_checked", fake_run)
+    assert media.video_stream_tail_end_sec(tmp_path / "source.mkv", 600.0) == pytest.approx(98.04)
+    assert commands[0][commands[0].index("-read_intervals") + 1] == "300.000000%"
 
 
 def test_ffmpeg_command_emits_machine_readable_progress(tmp_path) -> None:

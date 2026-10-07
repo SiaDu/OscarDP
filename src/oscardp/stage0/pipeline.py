@@ -26,6 +26,11 @@ ID_PATTERN = re.compile(r"(?i)(tt\d{7,10})")
 STANDARDIZED_SUFFIX = "_standardized"
 
 
+def _is_derivative(path: Path) -> bool:
+    stem = path.stem.lower()
+    return stem.endswith(STANDARDIZED_SUFFIX) or f"{STANDARDIZED_SUFFIX}." in stem
+
+
 @dataclass(frozen=True)
 class NormalizeOptions:
     input_root: Path
@@ -61,11 +66,11 @@ def discover_videos(root: Path, movie_id: str | None, limit: int | None, invento
                     candidate.relative_to(root)
                 except ValueError:
                     continue
-                if candidate.is_file() and candidate.suffix.lower() in VIDEO_EXTENSIONS and not candidate.stem.lower().endswith(STANDARDIZED_SUFFIX):
+                if candidate.is_file() and candidate.suffix.lower() in VIDEO_EXTENSIONS and not _is_derivative(candidate):
                     paths.append(candidate)
         paths = sorted(set(paths), key=lambda item: item.as_posix().lower())
     if not paths:
-        paths = [path for path in sorted(root.rglob("*"), key=lambda item: item.as_posix().lower()) if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS and not path.stem.lower().endswith(STANDARDIZED_SUFFIX) and not any(part.startswith(".") for part in path.relative_to(root).parts)]
+        paths = [path for path in sorted(root.rglob("*"), key=lambda item: item.as_posix().lower()) if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS and not _is_derivative(path) and not any(part.startswith(".") for part in path.relative_to(root).parts)]
     if movie_id:
         wanted = movie_id.lower()
         paths = [path for path in paths if wanted in path.as_posix().lower()]
@@ -122,6 +127,7 @@ def validate_output(path: Path, source: MediaInfo, max_size_gib: float, source_p
     if output.size_gib > max_size_gib: problems.append(f"size exceeds {max_size_gib} GiB")
     if abs(output.duration_sec - source.duration_sec) > 0.5:
         video_ends_match = False
+        source_video_end = output_video_end = None
         if source_path is not None and _subtitle_sets_container_end(source):
             source_video_end = video_stream_tail_end_sec(source_path, source.duration_sec)
             output_video_end = video_stream_tail_end_sec(path, output.duration_sec)
@@ -131,7 +137,11 @@ def validate_output(path: Path, source: MediaInfo, max_size_gib: float, source_p
                 and abs(output_video_end - source_video_end) <= 0.5
             )
         if not video_ends_match:
-            problems.append("duration differs by over 0.5 sec")
+            problems.append(
+                "duration differs by over 0.5 sec"
+                f" (source container={source.duration_sec:.3f}s, output container={output.duration_sec:.3f}s,"
+                f" source video end={source_video_end}, output video end={output_video_end})"
+            )
     expected_fps = target_fps(source)
     if expected_fps and abs(output.fps - expected_fps) > max(0.01, expected_fps * 0.001): problems.append(f"fps is {output.fps}, expected {expected_fps}")
     return not problems, "; ".join(problems), output
@@ -232,7 +242,16 @@ def encode(source: Path, final: Path, info: MediaInfo, options: NormalizeOptions
             run_ffmpeg_with_progress(ffmpeg_command(source, partial, info, options.cq, bitrate=bitrate, hdr_filter_order=options.hdr_filter_order, fast=options.fast, gpu_hdr=options.gpu_hdr), info, progress, "Retry transcoding for size limit")
         valid, message, _ = validate_output(partial, info, options.max_size_gib, source)
         if not valid:
-            return ("FAILED_OVERSIZE" if partial.exists() and partial.stat().st_size / GIB > options.max_size_gib else "VALIDATION_FAILED"), message
+            status = "FAILED_OVERSIZE" if partial.exists() and partial.stat().st_size / GIB > options.max_size_gib else "VALIDATION_FAILED"
+            if status == "VALIDATION_FAILED" and "duration differs" in message:
+                diagnostic = final.with_name(final.stem + ".validation_failed.mp4")
+                attempt = 2
+                while diagnostic.exists():
+                    diagnostic = final.with_name(final.stem + f".validation_failed.{attempt}.mp4")
+                    attempt += 1
+                os.replace(partial, diagnostic)
+                message += f"; retained candidate: {diagnostic}"
+            return status, message
         os.replace(partial, final)
         return "PASS", ""
     except subprocess.CalledProcessError as exc:
