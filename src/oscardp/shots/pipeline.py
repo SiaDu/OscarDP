@@ -13,7 +13,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-from .discovery import derive_movie_key
+from .discovery import derive_movie_key, load_movie_titles
 from .media import (
     decode_transnet_frames,
     extract_selected_frames,
@@ -173,13 +173,7 @@ def build_shot_records(
 def _movie_title(movie_id: str, titles_path: Path | None) -> str | None:
     if titles_path is None:
         return None
-    mapping = _read_json(titles_path)
-    if not isinstance(mapping, dict):
-        raise ValueError("Title mapping must be a JSON object of IMDb IDs to titles")
-    title = mapping.get(movie_id)
-    if title is not None and (not isinstance(title, str) or not title.strip()):
-        raise ValueError(f"Invalid title for {movie_id}")
-    return title
+    return load_movie_titles(titles_path).get(movie_id)
 
 
 def _write_shots(path: Path, movie_id: str, movie_name: str | None, shots: list[ShotRecord]) -> None:

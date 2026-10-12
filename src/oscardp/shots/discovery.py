@@ -1,15 +1,40 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import unicodedata
 from pathlib import Path
 
 from .schema import MovieRef
 
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".m4v", ".avi", ".webm"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".m4v", ".avi", ".webm", ".rmvb"}
 PARTIAL_SUFFIXES = (".part", ".partial", ".crdownload")
 IMDB_PATTERN = re.compile(r"(?i)(?<![a-z0-9])(tt\d{7,10})(?!\d)")
+CANONICAL_ID = re.compile(r"tt\d{7,10}")
+
+
+def load_movie_titles(path: Path) -> dict[str, str]:
+    def unique_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate movie ID in title JSON: {key}")
+            result[key] = value
+        return result
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_pairs)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Cannot read movie titles from {path}: {exc}") from exc
+    if not isinstance(data, dict) or not data:
+        raise ValueError("Movie titles must be a nonempty JSON object")
+    for movie_id, title in data.items():
+        if not CANONICAL_ID.fullmatch(movie_id):
+            raise ValueError(f"Invalid IMDb ID in title JSON: {movie_id}")
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError(f"Missing or invalid movie title for {movie_id}")
+    return data
 
 
 def _has_hidden_component(relative_path: Path) -> bool:
@@ -52,6 +77,8 @@ def discover_movies(
     *,
     limit: int | None = None,
     movie_key: str | None = None,
+    allowed_ids: set[str] | None = None,
+    require_all: bool = False,
 ) -> list[MovieRef]:
     root = input_root.resolve()
     if not root.is_dir():
@@ -70,6 +97,8 @@ def discover_movies(
         if lower_name.endswith(PARTIAL_SUFFIXES) or path.suffix.lower() not in VIDEO_EXTENSIONS:
             continue
         key = derive_movie_key(path, root)
+        if allowed_ids is not None and key not in allowed_ids:
+            continue
         if movie_key and key != movie_key.lower():
             continue
         refs.append(MovieRef(key, path.resolve(), relative.as_posix()))
@@ -81,4 +110,9 @@ def discover_movies(
     if duplicates:
         details = "; ".join(f"{key}: {', '.join(paths)}" for key, paths in sorted(duplicates.items()))
         raise ValueError(f"Duplicate movie_key values: {details}")
+    if require_all and allowed_ids is not None:
+        expected = allowed_ids if movie_key is None else allowed_ids & {movie_key.lower()}
+        missing = expected - {ref.movie_key for ref in refs}
+        if missing:
+            raise ValueError(f"Missing allowlisted movie IDs: {', '.join(sorted(missing))}")
     return refs[:limit] if limit is not None else refs

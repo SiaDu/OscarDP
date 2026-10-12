@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from oscardp.shots.discovery import derive_movie_key, discover_movies
+from oscardp.shots.discovery import derive_movie_key, discover_movies, load_movie_titles
 
 
 def touch(path: Path) -> None:
@@ -11,14 +11,14 @@ def touch(path: Path) -> None:
 
 
 def test_discovery_extensions_hidden_partial_and_imdb(tmp_path: Path) -> None:
-    for suffix in ("mp4", "mkv", "mov", "m4v", "avi", "webm"):
+    for suffix in ("mp4", "mkv", "mov", "m4v", "avi", "webm", "rmvb"):
         touch(tmp_path / f"movie_{suffix}.{suffix}")
     touch(tmp_path / ".hidden" / "secret.mp4")
     touch(tmp_path / "download.mp4.part")
     touch(tmp_path / "subtitle.srt")
     touch(tmp_path / "tt32536315_Title" / "feature.MKV")
     movies = discover_movies(tmp_path)
-    assert len(movies) == 7
+    assert len(movies) == 8
     assert any(movie.movie_key == "tt32536315" for movie in movies)
     assert all(".hidden" not in movie.source_video_relpath for movie in movies)
 
@@ -52,3 +52,38 @@ def test_non_ascii_only_name_has_stable_fallback(tmp_path: Path) -> None:
     first = derive_movie_key(path, tmp_path)
     assert first.startswith("movie_")
     assert first == derive_movie_key(path, tmp_path)
+
+
+def test_titles_limit_selection_before_unlisted_duplicates(tmp_path: Path) -> None:
+    touch(tmp_path / 'tt1234567_Movie' / 'feature.rmvb')
+    touch(tmp_path / 'tt7654321_Other' / 'a.mp4')
+    touch(tmp_path / 'tt7654321_Other' / 'b.mkv')
+    titles = tmp_path / 'titles.json'
+    titles.write_text('{"tt1234567": "Movie"}')
+    selected = discover_movies(tmp_path, allowed_ids=set(load_movie_titles(titles)), require_all=True)
+    assert [movie.movie_key for movie in selected] == ['tt1234567']
+
+
+def test_titles_missing_and_duplicate_selected_movie(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match='Missing allowlisted'):
+        discover_movies(tmp_path, allowed_ids={'tt1234567'}, require_all=True)
+    touch(tmp_path / 'tt1234567_Movie' / 'a.mp4')
+    touch(tmp_path / 'tt1234567_Movie' / 'b.mkv')
+    with pytest.raises(ValueError, match='Duplicate movie_key'):
+        discover_movies(tmp_path, allowed_ids={'tt1234567'}, require_all=True)
+
+
+@pytest.mark.parametrize('content', [
+    '{"tt1234567":"One","tt1234567":"Two"}',
+    '{"TT1234567":"One"}',
+    '{"tt1234567":""}',
+    '{"tt1234567":null}',
+    'not json',
+])
+def test_invalid_title_json(tmp_path: Path, content: str) -> None:
+    path = tmp_path / 'titles.json'
+    path.write_text(content)
+    with pytest.raises(ValueError):
+        load_movie_titles(path)
+    with pytest.raises(ValueError):
+        load_movie_titles(tmp_path / 'missing.json')

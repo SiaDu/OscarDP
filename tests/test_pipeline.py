@@ -68,13 +68,15 @@ def test_process_one_publishes_and_resumes(tmp_path: Path, monkeypatch: pytest.M
 
     monkeypatch.setattr(pipeline, "_load_or_run_inference", fake_inference)
     monkeypatch.setattr(pipeline, "extract_selected_frames", fake_extract)
-    options = ProcessOptions(input_root=input_root, output_root=output_root, weights=weights)
+    titles = tmp_path / 'titles.json'
+    titles.write_text('{"tt1234567":"Verified Movie"}')
+    options = ProcessOptions(input_root=input_root, output_root=output_root, weights=weights, titles=titles)
     result = process_one(video, options)
     assert result["status"] == "completed"
     movie_dir = output_root / "tt1234567"
     stage = json.loads((movie_dir / "Stage01_tt1234567.json").read_text())
     assert set(stage) == {"movie_id", "movie_name", "shots"}
-    assert stage["movie_name"] is None
+    assert stage["movie_name"] == "Verified Movie"
     assert len(stage["shots"]) == 2
     assert set(stage["shots"][0]) == {"shot_id", "temporal"}
     assert len(list((movie_dir / "shot_img").glob("*.jpg"))) == 2

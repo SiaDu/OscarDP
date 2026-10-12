@@ -1,3 +1,4 @@
+# Python environment
 .venv/
 __pycache__/
 *.py[cod]
@@ -5,10 +6,23 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .coverage
+
+# Model weights
 *.pth
 *.pt
+*.onnx
+
+# Local pretrained models
+/models/insightface/
+
+# Logs and temporary files
 *.log
 *.tmp
 .env
+
+# Local notes
 note.md
+
+# Generated dataset outputs
 oscar_movie_analysis/
+reports/dataset_inventory/

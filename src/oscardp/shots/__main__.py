@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .discovery import discover_movies
+from .discovery import derive_movie_key, discover_movies, load_movie_titles
 from .pipeline import ProcessOptions, process_one
 from .schema import json_dumps
 from .validation import validate_output_root
@@ -13,11 +13,12 @@ DEFAULT_INPUT_ROOT = Path("/media/sdu/SiyaoDu/datasets/oscar_movie")
 DEFAULT_OUTPUT_ROOT = Path("/media/sdu/SiyaoDu/datasets/oscar_movie_analysis")
 
 
-def _processing_options(parser: argparse.ArgumentParser) -> None:
+def _processing_options(parser: argparse.ArgumentParser, *, require_titles: bool = False) -> None:
     parser.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--weights", type=Path, required=True)
-    parser.add_argument("--titles", type=Path, help="JSON mapping of IMDb IDs to verified movie titles")
+    parser.add_argument("--titles", type=Path, required=require_titles,
+                        help="movie_titles.json supplies both batch selection and verified titles")
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     behavior = parser.add_mutually_exclusive_group()
@@ -37,11 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
     discover.add_argument("--input-root", type=Path, default=DEFAULT_INPUT_ROOT)
     discover.add_argument("--movie-id")
     discover.add_argument("--limit", type=int)
+    discover.add_argument("--titles", type=Path)
     one = commands.add_parser("process-one")
     _processing_options(one)
     one.add_argument("--video", type=Path, required=True)
     batch = commands.add_parser("process")
-    _processing_options(batch)
+    _processing_options(batch, require_titles=True)
     batch.add_argument("--movie-id")
     batch.add_argument("--limit", type=int)
     validate = commands.add_parser("validate")
@@ -65,20 +67,29 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "discover":
-            for movie in discover_movies(args.input_root, limit=args.limit, movie_key=args.movie_id):
+            titles = load_movie_titles(args.titles) if args.titles else None
+            if titles is not None and args.movie_id and args.movie_id not in titles:
+                raise ValueError(f"Movie ID is not in title mapping: {args.movie_id}")
+            for movie in discover_movies(args.input_root, limit=args.limit, movie_key=args.movie_id,
+                                         allowed_ids=set(titles) if titles else None,
+                                         require_all=titles is not None):
                 print(json_dumps(movie))
             return 0
         if args.command == "process-one":
             # Discovery catches ambiguous sources before publishing a movie ID.
             movie = args.video.resolve()
-            refs = discover_movies(args.input_root)
+            refs = discover_movies(args.input_root, movie_key=derive_movie_key(movie, args.input_root))
             if movie not in {ref.source_path for ref in refs}:
                 raise ValueError(f"Video was not discovered under input root: {movie}")
             print(json_dumps(process_one(movie, _options(args)), pretty=True))
             return 0
         if args.command == "process":
+            titles = load_movie_titles(args.titles)
+            if args.movie_id and args.movie_id not in titles:
+                raise ValueError(f"Movie ID is not in title mapping: {args.movie_id}")
             failures = 0
-            refs = discover_movies(args.input_root, limit=args.limit, movie_key=args.movie_id)
+            refs = discover_movies(args.input_root, limit=args.limit, movie_key=args.movie_id,
+                                   allowed_ids=set(titles), require_all=True)
             for movie in refs:
                 try:
                     print(json_dumps(process_one(movie.source_path, _options(args))))

@@ -7,3 +7,5 @@ The representative frame is `floor((start_frame + end_frame - 1) / 2)`. Its JPEG
 Technical metadata and optional QC live under `<output-root>/.internal/<movie_id>/`. Interrupted work lives under `.work/<movie_id>/`. Published outputs are validated before resume skips them. `--overwrite` explicitly replaces an existing output and retains a backup under `.backup/`. A JSON title mapping supplied with `--titles` has the form `{"tt1234567": "Verified Title"}`. Unresolved titles remain `null`.
 
 Stage 01 never writes shot clips or future-stage placeholders. Source videos and historical `oscar_movie_processed` and `oscar_movie_standardized` directories are untouched.
+
+Stage 01 discovery accepts `.mp4`, `.mkv`, `.mov`, `.m4v`, `.avi`, `.webm` and `.rmvb`. Batch processing requires `--titles data/metadata/movie_titles.json`; the keys select exactly which IMDb IDs to process and the values provide `movie_name`. The mapping is validated before batch discovery, and unlisted videos are excluded before duplicate checks. RMVB streams may have variable decoded PTS even when their nominal frame rate is about 24 fps; Stage 01 uses decoded PTS when the frame spacing is variable.
