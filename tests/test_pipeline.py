@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import json
+
 import pytest
 from PIL import Image
 
@@ -7,6 +9,7 @@ from oscardp.shots import pipeline
 from oscardp.shots.pipeline import ProcessOptions, build_shot_records, process_one
 from oscardp.shots.schema import FrameTimeline, MovieRef, VideoMetadata
 from oscardp.shots.transnet import Boundary
+from oscardp.shots.validation import validate_output_root
 
 
 def test_build_shots_is_contiguous_and_uses_midpoint(tmp_path: Path) -> None:
@@ -69,9 +72,22 @@ def test_process_one_publishes_and_resumes(tmp_path: Path, monkeypatch: pytest.M
     result = process_one(video, options)
     assert result["status"] == "completed"
     movie_dir = output_root / "tt1234567"
-    assert (movie_dir / "shots.jsonl").is_file()
-    assert (movie_dir / "keyframes" / "shot_000001.jpg").is_file()
-    assert (movie_dir / "qc" / "boundary_contact_sheet.jpg").is_file()
+    stage = json.loads((movie_dir / "Stage01_tt1234567.json").read_text())
+    assert set(stage) == {"movie_id", "movie_name", "shots"}
+    assert stage["movie_name"] is None
+    assert len(stage["shots"]) == 2
+    assert set(stage["shots"][0]) == {"shot_id", "temporal"}
+    assert len(list((movie_dir / "shot_img").glob("*.jpg"))) == 2
+    assert sorted(path.name for path in (movie_dir / "shot_img").glob("*.jpg")) == [
+        "shot_000001_00-00-00-200.jpg", "shot_000002_00-00-00-700.jpg"
+    ]
+    assert sorted(path.name for path in movie_dir.iterdir()) == ["Stage01_tt1234567.json", "shot_img"]
     assert not (movie_dir / ".resume").exists()
     resumed = process_one(video, options)
     assert resumed["resumed"] is True
+    assert validate_output_root(output_root, "tt1234567")["tt1234567"].passed
+    image = next((movie_dir / "shot_img").glob("*.jpg"))
+    image.write_bytes(b"corrupt")
+    with pytest.raises(RuntimeError, match="incomplete or invalid"):
+        process_one(video, options)
+    assert image.read_bytes() == b"corrupt"

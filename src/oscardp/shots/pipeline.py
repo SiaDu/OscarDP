@@ -38,7 +38,7 @@ from .transnet import (
     predictions_to_boundaries,
     sha256_file,
 )
-from .validation import validate_movie
+from .validation import validate_movie, validate_output_root
 
 
 @dataclass(frozen=True)
@@ -54,6 +54,8 @@ class ProcessOptions:
     save_all_boundary_frames: bool = False
     save_raw_predictions: bool = False
     progress: bool = True
+    titles: Path | None = None
+    qc: bool = False
 
 
 def _write_text_atomic(path: Path, text: str) -> None:
@@ -153,7 +155,7 @@ def build_shot_records(
                 duration_sec=rounded_seconds(end_sec - start_sec),
                 keyframe_frame=keyframe,
                 keyframe_time_sec=rounded_seconds(timeline.timestamp(keyframe)),
-                keyframe_relpath=f"keyframes/{shot_id}.jpg",
+                keyframe_relpath=f"shot_img/{shot_id}.jpg",
                 boundary_before_confidence=(
                     rounded_seconds(boundary_by_frame[start]) if start in boundary_by_frame else None
                 ),
@@ -168,9 +170,26 @@ def build_shot_records(
     return shots
 
 
-def _write_shots(path: Path, shots: list[ShotRecord]) -> None:
-    content = "".join(json_dumps(shot) + "\n" for shot in shots)
-    _write_text_atomic(path, content)
+def _movie_title(movie_id: str, titles_path: Path | None) -> str | None:
+    if titles_path is None:
+        return None
+    mapping = _read_json(titles_path)
+    if not isinstance(mapping, dict):
+        raise ValueError("Title mapping must be a JSON object of IMDb IDs to titles")
+    title = mapping.get(movie_id)
+    if title is not None and (not isinstance(title, str) or not title.strip()):
+        raise ValueError(f"Invalid title for {movie_id}")
+    return title
+
+
+def _write_shots(path: Path, movie_id: str, movie_name: str | None, shots: list[ShotRecord]) -> None:
+    payload = {"movie_id": movie_id, "movie_name": movie_name, "shots": [
+        {"shot_id": shot.shot_id, "temporal": {
+            "start": shot.start_sec, "end": shot.end_sec,
+            "start_frame": shot.start_frame, "end_frame": shot.end_frame,
+        }} for shot in shots
+    ]}
+    _write_json(path, payload)
 
 
 def _update_index(output_root: Path, row: dict[str, Any]) -> None:
@@ -322,10 +341,11 @@ def _materialize_frames(
     selected_qc: list[Boundary],
     progress: ProgressReporter,
 ) -> list[tuple[Path, Path, str]]:
-    keyframes_dir = work_dir / "keyframes"
+    keyframes_dir = work_dir / "shot_img"
     boundaries_dir = work_dir / "qc" / "boundaries"
     keyframes_dir.mkdir(parents=True, exist_ok=True)
-    boundaries_dir.mkdir(parents=True, exist_ok=True)
+    if selected_qc:
+        boundaries_dir.mkdir(parents=True, exist_ok=True)
     needed = [shot.keyframe_frame for shot in shots]
     for boundary in selected_qc:
         needed.extend([boundary.frame - 1, boundary.frame])
@@ -335,7 +355,8 @@ def _materialize_frames(
     )
     frame_map = dict(zip(sorted(set(needed)), outputs))
     for shot in shots:
-        shutil.copy2(frame_map[shot.keyframe_frame], work_dir / shot.keyframe_relpath)
+        name = f"{shot.shot_id}_{format_timestamp(shot.keyframe_time_sec).replace(':', '-').replace('.', '-')}.jpg"
+        shutil.copy2(frame_map[shot.keyframe_frame], keyframes_dir / name)
     boundary_ordinals = {boundary.frame: index for index, boundary in enumerate(boundaries, 1)}
     pairs: list[tuple[Path, Path, str]] = []
     for boundary in selected_qc:
@@ -357,6 +378,9 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
     video = video_path.resolve()
     relative = video.relative_to(root)
     movie = MovieRef(derive_movie_key(video, root), video, relative.as_posix())
+    if not movie.movie_key.startswith("tt"):
+        raise ValueError(f"IMDb ID required for Stage 01 output: {video}")
+    title = _movie_title(movie.movie_key, options.titles)
     final_dir = options.output_root.resolve() / movie.movie_key
     if options.dry_run:
         return {
@@ -371,7 +395,16 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
         options = dataclasses.replace(options, resume=False)
     if final_dir.is_dir() and not options.overwrite:
         progress.stage("[1/1] Validate existing output")
-        existing = validate_movie(final_dir)
+        internal_dir = options.output_root.resolve() / ".internal" / movie.movie_key
+        metadata_path = internal_dir / "video_metadata.json"
+        fingerprint_path = internal_dir / "fingerprint.json"
+        if not metadata_path.is_file() or not fingerprint_path.is_file():
+            raise RuntimeError("Existing output lacks processing metadata; use --overwrite")
+        expected = _fingerprint(movie, options, sha256_file(options.weights))
+        if _read_json(fingerprint_path) != expected:
+            raise RuntimeError("Existing output belongs to different input or processing options; use --overwrite")
+        existing_count = _read_json(metadata_path).get("frame_count")
+        existing = validate_movie(final_dir, frame_count=existing_count)
         if existing.passed:
             row = {
                 "movie_key": movie.movie_key,
@@ -397,6 +430,7 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
     (work_dir / "logs").mkdir(parents=True, exist_ok=True)
     logger = _make_logger(work_dir / "logs" / "process.log")
     backup: Path | None = None
+    backup_internal: Path | None = None
     try:
         logger.info("Processing %s", movie.source_video_relpath)
         metadata, timeline, predictions = _load_or_run_inference(
@@ -411,13 +445,11 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
             options.threshold,
         )
         _write_json(work_dir / "video_metadata.json", metadata)
-        _write_shots(work_dir / "shots.jsonl", shots)
+        _write_shots(work_dir / f"Stage01_{movie.movie_key}.json", movie.movie_key, title, shots)
         selected_qc = select_qc_boundaries(
-            boundaries,
-            shots,
-            threshold=options.threshold,
+            boundaries, shots, threshold=options.threshold,
             save_all=options.save_all_boundary_frames,
-        )
+        ) if options.qc or options.save_all_boundary_frames else []
         needed_count = len({shot.keyframe_frame for shot in shots} | {
             frame
             for boundary in selected_qc
@@ -429,7 +461,8 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
         )
         progress.update(needed_count)
         progress.finish(f"{len(shots):,} shots; validating and publishing")
-        build_contact_sheet(pairs, work_dir / "qc" / "boundary_contact_sheet.jpg")
+        if options.qc or options.save_all_boundary_frames:
+            build_contact_sheet(pairs, work_dir / "qc" / "boundary_contact_sheet.jpg")
         if options.save_raw_predictions:
             import numpy as np
 
@@ -439,13 +472,14 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
                 debug_dir / "raw_predictions.npz",
                 single_frame_predictions=np.asarray(predictions, dtype=np.float32),
             )
-        validation = validate_movie(work_dir)
+        validation = validate_movie(work_dir, frame_count=metadata.frame_count, official_layout=False)
         summary = build_qc_summary(
             shots,
             missing_keyframes=validation.missing_keyframes,
             validation_passed=validation.passed,
         )
-        _write_json(work_dir / "qc" / "qc_summary.json", summary)
+        if options.qc or options.save_all_boundary_frames:
+            _write_json(work_dir / "qc" / "qc_summary.json", summary)
         if not validation.passed:
             raise RuntimeError("Validation failed: " + "; ".join(validation.errors))
         logger.info("Validation passed with %d shots", len(shots))
@@ -456,6 +490,22 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
         state_path = work_dir / "state.json"
         if state_path.exists():
             state_path.unlink()
+        internal_dir = options.output_root.resolve() / ".internal" / movie.movie_key
+        if internal_dir.exists():
+            backup_internal = _backup_path(options.output_root.resolve(), movie.movie_key, "-internal")
+            backup_internal.parent.mkdir(parents=True, exist_ok=True)
+            internal_dir.replace(backup_internal)
+        internal_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(work_dir / "video_metadata.json", internal_dir / "video_metadata.json")
+        _write_json(internal_dir / "fingerprint.json", expected_state)
+        (work_dir / "video_metadata.json").unlink()
+        for name in ("logs", "qc", "debug"):
+            source = work_dir / name
+            if source.exists():
+                destination = internal_dir / name
+                if destination.exists():
+                    shutil.rmtree(destination)
+                source.replace(destination)
         if final_dir.exists():
             backup = _backup_path(options.output_root.resolve(), movie.movie_key)
             backup.parent.mkdir(parents=True, exist_ok=True)
@@ -482,14 +532,15 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
             if backup is not None and backup.exists():
                 backup.replace(final_dir)
             raise
-        total_sec = time.perf_counter() - pipeline_started
-        published_logger = _make_logger(final_dir / "logs" / "process.log")
-        published_logger.info("Pipeline total_sec=%.6f", total_sec)
-        _close_logger(published_logger)
         progress.stage("Complete")
         progress.finish(f"{len(shots):,} shots published to {final_dir}")
         return row
     except Exception as exc:
+        if backup_internal is not None and backup_internal.exists():
+            internal_dir = options.output_root.resolve() / ".internal" / movie.movie_key
+            if internal_dir.exists():
+                shutil.rmtree(internal_dir)
+            backup_internal.replace(internal_dir)
         logger.info("Pipeline failed total_sec=%.6f", time.perf_counter() - pipeline_started)
         progress.fail(str(exc))
         if logger.handlers:
@@ -505,9 +556,12 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
             "error": str(exc),
         }
         try:
-            _update_index(options.output_root.resolve(), failure)
+            existing_results = validate_output_root(options.output_root.resolve(), movie.movie_key)
+            if not existing_results[movie.movie_key].passed:
+                _update_index(options.output_root.resolve(), failure)
         except Exception as index_error:  # noqa: BLE001 - preserve the original processing error
             log_path = work_dir / "logs" / "process.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
             with log_path.open("a", encoding="utf-8") as handle:
                 handle.write(f"Failed to update failure index: {index_error}\n")
         raise

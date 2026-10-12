@@ -1,39 +1,42 @@
 import json
 from pathlib import Path
 
+from PIL import Image
+
 from oscardp.shots.validation import validate_movie
 
 
 def write_fixture(root: Path) -> None:
-    (root / "keyframes").mkdir(parents=True)
-    metadata = {
-        "source_video_relpath": "movie.mp4", "duration_sec": 1.0, "width": 10,
-        "height": 10, "codec_name": "h264", "fps": 10.0, "frame_count": 10,
-        "is_vfr": False, "timestamp_source": "frame_index_cfr",
-    }
-    (root / "video_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
-    shot = {
-        "movie_key": "movie", "shot_id": "shot_000001", "source_video_relpath": "movie.mp4",
-        "start_frame": 0, "end_frame": 10, "frame_count": 10,
-        "start_sec": 0.0, "end_sec": 1.0, "keyframe_frame": 4,
-        "keyframe_relpath": "keyframes/shot_000001.jpg",
-    }
-    (root / "shots.jsonl").write_text(json.dumps(shot) + "\n", encoding="utf-8")
-    (root / "keyframes" / "shot_000001.jpg").touch()
+    root = root / "tt1234567"
+    (root / "shot_img").mkdir(parents=True)
+    data = {"movie_id": "tt1234567", "movie_name": None, "shots": [
+        {"shot_id": "shot_000001", "temporal": {"start": 0.0, "end": 1.0, "start_frame": 0, "end_frame": 10}}
+    ]}
+    (root / "Stage01_tt1234567.json").write_text(json.dumps(data), encoding="utf-8")
+    Image.new("RGB", (10, 10)).save(root / "shot_img" / "shot_000001_00-00-00-400.jpg")
 
 
 def test_valid_movie(tmp_path: Path) -> None:
     write_fixture(tmp_path)
-    assert validate_movie(tmp_path).passed
+    assert validate_movie(tmp_path / "tt1234567", frame_count=10).passed
 
 
-def test_missing_keyframe_and_final_frame_fail(tmp_path: Path) -> None:
+def test_missing_image_and_final_frame_fail(tmp_path: Path) -> None:
     write_fixture(tmp_path)
-    (tmp_path / "keyframes" / "shot_000001.jpg").unlink()
-    shot = json.loads((tmp_path / "shots.jsonl").read_text())
-    shot["end_frame"] = 9
-    (tmp_path / "shots.jsonl").write_text(json.dumps(shot) + "\n")
-    result = validate_movie(tmp_path)
+    root = tmp_path / "tt1234567"
+    (root / "shot_img" / "shot_000001_00-00-00-400.jpg").unlink()
+    result = validate_movie(root, frame_count=11)
     assert not result.passed
     assert result.missing_keyframes == 1
     assert any("final shot" in error for error in result.errors)
+
+
+def test_corrupt_image_and_extra_schema_fail(tmp_path: Path) -> None:
+    write_fixture(tmp_path)
+    root = tmp_path / "tt1234567"
+    (root / "shot_img" / "shot_000001_00-00-00-400.jpg").write_bytes(b"broken")
+    assert not validate_movie(root).passed
+    data = json.loads((root / "Stage01_tt1234567.json").read_text())
+    data["shots"][0]["extra"] = 1
+    (root / "Stage01_tt1234567.json").write_text(json.dumps(data))
+    assert not validate_movie(root).passed

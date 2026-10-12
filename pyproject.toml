@@ -5,26 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "oscardp"
 version = "0.1.0"
-description = "Shot-boundary detection and QC pipeline for OscarDP"
+description = "Stage 01 shot detection for the Oscar Acting Dataset"
 requires-python = ">=3.12"
 dependencies = [
   "numpy>=1.26,<3",
   "Pillow>=10,<12",
-  "pysrt>=1.1.2",
   "torch==2.14.*",
 ]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
-context = [
-  "pymupdf>=1.24,<2",
-  "srt>=3.5,<4",
-  "rapidfuzz>=3.9,<4",
-]
-semantic = ["sentence-transformers>=3,<6"]
-openai = ["openai>=2,<3"]
-performance = ["opencv-python-headless>=4.10,<5"]
-identity = ["insightface>=0.7,<1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

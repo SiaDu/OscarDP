@@ -177,10 +177,12 @@ def extract_selected_frames(
         shutil.rmtree(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     output_pattern = target_dir / "frame_%08d.jpg"
+    filter_script = target_dir / "select_filter.txt"
+    filter_script.write_text(f"select={_select_expression(unique_indices)}", encoding="utf-8")
     command = [
         "ffmpeg", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
         "-i", str(video_path), "-map", "0:v:0",
-        "-vf", f"select={_select_expression(unique_indices)}", "-vsync", "0",
+        "-filter_script:v", str(filter_script), "-vsync", "0",
         "-q:v", "2", str(output_pattern),
     ]
     process = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -194,6 +196,7 @@ def extract_selected_frames(
                 pass
     stderr = process.stderr.read() if process.stderr else ""
     return_code = process.wait()
+    filter_script.unlink(missing_ok=True)
     if return_code:
         raise ExternalToolError(stderr.strip() or "FFmpeg selected-frame extraction failed")
     outputs = sorted(target_dir.glob("frame_*.jpg"))
