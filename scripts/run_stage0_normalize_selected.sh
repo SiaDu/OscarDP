@@ -7,10 +7,7 @@ INPUT_ROOT='/media/sdu/SiyaoDu/datasets/oscar_movie'
 REPORT_ROOT='/media/sdu/SiyaoDu/datasets/oscar_movie_standardized'
 
 MOVIE_IDS=(
-  tt1065073
-  tt0491747
-  tt0410097
-  tt0180073
+  tt0042546
 )
 failed_movies=()
 
