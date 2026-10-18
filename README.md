@@ -48,13 +48,14 @@ The batch continues after individual failures and skips valid outputs. Do not ru
 Stage 02 v1.0 is a **Shot-Centric, text-derived semantic annotation**, currently completed outside this repository for **18 movies** using **ChatGPT GPT-6 with High thinking effort** (interactive LLM analysis, not an automated Stage 02 API/CLI). The original annotation instructions are preserved without modification:
 
 - [Stage 02 v1.0 specification](docs/stage02_spec_v1.md) — fixed JSON schema and annotation rules.
-- [Stage 02 annotation prompt](docs/prompts/stage02_prompt_v1.txt) — the actual prompt used with the model.
+- [Stage 02 annotation prompt v1.0](docs/prompts/stage02_prompt_v1.txt) — preserved historical prompt used for the existing 18-film annotations.
+- [Stage 02 annotation prompt v1.1](docs/prompts/stage02_prompt_v1_1.txt) — recommended for future movies; adds source preflight, mixed-cue classification, and independent validation requirements without changing Schema v1.0.
 
 **Inputs:** `Stage01_<movie_id>.json`, the movie's original `<movie_id>.srt`, and its screenplay PDF, together with the fixed specification. The SRT is the sole source of actual dialogue text; the screenplay informs semantic correspondence, characters, locations, events and tentative performance cues; Stage 01 is authoritative for shot IDs and timestamps.
 
 **Output:** one complete `Stage02_<movie_id>.json` containing all Stage 01 shots with `shot_id`, `temporal`, `dialogue`, `narrative` and `tags`, plus optional `performance_cues`, `sound_cues` and `song_lyrics`. Incomplete work must be explicitly marked `_partNNN`, never presented as a full-movie result. The 18 generated JSON files are **not committed to this repository**.
 
-**Reproduction:** in ChatGPT, choose GPT-6 with **High** thinking effort; upload the Stage 01 JSON, original SRT, screenplay PDF and fixed spec; then submit the preserved prompt. Semantic alignment requires the model to read the screenplay and subtitle context rather than relying only on Python string similarity. `performance_cues` derived from the screenplay or LLM inference are **not** video-verified AU, gaze, emotion or facial observations.
+**Reproduction:** in ChatGPT, choose GPT-6 with **High** thinking effort; upload the Stage 01 JSON, original SRT, screenplay PDF and fixed spec; use the historical v1.0 prompt to reproduce the original 18-film workflow, or **v1.1 for new films** (requires source preflight and an independent Stage02 Validator run when available). Semantic alignment requires the model to read the screenplay and subtitle context rather than relying only on Python string similarity. `performance_cues` derived from the screenplay or LLM inference are **not** video-verified AU, gaze, emotion or facial observations.
 
 **Status:** Annotation Generation still uses manual GPT-6 High interaction. The implemented validator performs **Structural and Source Consistency Validation** against the fixed [JSON Schema](docs/schemas/stage02_v1.schema.json), Stage01 shot IDs/times and original SRT text/indices. It does not evaluate screenplay semantics or movie visuals. Downstream scene/beat aggregation and visual analysis remain future work.
 
