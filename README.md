@@ -49,15 +49,26 @@ Stage 02 v1.0 is a **Shot-Centric, text-derived semantic annotation**, currently
 
 - [Stage 02 v1.0 specification](docs/stage02_spec_v1.md) — fixed JSON schema and annotation rules.
 - [Stage 02 annotation prompt v1.0](docs/prompts/stage02_prompt_v1.txt) — preserved historical prompt used for the existing 18-film annotations.
-- [Stage 02 annotation prompt v1.1](docs/prompts/stage02_prompt_v1_1.txt) — recommended for future movies; adds source preflight, mixed-cue classification, and independent validation requirements without changing Schema v1.0.
+- [Stage 02 annotation prompt v1.1](docs/prompts/stage02_prompt_v1_1.txt) — preserved previous workflow; retained for reproducibility.
+- [Stage 02 annotation prompt v1.2](docs/prompts/stage02_prompt_v1_2.txt) — **recommended for new movies**; mandatory executable source preflight before LLM, mixed-cue/SDH examples, audiovisual ambiguity QC, and post-annotation validation. The fixed Stage02 Schema remains v1.0.
 
 **Inputs:** `Stage01_<movie_id>.json`, the movie's original `<movie_id>.srt`, and its screenplay PDF, together with the fixed specification. The SRT is the sole source of actual dialogue text; the screenplay informs semantic correspondence, characters, locations, events and tentative performance cues; Stage 01 is authoritative for shot IDs and timestamps.
 
+### Mandatory Stage02 Source Preflight — BEFORE LLM annotation
+
+**A deterministic Stage02 Source Preflight MUST run and be reviewed before any LLM-based semantic annotation for a new movie.** The required order is **source preflight → resolve/approve blocking input issues → LLM annotation → Stage02 Validator → explicit release/activation**. An LLM assertion that it has inspected the input does **not** count as a programmatically completed preflight.
+
+The source preflight must generate a saved, independently reviewable `source_preflight.json`, outside the Stage02 Schema, with paths and SHA-256 hashes of Stage01/SRT/PDF, Stage01 shot integrity, the actual subtitle format and encoding (including WebVTT masquerading as SRT), unique original cue IDs, text and time validity, empty/zero-duration cues, duplicate IDs or subtitle advertising, time-range/version concerns, and a per-issue disposition. The gate is **PASS** or explicitly approved, evidenced nonblocking **WARNING**. Any unresolved source-index mapping, nonempty zero-duration cue without an authoritative time, unreliable subtitle content, or incomplete mandatory check is **BLOCKED**. No invented index mapping, subtitle timing, or silent source edits.
+
+**Implementation status:** This repository currently does **not** expose a dedicated, complete `Stage02 Source Preflight` command. The existing `tools/dataset_preflight.py` audits the dataset inventory/Excel workbook and names; it does not provide this Stage02 annotation gate. Likewise `python -m oscardp.stage02 validate` is a **post-annotation** validator and cannot stand in for preflight. Until an executable Stage02-specific preflight is implemented, use an actual reproducible deterministic preflight program that performs the above checks and produces the report; if one is unavailable, **stop rather than claim the required gate passed**. The v1.2 prompt documents the full contract.
+
+The original SRT/Stage01/PDF remain immutable. Approved curated sources require separate paths, source-to-curated cue provenance, SHA-256 and explicit approval. Source preflight does not certify semantic accuracy or the audiovisual correctness of a screenplay.
+
 **Output:** one complete `Stage02_<movie_id>.json` containing all Stage 01 shots with `shot_id`, `temporal`, `dialogue`, `narrative` and `tags`, plus optional `performance_cues`, `sound_cues` and `song_lyrics`. Incomplete work must be explicitly marked `_partNNN`, never presented as a full-movie result. The 18 generated JSON files are **not committed to this repository**.
 
-**Reproduction:** in ChatGPT, choose GPT-6 with **High** thinking effort; upload the Stage 01 JSON, original SRT, screenplay PDF and fixed spec; use the historical v1.0 prompt to reproduce the original 18-film workflow, or **v1.1 for new films** (requires source preflight and an independent Stage02 Validator run when available). Semantic alignment requires the model to read the screenplay and subtitle context rather than relying only on Python string similarity. `performance_cues` derived from the screenplay or LLM inference are **not** video-verified AU, gaze, emotion or facial observations.
+**Reproduction:** in ChatGPT, choose GPT-6 with **High** thinking effort; upload the Stage 01 JSON, original SRT, screenplay PDF and fixed spec; use the historical v1.0/v1.1 prompts to reproduce earlier workflows, or **v1.2 for new films** only **after a saved and reviewed executable Source Preflight**. Run the independent Stage02 Validator after annotation; it is not the preflight. Semantic alignment requires the model to read the screenplay and subtitle context rather than relying only on Python string similarity. `performance_cues` derived from the screenplay or LLM inference are **not** video-verified AU, gaze, emotion or facial observations.
 
-**Status:** Annotation Generation still uses manual GPT-6 High interaction. Validator **v1.1** performs **Structural and Source Consistency Validation** against the fixed [JSON Schema](docs/schemas/stage02_v1.schema.json), Stage01 shot IDs/times and original SRT text/indices. It separates **Source Integrity** (subtitle quality) from **Annotation Consistency** (Stage02 structure and source references), and lists incomplete checks. It does not evaluate screenplay semantics or movie visuals. Downstream scene/beat aggregation and visual analysis remain future work.
+**Status:** Annotation Generation still uses manual GPT-6 High interaction. Validator **v1.1.1** performs **Structural and Source Consistency Validation** against the fixed [JSON Schema](docs/schemas/stage02_v1.schema.json), Stage01 shot IDs/times and original SRT text/indices. It separates **Source Integrity** (subtitle quality) from **Annotation Consistency** (Stage02 structure and source references), and lists incomplete checks. It does not evaluate screenplay semantics or movie visuals. Downstream scene/beat aggregation and visual analysis remain future work.
 
 ```bash
 # Single movie, then all discovered IMDb-ID directories.
@@ -71,7 +82,7 @@ Reports go to `reports/stage02_validation/`: `summary.csv`, `summary.json`, `iss
 
 The validator never modifies Stage01, Stage02 or subtitles and requires no GPU, video processing or LLM API. Passing structural/source consistency does not establish semantic correctness. See [validation checks and limitations](docs/stage02_validation.md) for CLI options, normalization rules and report details.
 
-v1.1 accepts complete, explicitly bounded dialogue/lyric/sound components in mixed cues; arbitrary substring matches remain invalid. It checks explicit field contamination and aggregates repeated cross-shot occurrences into root problems while preserving every affected shot. Known style tags and ASS alignment tags are formatting differences; source words and punctuation are preserved. Invalid original SRT can fail Source Integrity even when the existing annotation references are consistent. An unreadable or unnumbered source blocks validation instead of generating thousands of dependent index errors.
+Validator v1.1.1 accepts complete, explicitly bounded dialogue/lyric/sound components in mixed cues; arbitrary substring matches remain invalid. It checks explicit field contamination and aggregates repeated cross-shot occurrences into root problems while preserving every affected shot. Known style tags and ASS alignment tags are formatting differences; source words and punctuation are preserved. Invalid original SRT can fail Source Integrity even when the existing annotation references are consistent. An unreadable or unnumbered source blocks validation instead of generating thousands of dependent index errors.
 
 To preserve the saved v1.0 baseline, write the new run and audit to fresh directories:
 
@@ -101,6 +112,4 @@ Stage02 Validator **v1.1.1** fixes the six reviewed turn-delimiter/SDH support g
 and supports optional source-bound user audiovisual decisions with
 `--manual-semantic-decisions PATH`. These decisions do not waive schema, shot,
 text or time checks and do not classify matching words globally. Source Integrity
-and Annotation Consistency remain separate results. Local Phase A proposals in
-`reports/stage02_patch_review_v1_3/` are unapplied and require final authorization;
-no formal curated Stage02 or later-stage implementation is produced.
+and Annotation Consistency remain separate results. Local Phase A proposals in `reports/stage02_patch_review_v1_3/` remain historical, unmodified proposals. Separately, four locally curated Stage02 v1.1.1 copies were produced and validated in Phase B under a separate dataset root as reported by the dataset maintainer; they have **not been activated as default Pipeline inputs** and are **not stored in this public repository**. Later stages remain unimplemented.
