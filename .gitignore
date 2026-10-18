@@ -30,3 +30,6 @@ reports/stage02_validation/
 reports/stage02_validation_single/
 reports/stage02_validation_initial/
 reports/stage02_validation_v1_1/
+
+# Local subtitle evidence and unapplied Phase A review (never publish).
+/reports/stage02_patch_review_v1_3/

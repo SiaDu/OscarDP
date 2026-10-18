@@ -95,3 +95,12 @@ uv run python tools/dataset_preflight.py plan-rename --workbook /path/to/oscar_m
 Review `rename_plan.csv`, set `approval_status` to `APPROVED` only for selected `SAFE` rows, and save that reviewed CSV as a separate file. `apply-rename --approved-plan /path/to/reviewed.csv --confirm` performs in-place, journaled renames; `verify --journal /path/to/rename_journal.jsonl` checks them, and `verify --journal /path/to/rename_journal.jsonl --rollback --confirm` reverses them if original names remain free. Renaming may invalidate Stage 01 source-path fingerprints or downstream references; inspect existing outputs before applying a plan.
 
 Movie files use `<imdb_id>.<original_extension>` and external subtitles use `<imdb_id>.srt`. Movie directories and screenplay names stay as they are. Approve renames only after inventory, destination and RMVB decode checks pass; the journal is retained for verification and recovery.
+
+
+Stage02 Validator **v1.1.1** fixes the six reviewed turn-delimiter/SDH support gaps
+and supports optional source-bound user audiovisual decisions with
+`--manual-semantic-decisions PATH`. These decisions do not waive schema, shot,
+text or time checks and do not classify matching words globally. Source Integrity
+and Annotation Consistency remain separate results. Local Phase A proposals in
+`reports/stage02_patch_review_v1_3/` are unapplied and require final authorization;
+no formal curated Stage02 or later-stage implementation is produced.

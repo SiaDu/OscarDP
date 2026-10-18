@@ -44,6 +44,9 @@ def run(args) -> int:
     if output.is_symlink() or (output.exists() and any(output.iterdir())):
         raise FileExistsError('Report directory is not empty; select a new --report-root')
     mapping = load_srt_map(args.srt_map)
+    decisions = read_json(args.manual_semantic_decisions) if getattr(args, "manual_semantic_decisions", None) else {"decisions": []}
+    if not isinstance(decisions, dict) or not isinstance(decisions.get("decisions"), list):
+        raise ValueError("Manual decision file requires a decisions array")
     if not analysis.is_dir():
         raise FileNotFoundError(f'Analysis root does not exist: {analysis}')
     dirs = [analysis / args.movie_id] if args.movie_id else sorted(p for p in analysis.iterdir() if p.is_dir() and not p.is_symlink() and MOVIE_ID.fullmatch(p.name))
@@ -64,7 +67,7 @@ def run(args) -> int:
     for number, directory in enumerate(dirs, 1):
         try:
             report = validate_movie(directory, index.get(directory.name, []), srt_override=mapping.get(directory.name),
-                                    tolerance=args.tolerance, discovery_error=discovery_error,
+                                    tolerance=args.tolerance, discovery_error=discovery_error, manual_decisions=decisions["decisions"],
                                     ambiguous_ownership=directory.name in getattr(index, 'ambiguous_ids', set()))
         except Exception as exc:
             # Unexpected malformed input must never prevent validation of later movies.
@@ -81,7 +84,7 @@ def run(args) -> int:
         print(f'{status}: {count}')
     for issue in batch_issues:
         print(f'{issue["rule_code"]}: {issue["message"]}', file=sys.stderr)
-    print(f'Reports: {output}\nStructural and Source Consistency Validation; no semantic or video verification.')
+    print(f'Reports: {output}\nStructural and Source Consistency Validation; supplied user decisions are attributed separately; validator performs no audiovisual review.')
     return 1 if summary['validation_status'] == 'FAIL' else 0
 
 
@@ -94,6 +97,7 @@ def main(argv=None) -> int:
     validate.add_argument('--report-root', type=Path, default=Path('reports/stage02_validation'))
     validate.add_argument('--movie-id')
     validate.add_argument('--expect-movies', type=int)
+    validate.add_argument('--manual-semantic-decisions', type=Path, help='Explicit source-bound user audiovisual adjudications')
     validate.add_argument('--srt-map', type=Path, help='Explicit IMDb-to-SRT JSON map; relative paths resolve against map directory')
     validate.add_argument('--tolerance', type=float, default=1e-6, help='Shot boundary serialization tolerance in seconds (default: 1e-6)')
     review = subparsers.add_parser('review', help='Reconcile saved runs and propose source/annotation corrections without applying them')

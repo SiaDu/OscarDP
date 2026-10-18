@@ -23,6 +23,7 @@ SOUND = re.compile(
 LABEL = re.compile(r"^\[([A-Za-z][A-Za-z0-9 .'-]*)\]\s+(?=\S)")
 TURN = re.compile(r'^\s*-(?=\s|[A-Za-z"\'(\[♪♫])\s*')
 CAPTION_NAMES = r"[A-Z][A-Z0-9 .'-]*(?:(?:and |or |& |/ )[A-Z][A-Z0-9 .'-]*)*"
+SDH_LABEL = re.compile(r'^(MAN(?: \d+)?|WOMAN(?: \d+)?):\s*(?=\S)')
 
 
 def rendered(text: str) -> str:
@@ -30,7 +31,7 @@ def rendered(text: str) -> str:
 
 
 def _dialogue_body(text: str) -> tuple[str, list[str]]:
-    """Remove a turn delimiter and a leading explicit bracketed speaker label only."""
+    """Remove evidenced turn layout and explicit bracketed or SDH speaker labels."""
     rules = []
     new = TURN.sub('', text.strip(), count=1)
     if new != text.strip():
@@ -39,6 +40,10 @@ def _dialogue_body(text: str) -> tuple[str, list[str]]:
     if label and not SOUND.search(label.group(1)):
         new = new[label.end():]
         rules.append('explicit_bracketed_speaker_label')
+    label = SDH_LABEL.match(new)
+    if label:
+        new = new[label.end():]
+        rules.append('explicit_sdh_speaker_label:' + label.group(1))
     return new.strip(), rules
 
 
@@ -68,6 +73,8 @@ def segments(cue: Cue) -> dict:
             residue = plain[cursor:part['start']]
             # A residual turn marker at the end precedes the next typed span.
             residue = re.sub(r'(?:^|\n)\s*-\s*$', '', residue)
+            if part['kind'] == 'song_lyrics':
+                residue = re.sub(r'[ \t]+-[ \t]*$', '', residue)
             body, rules = _dialogue_body(residue)
             # Separators following a sound annotation (e.g. "(laughing):") are layout.
             if body.startswith(':') and any(s['end'] == cursor and s['kind'] in ('sound_cues', 'metadata') for s in typed):
@@ -89,11 +96,21 @@ def segments(cue: Cue) -> dict:
                 segments=all_segments, has_explicit_segments=bool(typed))
 
 
-def compare_entry(actual: str, cues: list[Cue], field: str) -> dict:
+def compare_entry(actual: str, cues: list[Cue], field: str, *, decisions=()) -> dict:
     evidence = compare_text(actual, cues)
     evidence.update(match_rule='whole_cue', source_segments=[segments(c) for c in cues],
                     classification_error=None, extraction=None)
     parsed = evidence['source_segments']
+    evidence['human_decision_ids'] = []
+    for p in parsed:
+        for decision in decisions:
+            if decision['srt_index'] == p['srt_index'] and decision['source_text'] == p['source_text']:
+                for part in p['segments']:
+                    if part['text'] == decision['text']:
+                        part['kind'] = decision['classification']
+                        part['rules'] = [*part['rules'], 'user_confirmed_audiovisual_review']
+                        p['has_explicit_segments'] = True
+                        evidence['human_decision_ids'].append(decision['decision_id'])
     # Known lexical delimiters establish classification; plain prose/italics alone do not.
     kinds = {s['kind'] for p in parsed if p['has_explicit_segments'] for s in p['segments'] if s['kind'] != 'metadata'}
     if evidence['status'] != 'mismatch':
@@ -119,10 +136,20 @@ def compare_entry(actual: str, cues: list[Cue], field: str) -> dict:
         projection.extend(parts)
     if projection:
         candidates.append(dict(text='\n'.join(s['text'] for s in projection), parts=projection, rule='complete_field_projection'))
+        # Older annotations may retain an explicit source label. Both complete
+        # presentations remain traceable; never treat the label as an identity.
+        labeled = []
+        for part in projection:
+            labels = [r.split(':', 1)[1] for r in part['rules'] if r.startswith('explicit_sdh_speaker_label:')]
+            labeled.append((labels[0] + ': ' if labels else '') + part['text'])
+        if labeled != [s['text'] for s in projection]:
+            candidates.append(dict(text='\n'.join(labeled), parts=projection, rule='complete_field_projection'))
     normalized_actual = normalized_text(actual)[0]
     for candidate in candidates:
         expected, reasons = normalized_text(candidate['text'])
         if expected == normalized_actual:
+            if not any('user_confirmed_audiovisual_review' in p['rules'] for p in candidate['parts']):
+                evidence['human_decision_ids'] = []
             evidence.update(status='exact' if actual == candidate['text'] else 'normalized',
                             match_rule=candidate['rule'], extraction=candidate,
                             normalized_expected=expected, reasons=sorted(set(reasons + normalized_text(actual)[1])))

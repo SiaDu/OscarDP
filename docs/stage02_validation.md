@@ -1,4 +1,4 @@
-# Stage02 Validator v1.1 (fixed annotation schema v1.0)
+# Stage02 Validator v1.1.1 (fixed annotation schema v1.0)
 
 The implemented CLI performs **Structural and Source Consistency Validation**.
 Annotation generation remains manual interactive GPT-6 High work using the unchanged
@@ -287,3 +287,35 @@ WebVTT content/time signatures may be cross-linked diagnostically to Stage02
 references, but those links cannot prove original subtitle numbering. Without an
 authoritative numbered source or authenticated original index map, recovery remains
 UNRESOLVED; the tool never produces a guessed, sequentially numbered replacement.
+
+
+## Validator v1.1.1: bounded presentation fixes and manual adjudication
+
+The six v1.2 support gaps now accept a whitespace-separated next-turn hyphen
+immediately before a paired lyric span, and leading `MAN 2:` / `WOMAN:` SDH
+labels in complete residual segments. Original label evidence remains in segment
+rules; it never supplies a character identity. Retained complete SDH presentations
+remain traceable. Internal hyphens, interruption punctuation, negative signs and
+source language are preserved. Arbitrary substring matching is still prohibited.
+
+An optional `--manual-semantic-decisions PATH` reads an object with a `decisions`
+array. Each record requires `decision_id`, `movie_id`, positive `srt_index`,
+`original_srt_sha256`, exact complete `source_text`, exact complete segment `text`,
+`classification` (`dialogue`, `song_lyrics` or `sound_cues`), `affected_shots`,
+`source` equal to `user_confirmed_audiovisual_review`, and nonempty `evidence`.
+Dialogue records without confirmed identity require `speaker: null`.
+Only a unique matching original cue and complete source segment may bind.
+A binding error fails validation; an unavailable source leaves adjudication incomplete.
+The override applies only in listed shots. The confirmed segment must occur exactly
+once in its confirmed field in each listed shot; legitimate repetition across shots
+is allowed. Other cues and shots gain no exemption. Schema, coverage, ordering,
+source integrity and temporal checks always run independently.
+
+Reports identify bound decisions, their canonical digest and comparisons supported
+by them. This is user audiovisual evidence, never a claim that Codex watched the
+film. Automatic source consistency can pass an ordinary utterance without proving
+its semantic function. Source Integrity evaluates the original subtitle file;
+Annotation Consistency evaluates annotations against that source and any explicitly
+supplied decisions. Neither implies that every annotation has been semantically
+reviewed. Phase A previews apply guarded patches only in memory; file-level
+proposals require separate user authorization before any Phase B application.

@@ -14,6 +14,9 @@ from jsonschema import Draft202012Validator, validators
 from .srt import parse_srt
 from .text import compare_entry
 from .issues import aggregate, domain
+from .adjudication import bind_decisions, check_consistency
+
+VERSION = '1.1.1'
 
 SCOPE = 'Structural and Source Consistency Validation'
 LIMITATION = 'Does not validate screenplay semantics, character identity, emotion, intent or actual movie visuals.'
@@ -25,7 +28,7 @@ SCHEMA = json.loads(SCHEMA_BYTES)
 Draft202012Validator.check_schema(SCHEMA)
 SCHEMA_VALIDATOR = SchemaValidator(SCHEMA)
 RULES = ('files_identity', 'stage01_contract', 'stage02_schema', 'shot_coverage', 'shot_times',
-         'srt_discovery', 'srt_parse', 'source_indices', 'source_text', 'source_overlap')
+         'srt_discovery', 'srt_parse', 'source_indices', 'source_text', 'source_overlap', 'human_adjudication')
 
 
 def read_json(path: Path, *, raw: bytes | None = None) -> Any:
@@ -60,6 +63,7 @@ class MovieValidation:
         self.inputs = {}
         self.matches = []
         self.source_diagnostics = {}
+        self.manual_decisions = []
         self.stats = dict(movie_id=movie_dir.name, movie_name=None, stage01_shots=0, stage02_shots=0,
                           shot_coverage_pct=0.0, srt_status='NOT_CHECKED', srt_cue_count=0,
                           dialogue_shot_count=0, dialogue_entry_count=0, unknown_speaker_count=0,
@@ -246,7 +250,7 @@ class MovieValidation:
                         self.issue('source_indices', 'SRT_MERGE_ORDER', 'Merged cues must be consecutive in original source order', shot_id=shot_id, actual=indices)
                     text = entry.get('text')
                     if isinstance(text, str):
-                        evidence = compare_entry(text, selected, field)
+                        evidence = compare_entry(text, selected, field, decisions=[d for d in self.manual_decisions if shot_id in d['affected_shots']])
                         self.stats['segment_match_count'] += evidence['match_rule'] != 'whole_cue' and evidence['status'] != 'mismatch'
                         self.stats[evidence['status'] + '_match_count' if evidence['status'] != 'mismatch' else 'mismatch_count'] += 1
                         self.matches.append(dict(shot_id=shot_id, field=field, entry=entry_no, srt_indices=indices,
@@ -290,7 +294,11 @@ class MovieValidation:
             else:
                 status = 'WARNING' if any(i['severity'] == 'WARNING' for i in findings) else 'PASS'
             self.stats[name.lower() + '_status'] = status
-        return dict(scope=SCOPE, limitation=LIMITATION, validator_version='1.1', tolerance_seconds=self.tolerance,
+        return dict(scope=SCOPE, limitation=LIMITATION, validator_version=VERSION, tolerance_seconds=self.tolerance,
+                    human_adjudication={'source': 'user_confirmed_audiovisual_review',
+                                        'bound_decision_ids': [d['decision_id'] for d in self.manual_decisions],
+                                        'bound_decisions_sha256': hashlib.sha256(json.dumps(self.manual_decisions, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
+                                        'supported_comparisons': sum(bool(m.get('human_decision_ids')) for m in self.matches)},
                     schema_sha256=hashlib.sha256(SCHEMA_BYTES).hexdigest(), summary=self.stats, inputs=self.inputs,
                     rule_results=self.results, issues=self.issues, root_problems=roots,
                     incomplete_checks=sorted(self.incomplete), source_diagnostics=self.source_diagnostics,
@@ -299,7 +307,7 @@ class MovieValidation:
 
 def validate_movie(movie_dir: Path, srt_candidates: list[Path], *, srt_override: Path | None = None,
                    tolerance: float = 1e-6, discovery_error: str | None = None,
-                   ambiguous_ownership: bool = False) -> dict:
+                   ambiguous_ownership: bool = False, manual_decisions=()) -> dict:
     if not finite(tolerance) or tolerance < 0:
         raise ValueError('tolerance must be finite and nonnegative')
     v = MovieValidation(movie_dir, tolerance)
@@ -361,9 +369,16 @@ def validate_movie(movie_dir: Path, srt_candidates: list[Path], *, srt_override:
         v.skip('source_indices', 'source_text', 'source_overlap')
     # Collect annotation statistics even when SRT cannot be checked.
     if parsed and parsed.cues:
+        v.manual_decisions, errors = bind_decisions(manual_decisions, movie_dir.name, v.inputs['SRT']['sha256'], parsed.cues, shots2)
+        for error in errors:
+            v.issue('human_adjudication', 'HUMAN_DECISION_BINDING', error)
         blocked = {b['index'] for b in parsed.blocks if not b['time_valid'] or not b['text'].strip()}
         v.sources(shots2, parsed.cues, blocked)
+        for shot_id, record, error in check_consistency(v.manual_decisions, shots2, v.matches):
+            v.issue('human_adjudication', 'HUMAN_DECISION_CONFLICT', error, shot_id=shot_id, srt_index=record['srt_index'])
     else:
+        if any(isinstance(d, dict) and d.get('movie_id') == movie_dir.name for d in manual_decisions):
+            v.skip('human_adjudication')
         _annotation_stats(v, shots2)
     if v.stats['unknown_speaker_count']:
         v.issue('source_indices', 'UNKNOWN_SPEAKERS', 'Unknown speakers are permitted', severity='INFO', actual=v.stats['unknown_speaker_count'])

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-from .validator import SCOPE, LIMITATION
+from .validator import SCOPE, LIMITATION, VERSION
 
 SUMMARY_FIELDS = ['movie_id', 'movie_name', 'stage01_shots', 'stage02_shots', 'shot_coverage_pct',
                   'srt_status', 'srt_cue_count', 'dialogue_shot_count', 'dialogue_entry_count',
@@ -28,7 +28,7 @@ def write_reports(root: Path, reports: list[dict], batch_issues: list[dict], *, 
     if any(p.exists() or p.is_symlink() for p in outputs):
         raise FileExistsError('Reports already exist; choose a new --report-root (no silent overwrite)')
     counts = Counter(r['summary']['validation_status'] for r in reports)
-    summary = dict(scope=SCOPE, limitation=LIMITATION, validator_version='1.1', created_at=datetime.now(timezone.utc).isoformat(),
+    summary = dict(scope=SCOPE, limitation=LIMITATION, validator_version=VERSION, created_at=datetime.now(timezone.utc).isoformat(),
                    tolerance_seconds=tolerance, movie_count=len(reports), counts={k: counts[k] for k in ['PASS', 'WARNING', 'FAIL']},
                    validation_status='FAIL' if counts['FAIL'] or batch_issues else 'WARNING' if counts['WARNING'] else 'PASS',
                    batch_issues=batch_issues, movies=[r['summary'] for r in reports])
