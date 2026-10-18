@@ -6,7 +6,7 @@ OscarDP develops the Oscar Acting Dataset: a movie-first research dataset linkin
 
 ## Layout
 
-`src/oscardp/shots/` provides discovery, FFmpeg timing and extraction, TransNetV2 inference, checkpointing, QC, validation and the CLI. `src/oscardp/stage02/` provides read-only Stage02 validation, SRT parsing and reports. `src/oscardp/vendor/` contains the licensed PyTorch TransNetV2 model. `tests/` contains Stage01 and Stage02 tests. `models/` is for local weights; pass their actual path with `--weights`.
+`src/oscardp/shots/` provides discovery, FFmpeg timing and extraction, TransNetV2 inference, checkpointing, QC, validation and the CLI. `src/oscardp/stage02/` provides the read-only Source Preflight v1.0, Stage02 Validator v1.1.1, shared SRT parsing and local reports. `src/oscardp/vendor/` contains the licensed PyTorch TransNetV2 model. `tests/` contains Stage01 and Stage02 tests. `models/` is for local weights; pass their actual path with `--weights`.
 
 ## Environment
 
@@ -60,7 +60,37 @@ Stage 02 v1.0 is a **Shot-Centric, text-derived semantic annotation**, currently
 
 The source preflight must generate a saved, independently reviewable `source_preflight.json`, outside the Stage02 Schema, with paths and SHA-256 hashes of Stage01/SRT/PDF, Stage01 shot integrity, the actual subtitle format and encoding (including WebVTT masquerading as SRT), unique original cue IDs, text and time validity, empty/zero-duration cues, duplicate IDs or subtitle advertising, time-range/version concerns, and a per-issue disposition. The gate is **PASS** or explicitly approved, evidenced nonblocking **WARNING**. Any unresolved source-index mapping, nonempty zero-duration cue without an authoritative time, unreliable subtitle content, or incomplete mandatory check is **BLOCKED**. No invented index mapping, subtitle timing, or silent source edits.
 
-**Implementation status:** This repository currently does **not** expose a dedicated, complete `Stage02 Source Preflight` command. The existing `tools/dataset_preflight.py` audits the dataset inventory/Excel workbook and names; it does not provide this Stage02 annotation gate. Likewise `python -m oscardp.stage02 validate` is a **post-annotation** validator and cannot stand in for preflight. Until an executable Stage02-specific preflight is implemented, use an actual reproducible deterministic preflight program that performs the above checks and produces the report; if one is unavailable, **stop rather than claim the required gate passed**. The v1.2 prompt documents the full contract.
+**Implemented: Source Preflight CLI v1.0.** It shares the Validator's Stage01 contract, strict JSON reader, SRT parser and source-comparison rules; adds subtitle timeline diagnostics and deterministic PDF text-layer checks with `pypdf`; and never repairs input data. The existing `tools/dataset_preflight.py` remains an inventory/Excel audit. `validate` remains the independent post-annotation validator.
+
+```bash
+uv run python -m oscardp.stage02 preflight \
+  --stage01 /path/to/Stage01_tt1234567.json \
+  --srt /path/to/tt1234567.srt \
+  --screenplay /path/to/tt1234567.pdf \
+  --report-root reports/stage02_preflight/tt1234567
+```
+
+Optional `--stage02 PATH` checks existing annotation compatibility and reports stale cue references; it is not required for a new film. `--approved-exceptions PATH` accepts only precise, issue-specific nonblocking approvals bound to **every selected input SHA-256**. `--baseline-manifest PATH` explicitly compares a prior Preflight, per-movie Validator report or release manifest without modifying it. A changed source produces `SOURCE_VERSION_CHANGED` and needs review; a historical hash is never silently replaced.
+
+Reports are `PREFLIGHT.md`, `source_preflight.json` and `issues.csv`, outside the input directories in a fresh/empty report directory. The report separates `preflight_status` (`PASS`, `WARNING`, `BLOCKED`) from `llm_annotation_allowed`. A WARNING remains visible after approval. Exit `0` permits annotation; `1` means blocked or awaiting necessary review; `2` means CLI/configuration/execution error. Structural/source blockers cannot be waived. Actual edition/audio synchronization and screenplay/movie semantics remain `UNVERIFIED`. See [Preflight rules, limits and approval format](docs/stage02_preflight.md).
+
+```text
+Stage01 + SRT + Screenplay
+          |
+          v
+Deterministic Source Preflight
+          |
+     PASS / Approved WARNING
+          |
+          v
+GPT-6 High Semantic Annotation
+          |
+          v
+Stage02 Validator v1.1.1
+          |
+          v
+Curated Dataset Release (separate approval; no automatic activation)
+```
 
 The original SRT/Stage01/PDF remain immutable. Approved curated sources require separate paths, source-to-curated cue provenance, SHA-256 and explicit approval. Source preflight does not certify semantic accuracy or the audiovisual correctness of a screenplay.
 

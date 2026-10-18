@@ -1,5 +1,20 @@
 # Stage02 Validator v1.1.1 (fixed annotation schema v1.0)
 
+Before annotating a new movie, run the separate [Source Preflight CLI v1.0](stage02_preflight.md):
+
+```bash
+uv run python -m oscardp.stage02 preflight \
+  --stage01 /path/to/Stage01_tt1234567.json \
+  --srt /path/to/tt1234567.srt --screenplay /path/to/tt1234567.pdf \
+  --report-root reports/stage02_preflight/tt1234567
+```
+
+Preflight shares the Stage01 contract and source parser below, adds timeline and PDF checks,
+and gates LLM admission before annotation. It does not replace `validate` or `review`.
+Preflight-only dispositions (such as an explicitly approved empty cue warning) do not
+relax Validator v1.1.1: the same invalid source still fails its original post-annotation rules.
+Optional Preflight `--stage02 PATH` identifies stale existing cue references without repairing them.
+
 The implemented CLI performs **Structural and Source Consistency Validation**.
 Annotation generation remains manual interactive GPT-6 High work using the unchanged
 [specification](stage02_spec_v1.md) and [prompt](prompts/stage02_prompt_v1.txt).

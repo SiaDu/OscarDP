@@ -89,8 +89,16 @@ def run(args) -> int:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description='Stage02 structural and source consistency validation (read-only inputs)')
+    parser = argparse.ArgumentParser(description='Stage02 source preflight and post-annotation validation (read-only inputs)')
     subparsers = parser.add_subparsers(dest='command', required=True)
+    preflight = subparsers.add_parser('preflight', help='Read-only pre-annotation Stage01/SRT/PDF quality gate')
+    preflight.add_argument('--stage01', type=Path, required=True)
+    preflight.add_argument('--srt', type=Path, required=True)
+    preflight.add_argument('--screenplay', type=Path, required=True)
+    preflight.add_argument('--report-root', type=Path, required=True)
+    preflight.add_argument('--stage02', type=Path, help='Optional existing annotation compatibility check')
+    preflight.add_argument('--approved-exceptions', type=Path, help='Issue-specific, SHA-256-bound nonblocking approvals')
+    preflight.add_argument('--baseline-manifest', type=Path, action='append', default=[], help='Explicit historical hash comparison (repeatable; never updated)')
     validate = subparsers.add_parser('validate', help='Validate complete Stage02 results against Stage01 and original SRT')
     validate.add_argument('--analysis-root', type=Path, default=DEFAULT_ANALYSIS)
     validate.add_argument('--srt-root', type=Path, default=DEFAULT_SRT)
@@ -107,6 +115,13 @@ def main(argv=None) -> int:
     review.add_argument('--historical-baseline', type=Path)
     args = parser.parse_args(argv)
     try:
+        if args.command == 'preflight':
+            from .preflight import run_preflight
+            report = run_preflight(stage01=args.stage01, srt=args.srt, screenplay=args.screenplay,
+                report_root=args.report_root, stage02=args.stage02, approved_exceptions=args.approved_exceptions,
+                baseline_manifests=args.baseline_manifest)
+            print(f"{report['movie_id']}: {report['preflight_status']}; llm_annotation_allowed={report['llm_annotation_allowed']}\nReports: {args.report_root}")
+            return report['exit_code']
         if args.command == 'review':
             from .review import run_review
             audit = run_review(args.baseline_root, args.validation_root, args.report_root, historical=args.historical_baseline)
@@ -114,7 +129,8 @@ def main(argv=None) -> int:
             return 0
         return run(args)
     except (OSError, ValueError) as exc:
-        print(f'Validation could not complete: {exc}', file=sys.stderr)
+        name = 'Preflight' if args.command == 'preflight' else 'Validation'
+        print(f'{name} could not complete: {exc}', file=sys.stderr)
         return 2
 
 
