@@ -1,0 +1,88 @@
+# OscarDP — Stage02 v1.0 Semantic Annotation
+
+我要对一部奥斯卡电影进行 Stage02 Shot-Centric Semantic Annotation。
+
+项目：OscarDP（Oscar Acting Dataset）。
+
+请严格遵守我上传的 `Stage02_Spec_v1.md`。该规范已经确定，请不要自行改变 JSON Schema。
+
+## 输入
+
+我会提供：
+
+1. `Stage01_<movie_id>.json` — 镜头 ID、起止时间
+2. `<movie_id>.srt` — 成片实际字幕
+3. `<movie_id>.pdf` — 电影 Screenplay
+4. `Stage02_Spec_v1.md` — 固定格式规范
+
+## 核心任务
+
+**请你亲自进行 LLM 语义理解和对齐，不要只使用 Python 文本相似度匹配。**
+
+阅读连续的 Screenplay 和 SRT 上下文，理解：
+
+- 对白对应关系，包括改写、删减和重排
+- 角色和说话者
+- 场景、地点、时间及室内外
+- 剧情事件、人物互动和叙事上下文
+- 剧本明确描述或上下文合理支持的 Performance Intent、Emotion、Gaze 等表演线索
+
+Python 仅负责读取 PDF/SRT、计算时间、关联 Shot、生成与校验 JSON。
+
+### 数据来源规则
+
+SRT 是 `dialogue.text` 的唯一正文来源，必须保留实际台词，不能用剧本对白替换。
+
+Screenplay 用于建立语义对应、定位剧情、辅助确定说话者和提取表演线索。
+
+Stage01 是 Shot ID 和时间的唯一来源。
+
+不要编造没有依据的剧情、角色或表演信息。
+
+没有视频画面证据时，不要将剧本描述当成已发生的视觉行为，也不要推断真实的景别、镜头角度或摄影机运动。
+
+## 输出
+
+使用 Shot-Centric JSON。每个 Shot 必须包含：
+
+- `shot_id`
+- `temporal`
+- `dialogue`
+- `narrative`
+- `tags`
+
+可选：
+
+- `performance_cues`
+- `sound_cues`
+- `song_lyrics`
+
+字段结构及类型严格按照 `Stage02_Spec_v1.md`。
+
+不要在 Stage02 中加入 PDF page、match_evidence、screenplay_units、unassigned_subtitle_cues 或其他冗长的底层对齐记录。
+
+`performance_cues` 必须明确区分剧本直接证据和 LLM 推断，不能声称已由视频验证。
+
+## 处理方式（默认一次完成整部电影）
+
+1. 先检查并读取全部输入文件，确认 `movie_id`、Stage01 的 Shot 总数与完整时间范围、SRT 编号及条数、PDF 剧本是否可读取。
+2. **一次任务覆盖整部电影，从第一个 Shot 到最后一个 Shot。** 无须我手动指定每段时间，也不要每处理 10–15 分钟就停止、交付一个 part 文件并等待我发送「继续」。
+3. 你可以**在内部**按连续剧情或语义场景分段理解剧本与 SRT，再把判断映射到 Stage01 Shot；分段长度由剧情与上下文决定，不规定固定分钟数。内部各段应共享人物、事件、场景和剧本/成片差异等上下文，保证跨段一致性。
+4. 每个部分都必须经过**真正的 LLM 语义理解与对齐**。Python 仅负责确定性解析、时间重叠关联、JSON 组装及验证；不得使用字符串相似度或机械填充来冒充已经完成的语义理解。
+5. 保留 Stage01 的全部 Shot（包括无对白和片头片尾），不更改原始镜头时间。SRT 的实际台词与原始字幕编号必须可追溯；跨 Shot 字幕按规范保留在所有重叠 Shot 中。只有可靠的剧本/上下文信息才可用于人物、场景、动作及 `performance_cues` 标注。
+6. 完成后验证：Shot 数量与 ID 和 Stage01 完全一致、无重号/遗漏、Shot 时间完全一致、`srt_indices` 指向真实 SRT、对话文本没有被 PDF 替换、字段符合 `Stage02_Spec_v1.md`、没有编造或未经视频验证的视觉事实。
+7. **默认只交付一份完整、可下载的 `Stage02_<movie_id>.json`**，并简要报告覆盖的 Shot/时间范围、字幕数量和少量需要人工复核的歧义。不要要求我逐段确认，不要额外输出一系列 `_partNNN.json`。
+8. 辅助说话者识别
+对于无法通过 Screenplay 和上下文确定说话者的 SRT 对白，可在线搜索对应电影的 English SDH / Closed Captions 字幕，辅助确认角色身份。优先选择与当前电影版本匹配的字幕，不得用辅助字幕替换原始 SRT 的台词或时间。
+
+同一条字幕包含两名说话者不代表同时说话；只有确实存在语音重叠的证据时才使用 voice_overlap: true。无法可靠确认说话者时保留 null，不要猜测。
+
+### 无法一次完成时的例外
+
+如果受输入文件可读性、上下文、处理能力或输出限制，确实无法在当前任务中完成整部电影：
+
+- 必须如实说明已实际完成的连续 Shot ID 和时间范围、未完成范围及原因；**绝不能将未进行语义分析的 Shot 机械补齐后声称全片已完成**。
+- 仅保存确实处理完成的部分为 `Stage02_<movie_id>_part001.json`（后续按实际情况编号），不得把部分结果命名为完整的 `Stage02_<movie_id>.json`。
+- 不要主动把工作拆成需要我多次发送「继续」的流程；只有确实无法完成时，才说明需要怎样恢复未处理内容。
+
+现在请检查我上传的文件，并**以一次完成整部电影为目标**开始语义对齐和 Stage02 JSON 生成。
