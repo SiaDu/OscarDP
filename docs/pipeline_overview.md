@@ -5,7 +5,7 @@ OscarDP links movies, narrative context, character intent, observable acting, fa
 | Stage | Status | Output and purpose |
 | --- | --- | --- |
 | 01 Shot Detection | Implemented | TransNetV2 boundaries, shot times and midpoint images |
-| 02 Subtitle & Screenplay Alignment | Manual annotation available (18 movies); deterministic validator implemented | GPT-6 High Shot-Centric annotation generation remains manual. Read-only structure, Stage01 and SRT cross-validation produces separate reports. [Spec](stage02_spec_v1.md) · [Original Prompt v1.0](prompts/stage02_prompt_v1.txt) · [New-film Prompt v1.1](prompts/stage02_prompt_v1_1.txt) · [Validator](stage02_validation.md) |
+| 02 Subtitle & Screenplay Alignment | Manual annotation available (18 movies); deterministic validator v1.1 implemented | GPT-6 High annotation generation remains manual. Validation separates source integrity, annotation consistency and incomplete checks; root audits and unapplied source/Stage02 proposals remain outside the dataset. [Spec](stage02_spec_v1.md) · [Original Prompt v1.0](prompts/stage02_prompt_v1.txt) · [New-film Prompt v1.1](prompts/stage02_prompt_v1_1.txt) · [Validator](stage02_validation.md) |
 | 03 Cinematic Semantic Enrichment | Planned | Shot size, angle, composition, movement, lighting and visible characters |
 | 04 Scene & Narrative Sequence Construction | Planned | Film scenes, sequences, goals and conflicts |
 | 05 Actor Performance Analysis | Planned | Target actor, face tracking, Action Units, pose, gaze and performance events |

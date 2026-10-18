@@ -96,8 +96,18 @@ def main(argv=None) -> int:
     validate.add_argument('--expect-movies', type=int)
     validate.add_argument('--srt-map', type=Path, help='Explicit IMDb-to-SRT JSON map; relative paths resolve against map directory')
     validate.add_argument('--tolerance', type=float, default=1e-6, help='Shot boundary serialization tolerance in seconds (default: 1e-6)')
+    review = subparsers.add_parser('review', help='Reconcile saved runs and propose source/annotation corrections without applying them')
+    review.add_argument('--baseline-root', type=Path, required=True)
+    review.add_argument('--validation-root', type=Path, required=True)
+    review.add_argument('--report-root', type=Path, required=True)
+    review.add_argument('--historical-baseline', type=Path)
     args = parser.parse_args(argv)
     try:
+        if args.command == 'review':
+            from .review import run_review
+            audit = run_review(args.baseline_root, args.validation_root, args.report_root, historical=args.historical_baseline)
+            print(f'Reviewed {audit["reviewed_issue_occurrences"]} baseline issues; {audit["independent_baseline_roots"]} independent roots.\nReview: {args.report_root / "REVIEW.md"}\nAll source and annotation proposals remain unapplied.')
+            return 0
         return run(args)
     except (OSError, ValueError) as exc:
         print(f'Validation could not complete: {exc}', file=sys.stderr)

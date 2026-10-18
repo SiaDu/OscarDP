@@ -1,4 +1,4 @@
-# Stage02 v1.0 validation
+# Stage02 Validator v1.1 (fixed annotation schema v1.0)
 
 The implemented CLI performs **Structural and Source Consistency Validation**.
 Annotation generation remains manual interactive GPT-6 High work using the unchanged
@@ -59,7 +59,7 @@ failure does not stop later movies.
 | SRT discovery | Unique source confirmed by IMDb path ownership or explicit user mapping |
 | SRT parsing | Original positive numbers, valid comma-millisecond timestamps, positive cue duration, multiline text, UTF-8 BOM, LF/CRLF; malformed blocks and duplicate numbers are errors |
 | Source indices | Each dialogue/sound/lyric reference exists uniquely; merged dialogue indices are unique and consecutive in original source cue order (original numbering gaps are preserved) |
-| Source text | Exact source reconstruction or restricted normalization with evidence; mismatches are errors |
+| Source text | Whole-cue reconstruction or complete explicitly typed source components, restricted normalization with evidence; language mismatches are errors |
 | Source overlap | Every referenced cue has positive overlap with the authoritative Stage01 interval, using exclusive endpoints; zero-length contact is not overlap |
 
 The machine schema is [stage02_v1.schema.json](schemas/stage02_v1.schema.json).
@@ -98,8 +98,9 @@ Malformed or undecodable SRT files fail. WebVTT disguised as `.srt` is explicitl
 rejected: numbering it would invent original source indices. UTF-8/UTF-8-BOM is supported; other legacy
 encodings are reported as unreadable rather than guessed. Parsing retains original
 cue numbers and multiline text, with only BOM/line-ending handling. Duplicate
-numbers remain in the parse result; a reference to a duplicate cannot be uniquely
-validated. Well-formed cues in an otherwise invalid file are still checked.
+numbers remain in the parse result; v1.1 can validate a reference only if exactly one
+duplicate occurrence satisfies text and authoritative shot overlap. The duplicate
+source remains invalid. Well-formed cues in an otherwise invalid file are still checked.
 
 ## Text and time evidence
 
@@ -114,7 +115,9 @@ the following transformations, and only these, may produce a **Normalized Match*
 A normalized match is a WARNING. Case, punctuation, words, speaker labels, hyphens,
 lyrics symbols and sound descriptions are preserved. There is no fuzzy similarity,
 semantic paraphrase acceptance, offset estimation or timing correction. Differences
-beyond these transformations are **Mismatch** errors. A multi-cue merge with spaces
+beyond these transformations are **Mismatch** errors for whole-cue comparison; the
+bounded mixed-component rules below additionally support valid field extraction.
+A multi-cue merge with spaces
 instead of newlines is therefore normalized, not exact.
 
 A cue can validly appear in several overlapping shots. There is no global uniqueness
@@ -160,3 +163,127 @@ state the validation scope and limitations.
 
 A passing report is evidence of structural/source consistency, never proof that the
 screenplay semantics or actual movie visuals have been evaluated correctly.
+
+## Validator v1.1: source integrity and annotation consistency
+
+The fixed Stage02 data schema and historical annotation prompt are unchanged.
+v1.1 adds a separate **Source Integrity** result, **Annotation Consistency** result,
+`validation_complete`, and independent root-problem counts. The original overall
+PASS/WARNING/FAIL contract remains: any error or incomplete required check fails.
+An annotation can consistently quote one unambiguous occurrence in an invalid source;
+that does not make the source valid or the movie PASS.
+
+- **Source Integrity** checks discovery, decoding, original numbering, nonempty
+  captions and valid source timing. Unreferenced empty/zero-duration cues remain
+  source errors. Nonempty invalid-duration captions are retained as evidence; their
+  timing is never guessed or shifted.
+- **Annotation Consistency** checks the unchanged structural/Stage01 contract and
+  whether existing entries reproduce source content in the correct explicitly
+  marked field. This is deterministic marker-based checking, not a semantic review
+  of unmarked lyrics, speaker identity, screenplay claims or actual audio/video.
+- **Incomplete validation** identifies blocked checks. Missing/unsupported source
+  content blocks index/text/time verification; it does not manufacture missing-index
+  errors for every entry. Detailed parser diagnostics are retained even when a
+  complete parsing failure is grouped into a single source error.
+
+When a duplicated source number has exactly one occurrence matching both the entry's
+text and authoritative Stage01 overlap, that entry can be validated with its original
+source block number recorded. The duplicate source still causes an ERROR. If the
+occurrence cannot be uniquely determined, downstream text/time checks remain blocked.
+
+### Complete cues and mixed components
+
+Whole-cue exact/normalized comparisons remain supported. For mixed captions,
+extraction accepts only these additional, documented units:
+
+1. A complete span enclosed by paired `♪`/`♫` markers (lyrics), a complete bracketed
+   or parenthesized SDH annotation (sound/context), or a complete residual dialogue
+   span bounded by those explicit annotations.
+2. The complete projection of all components belonging to one field, in source
+   order. A multi-cue dialogue merge must still follow consecutive original source
+   cue positions; it cannot select arbitrary words or skip language within a component.
+3. Source turn delimiters at component boundaries, explicit speaker-label metadata
+   (e.g. `[John]`, `MARK:`, `MIKE and CLAIRE:`), and an annotation's following colon
+   are distinguished from spoken words. Negative-number signs and punctuation
+   inside language remain significant. Standalone instrumental `♪ ♪` is sound,
+   not invented lyric words.
+
+No arbitrary substring, fuzzy text, case change, punctuation substitution or semantic
+paraphrase is accepted. Omitting part of an ordinary unsegmented line fails. The report
+records each source span, full raw cue, rendered source, extraction rule and supplied
+index. Span offsets refer to rendered text after presentation-tag handling, not raw
+HTML byte offsets. Complete parenthetical/context annotations prove textual provenance;
+they do not prove that a sound was actually audible. Source markers alone cannot
+classify unmarked text semantically.
+
+A full mixed cue copied into `song_lyrics` can match the source exactly and still
+produce `FIELD_CLASSIFICATION` when it contains ordinary spoken dialogue outside the
+music markers. Explicit lyrics assigned to dialogue/sound are also errors. Speaker
+labels and source contextual annotations accompanying lyrics are not treated as
+additional spoken dialogue. These checks can expose genuine problems in movies
+that passed v1.0, and those new errors are retained.
+
+### Root problems and occurrence evidence
+
+`issues.csv` preserves every occurrence with `issue_id`, `root_problem_id`, `domain`,
+field and entry location. `root_problems.csv` and each movie's `root_problems` group
+identical source/index or text/field problems across shots while listing every affected
+shot. `errors`/`warnings` remain occurrence counts for compatibility;
+`root_errors`/`root_warnings` count independent problems. Distinct field errors or
+materially different temporal evidence are not collapsed merely to reduce counts.
+
+### Reproduce the baseline review without overwriting it
+
+```bash
+uv run python -m oscardp.stage02 validate --expect-movies 18 \
+  --report-root reports/stage02_validation_v1_1
+
+uv run python -m oscardp.stage02 review \
+  --baseline-root reports/stage02_validation \
+  --validation-root reports/stage02_validation_v1_1 \
+  --report-root reports/stage02_validation_v1_1/review \
+  --historical-baseline reports/stage02_validation_initial
+```
+
+The last argument is optional and adds an earlier first-run comparison. For reruns,
+choose fresh validation and review directories. The review checks baseline CSV/JSON
+agreement and verifies every original Stage01/Stage02/SRT SHA-256 against both runs,
+then rechecks input/report hashes after investigation. A stale input hash prevents
+claiming that the review applies to the baseline data.
+
+The review writes:
+
+- `REVIEW.md` and `review_summary.json`: every movie, source/annotation statuses,
+  occurrence/root counts and the actual on-disk baseline counts.
+- `issue_resolution.json/.csv`: one disposition per baseline ERROR/WARNING,
+  original source evidence, decision, approval needs and duplicate/root links.
+- `historical_first_run_resolution.json`: optional earlier-run occurrence comparison,
+  including dependent parser/index cascades under a single unresolved source root.
+- `current_findings.json` and `unresolved.json`: current independent problems,
+  newly detected classification issues and all pending approval/source actions.
+- `source_investigations.json`: original paths/hashes, rejected raw blocks,
+  references, neighboring cues, source proposals and complete original-index maps.
+- `proposed_sources/` and `source_scenarios/`: separately hashed, **unapproved**
+  derivative SRTs and their independent validation. Only evidenced advertising
+  duplicates and unreferenced empty captions are proposed for removal; retained
+  cue numbers are unchanged. Nonempty zero-duration cues require authoritative
+  timing and are never silently deleted.
+- `proposed_stage02_patches.json`: unapplied JSON Patch proposals with exact before/
+  after text, source evidence, source-file SHA-256 and `test` guards. Missing
+  complementary dialogue/lyrics are preserved through companion-entry proposals
+  (unknown speakers remain `null`). Consolidated `file_proposals` resolve overlapping
+  shot changes with exact before/after arrays; individual text proposals remain
+  supporting evidence. All bundles need human confirmation before application.
+- `verification.json`: original input and baseline/current report hash audit.
+
+The six dispositions are `RESOLVED_VALIDATOR_RULE`, `RESOLVED_SOURCE_CURATION`,
+`STAGE02_CORRECTION_PROPOSED`, `ACCEPTED_FORMAT_DIFFERENCE`, `NEEDS_HUMAN_REVIEW`
+and `UNRESOLVED`. `RESOLVED_SOURCE_CURATION` is explicitly **conditional**: it applies
+only to the validated candidate derivative, requires confirmation, and does not
+change the original-source movie result. Accepted formatting differences remain
+visible as WARNINGs; no actual language mismatch is downgraded to obtain a PASS.
+
+WebVTT content/time signatures may be cross-linked diagnostically to Stage02
+references, but those links cannot prove original subtitle numbering. Without an
+authoritative numbered source or authenticated original index map, recovery remains
+UNRESOLVED; the tool never produces a guessed, sequentially numbered replacement.

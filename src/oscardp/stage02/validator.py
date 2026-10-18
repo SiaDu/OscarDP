@@ -11,7 +11,9 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, validators
 
-from .srt import compare_text, parse_srt
+from .srt import parse_srt
+from .text import compare_entry
+from .issues import aggregate, domain
 
 SCOPE = 'Structural and Source Consistency Validation'
 LIMITATION = 'Does not validate screenplay semantics, character identity, emotion, intent or actual movie visuals.'
@@ -57,15 +59,18 @@ class MovieValidation:
         self.incomplete = set()
         self.inputs = {}
         self.matches = []
+        self.source_diagnostics = {}
         self.stats = dict(movie_id=movie_dir.name, movie_name=None, stage01_shots=0, stage02_shots=0,
                           shot_coverage_pct=0.0, srt_status='NOT_CHECKED', srt_cue_count=0,
                           dialogue_shot_count=0, dialogue_entry_count=0, unknown_speaker_count=0,
                           performance_cue_count=0, shots_without_performance_cues=0,
                           exact_match_count=0, normalized_match_count=0, mismatch_count=0)
+        self.stats['segment_match_count'] = 0
 
-    def issue(self, rule, code, message, *, severity='ERROR', shot_id=None, srt_index=None, expected=None, actual=None):
+    def issue(self, rule, code, message, *, severity='ERROR', shot_id=None, srt_index=None, expected=None, actual=None, field=None, entry=None):
         self.issues.append(dict(movie_id=self.movie_dir.name, severity=severity, rule_code=code,
-                                shot_id=shot_id, srt_index=srt_index, expected=expected, actual=actual, message=message))
+                                shot_id=shot_id, srt_index=srt_index, expected=expected, actual=actual, message=message,
+                                domain=domain(rule, code), field=field, entry=entry))
         result = self.results[rule]
         result['issue_count'] += 1
         if severity == 'ERROR' or (severity == 'WARNING' and result['status'] == 'PASS'):
@@ -181,7 +186,7 @@ class MovieValidation:
             self.issue('stage02_schema', 'SCHEMA_INVALID', f'/{"/".join(map(str, path))}: {error.message}', shot_id=shot_id,
                        expected=error.schema, actual=error.instance)
 
-    def sources(self, shots, cues):
+    def sources(self, shots, cues, blocked_indices=frozenset()):
         groups = {}
         for cue in cues:
             groups.setdefault(cue.index, []).append(cue)
@@ -213,9 +218,25 @@ class MovieValidation:
                     selected = []
                     for index in indices:
                         if index not in groups:
-                            self.issue('source_indices', 'SRT_INDEX_MISSING', 'Referenced subtitle does not exist', shot_id=shot_id, srt_index=index)
+                            if index in blocked_indices:
+                                self.issue('source_indices', 'SRT_REFERENCE_BLOCKED', 'Invalid source block prevents source verification; not a missing annotation index', severity='INFO', shot_id=shot_id, srt_index=index, field=field, entry=entry_no)
+                            else:
+                                self.issue('source_indices', 'SRT_INDEX_MISSING', 'Referenced subtitle does not exist', shot_id=shot_id, srt_index=index)
                         elif len(groups[index]) != 1:
-                            self.issue('source_indices', 'SRT_INDEX_AMBIGUOUS', 'Referenced subtitle number is duplicated in source', shot_id=shot_id, srt_index=index)
+                            timing = self.authoritative_times.get(shot_id, {}) if isinstance(shot_id, str) else {}
+                            candidates = [c for c in groups[index] if isinstance(entry.get('text'), str)
+                                and compare_entry(entry['text'], [c], field)['status'] != 'mismatch'
+                                and finite(timing.get('start')) and finite(timing.get('end'))
+                                and min(c.end, timing['end']) > max(c.start, timing['start'])]
+                            if len(candidates) == 1 and len(indices) == 1:
+                                selected.append(candidates[0])
+                                self.issue('source_indices', 'SRT_DUPLICATE_REFERENCE_DISAMBIGUATED',
+                                           'One duplicate occurrence matches both text and authoritative shot overlap; original source remains invalid',
+                                           severity='INFO', shot_id=shot_id, srt_index=index, actual=vars(candidates[0]), field=field, entry=entry_no)
+                            else:
+                                self.issue('source_indices', 'SRT_INDEX_AMBIGUOUS', 'Referenced subtitle number is duplicated in source', shot_id=shot_id, srt_index=index, field=field, entry=entry_no)
+                        elif index in blocked_indices:
+                            self.issue('source_indices', 'SRT_REFERENCE_BLOCKED', 'Empty or invalid source block prevents verification', severity='INFO', shot_id=shot_id, srt_index=index, field=field, entry=entry_no)
                         else:
                             selected.append(groups[index][0])
                     if len(selected) != len(indices):
@@ -225,7 +246,8 @@ class MovieValidation:
                         self.issue('source_indices', 'SRT_MERGE_ORDER', 'Merged cues must be consecutive in original source order', shot_id=shot_id, actual=indices)
                     text = entry.get('text')
                     if isinstance(text, str):
-                        evidence = compare_text(text, selected)
+                        evidence = compare_entry(text, selected, field)
+                        self.stats['segment_match_count'] += evidence['match_rule'] != 'whole_cue' and evidence['status'] != 'mismatch'
                         self.stats[evidence['status'] + '_match_count' if evidence['status'] != 'mismatch' else 'mismatch_count'] += 1
                         self.matches.append(dict(shot_id=shot_id, field=field, entry=entry_no, srt_indices=indices,
                                                  source_cues=[vars(c) for c in selected], **evidence))
@@ -233,7 +255,11 @@ class MovieValidation:
                             self.issue('source_text', 'TEXT_NORMALIZED' if evidence['status'] == 'normalized' else 'TEXT_MISMATCH',
                                        'Formatting-only differences: ' + ', '.join(evidence['reasons']) if evidence['status'] == 'normalized' else 'Text differs beyond permitted normalization; inspect subtitle version/source',
                                        severity='WARNING' if evidence['status'] == 'normalized' else 'ERROR', shot_id=shot_id,
-                                       srt_index=indices, expected=evidence['expected'], actual=text)
+                                       srt_index=indices, expected=evidence['expected'], actual=text, field=field, entry=entry_no)
+                        if evidence['classification_error']:
+                            self.issue('source_text', 'FIELD_CLASSIFICATION', evidence['classification_error'], shot_id=shot_id,
+                                       srt_index=indices, expected={'field': field, 'source_segments': evidence['source_segments']},
+                                       actual=text, field=field, entry=entry_no)
                     # Stage01 boundaries remain authoritative even if Stage02 time is corrupt.
                     t = self.authoritative_times.get(shot_id, {}) if isinstance(shot_id, str) else {}
                     if finite(t.get('start')) and finite(t.get('end')):
@@ -248,12 +274,27 @@ class MovieValidation:
                         self.skip('source_overlap')
 
     def finish(self):
+        roots = aggregate(self.issues)
         self.stats['errors'] = sum(i['severity'] == 'ERROR' for i in self.issues)
         self.stats['warnings'] = sum(i['severity'] == 'WARNING' for i in self.issues)
         self.stats['validation_status'] = 'FAIL' if self.stats['errors'] or self.incomplete else 'WARNING' if self.stats['warnings'] else 'PASS'
-        return dict(scope=SCOPE, limitation=LIMITATION, validator_version='1.0', tolerance_seconds=self.tolerance,
+        self.stats['root_errors'] = sum(r['severity'] == 'ERROR' for r in roots)
+        self.stats['root_warnings'] = sum(r['severity'] == 'WARNING' for r in roots)
+        self.stats['validation_complete'] = not self.incomplete
+        for name in ('SOURCE_INTEGRITY', 'ANNOTATION_CONSISTENCY'):
+            findings = [i for i in self.issues if i['domain'] == name]
+            if any(i['severity'] == 'ERROR' for i in findings):
+                status = 'FAIL'
+            elif self.incomplete & (set(RULES) - {'srt_discovery', 'srt_parse'} if name == 'ANNOTATION_CONSISTENCY' else {'srt_discovery', 'srt_parse'}):
+                status = 'INCOMPLETE'
+            else:
+                status = 'WARNING' if any(i['severity'] == 'WARNING' for i in findings) else 'PASS'
+            self.stats[name.lower() + '_status'] = status
+        return dict(scope=SCOPE, limitation=LIMITATION, validator_version='1.1', tolerance_seconds=self.tolerance,
                     schema_sha256=hashlib.sha256(SCHEMA_BYTES).hexdigest(), summary=self.stats, inputs=self.inputs,
-                    rule_results=self.results, issues=self.issues, incomplete_checks=sorted(self.incomplete), text_comparisons=self.matches)
+                    rule_results=self.results, issues=self.issues, root_problems=roots,
+                    incomplete_checks=sorted(self.incomplete), source_diagnostics=self.source_diagnostics,
+                    text_comparisons=self.matches)
 
 
 def validate_movie(movie_dir: Path, srt_candidates: list[Path], *, srt_override: Path | None = None,
@@ -301,20 +342,27 @@ def validate_movie(movie_dir: Path, srt_candidates: list[Path], *, srt_override:
             parsed = parse_srt(raw.decode('utf-8-sig'))
             v.stats['srt_status'] = 'INVALID' if parsed.issues else 'FOUND'
             v.stats['srt_cue_count'] = len(parsed.cues)
-            for issue in parsed.issues:
+            v.source_diagnostics = {'parse_issues': parsed.issues, 'numbered_block_count': len(parsed.blocks),
+                                    'valid_timed_cue_count': len(parsed.cues)}
+            diagnostics = parsed.issues
+            if not parsed.cues and len(diagnostics) > 1:
+                diagnostics = [dict(rule_code='SRT_PARSE_FAILED', message='No usable timed cues; dependent source errors aggregated',
+                                    actual={'diagnostic_count': len(parsed.issues), 'examples': parsed.issues[:5]})]
+            for issue in diagnostics:
                 v.issue('srt_parse', issue['rule_code'], issue['message'], srt_index=issue.get('srt_index'), actual=issue.get('actual'))
-            if parsed.issues:
-                v.skip('srt_parse')
         except (OSError, UnicodeError) as exc:
             v.stats['srt_status'] = 'UNREADABLE'
             v.issue('srt_parse', 'SRT_UNREADABLE', str(exc), actual=str(path))
-    if parsed is None or not parsed.cues:
+    if parsed is None:
         v.skip('srt_parse', 'source_indices', 'source_text', 'source_overlap')
+    elif not parsed.cues:
+        v.skip('source_indices', 'source_text', 'source_overlap')
     if not shots2:
         v.skip('source_indices', 'source_text', 'source_overlap')
     # Collect annotation statistics even when SRT cannot be checked.
     if parsed and parsed.cues:
-        v.sources(shots2, parsed.cues)
+        blocked = {b['index'] for b in parsed.blocks if not b['time_valid'] or not b['text'].strip()}
+        v.sources(shots2, parsed.cues, blocked)
     else:
         _annotation_stats(v, shots2)
     if v.stats['unknown_speaker_count']:

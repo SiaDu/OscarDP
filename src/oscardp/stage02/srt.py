@@ -24,12 +24,14 @@ class Cue:
     start: float
     end: float
     text: str
+    block_number: int = 0
 
 
 @dataclass
 class ParsedSRT:
     cues: list[Cue] = field(default_factory=list)
     issues: list[dict] = field(default_factory=list)
+    blocks: list[dict] = field(default_factory=list)
 
 
 def parse_srt(text: str) -> ParsedSRT:
@@ -46,10 +48,14 @@ def parse_srt(text: str) -> ParsedSRT:
         if not block.strip():
             continue
         lines = block.split('\n')
+        record = dict(block_number=block_number, raw=block, index=None, start=None,
+                      end=None, text='\n'.join(lines[2:]).rstrip('\n'), time_valid=False)
+        result.blocks.append(record)
         if not re.fullmatch(r'\d+', lines[0].strip()):
             result.issues.append(dict(rule_code='SRT_FORMAT', message='Missing integer cue index', block=block_number, actual=block))
             continue
         index = int(lines[0])
+        record['index'] = index
         if index in seen:
             result.issues.append(dict(rule_code='SRT_DUPLICATE_INDEX', message='Duplicate subtitle index', srt_index=index, actual=block))
         seen.add(index)
@@ -59,17 +65,19 @@ def parse_srt(text: str) -> ParsedSRT:
             continue
         values = list(map(int, match.groups()))
         start, end = (h * 3600 + m * 60 + s + ms / 1000 for h, m, s, ms in (values[:4], values[4:]))
+        record.update(start=start, end=end)
         if start >= end:
             result.issues.append(dict(rule_code='SRT_TIMESTAMP', message='Cue start must precede end', srt_index=index, actual=block))
             continue
         body = '\n'.join(lines[2:]).rstrip('\n')
+        record['time_valid'] = True
         if not body.strip():
             result.issues.append(dict(rule_code='SRT_FORMAT', message='Empty subtitle text', srt_index=index, actual=block))
         # Detect missing blank separators instead of swallowing a second cue as text.
         if any('-->' in line and TIMING.fullmatch(line.strip()) for line in lines[2:]):
             result.issues.append(dict(rule_code='SRT_FORMAT', message='Missing separator between cues', srt_index=index, actual=block))
-        result.cues.append(Cue(index, start, end, body))
-    if not result.cues:
+        result.cues.append(Cue(index, start, end, body, block_number))
+    if not result.cues and not result.issues:
         result.issues.append(dict(rule_code='SRT_EMPTY', message='No valid cues found', actual=text[:1000]))
     return result
 

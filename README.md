@@ -57,7 +57,7 @@ Stage 02 v1.0 is a **Shot-Centric, text-derived semantic annotation**, currently
 
 **Reproduction:** in ChatGPT, choose GPT-6 with **High** thinking effort; upload the Stage 01 JSON, original SRT, screenplay PDF and fixed spec; use the historical v1.0 prompt to reproduce the original 18-film workflow, or **v1.1 for new films** (requires source preflight and an independent Stage02 Validator run when available). Semantic alignment requires the model to read the screenplay and subtitle context rather than relying only on Python string similarity. `performance_cues` derived from the screenplay or LLM inference are **not** video-verified AU, gaze, emotion or facial observations.
 
-**Status:** Annotation Generation still uses manual GPT-6 High interaction. The implemented validator performs **Structural and Source Consistency Validation** against the fixed [JSON Schema](docs/schemas/stage02_v1.schema.json), Stage01 shot IDs/times and original SRT text/indices. It does not evaluate screenplay semantics or movie visuals. Downstream scene/beat aggregation and visual analysis remain future work.
+**Status:** Annotation Generation still uses manual GPT-6 High interaction. Validator **v1.1** performs **Structural and Source Consistency Validation** against the fixed [JSON Schema](docs/schemas/stage02_v1.schema.json), Stage01 shot IDs/times and original SRT text/indices. It separates **Source Integrity** (subtitle quality) from **Annotation Consistency** (Stage02 structure and source references), and lists incomplete checks. It does not evaluate screenplay semantics or movie visuals. Downstream scene/beat aggregation and visual analysis remain future work.
 
 ```bash
 # Single movie, then all discovered IMDb-ID directories.
@@ -70,6 +70,17 @@ Defaults use the dataset paths above. Override `--analysis-root`, `--srt-root` a
 Reports go to `reports/stage02_validation/`: `summary.csv`, `summary.json`, `issues.csv`, and detailed `movies/<movie_id>.json` with source hashes, shot/index evidence, text differences and incomplete checks. **PASS** means every required check completed without errors or warnings; **WARNING** means no errors but manual review is needed (including formatting-only text normalization); **FAIL** means errors or incomplete required checks. Missing/ambiguous SRT cannot pass. Reports are saved before a failure exit code. Choose a fresh report directory for reruns; existing reports are never overwritten.
 
 The validator never modifies Stage01, Stage02 or subtitles and requires no GPU, video processing or LLM API. Passing structural/source consistency does not establish semantic correctness. See [validation checks and limitations](docs/stage02_validation.md) for CLI options, normalization rules and report details.
+
+v1.1 accepts complete, explicitly bounded dialogue/lyric/sound components in mixed cues; arbitrary substring matches remain invalid. It checks explicit field contamination and aggregates repeated cross-shot occurrences into root problems while preserving every affected shot. Known style tags and ASS alignment tags are formatting differences; source words and punctuation are preserved. Invalid original SRT can fail Source Integrity even when the existing annotation references are consistent. An unreadable or unnumbered source blocks validation instead of generating thousands of dependent index errors.
+
+To preserve the saved v1.0 baseline, write the new run and audit to fresh directories:
+
+```bash
+uv run python -m oscardp.stage02 validate --expect-movies 18 --report-root reports/stage02_validation_v1_1
+uv run python -m oscardp.stage02 review --baseline-root reports/stage02_validation --validation-root reports/stage02_validation_v1_1 --report-root reports/stage02_validation_v1_1/review --historical-baseline reports/stage02_validation_initial
+```
+
+The optional historical argument also audits the earlier first run. `review/REVIEW.md` provides the audit findings; the JSON/CSV artifacts map every old ERROR/WARNING to a new disposition and retain original evidence/hashes. Source curation produces **unapproved derivative files**, original-index maps and separate candidate validation only. Proposed Stage02 JSON Patches include exact before/after values and test guards and are **never applied**. Neither a candidate-source PASS nor a formatting acceptance promotes an input or silently changes the original-source validation result. Approval and unresolved actions remain explicit in the review.
 
 
 ## Dataset preflight
