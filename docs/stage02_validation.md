@@ -89,6 +89,16 @@ provenance, not the truth of free-text descriptions. `time_of_day` and
 
 ## SRT selection
 
+For the Canonical Workspace, set both `--analysis-root` and `--srt-root` to
+`/media/sdu/SiyaoDu/datasets/oscar_movie_analysis`. Each IMDb movie root contains
+one complete Stage01, one complete Stage02 and one current SRT. Optional
+`stage02_curated/` historical JSON is nested; historical subtitles are zipped,
+not loose scan-visible `.srt` files. A root `srt_map.json` can explicitly bind the
+current subtitles. Preserve the applicable source-bound manual decisions when
+revalidating migrated inputs. See [reorganisation](dataset_reorganisation.md).
+The workspace remains mutable; only a separately frozen release is a fixed
+research snapshot. Existing defaults and all checks below remain unchanged.
+
 One recursive file index is built under `--srt-root`, skipping hidden/symlinked
 entries. It reuses Stage01's IMDb pattern and video extensions and follows the
 preflight's filename-then-nearest-parent IMDb precedence without importing its

@@ -7,6 +7,13 @@ specification and annotation prompts are unchanged. Inventory/Excel auditing rem
 
 ## Run
 
+Canonical movie-root `Stage01_<id>.json`, `<id>.srt` and optional
+`Stage02_<id>.json` are valid explicit input paths; the Screenplay remains an
+explicit external PDF. Directory placement does not authenticate a subtitle.
+Migration must retain original approval records without editing their issue IDs,
+hashes or reviewer declarations. A new finding after relocation needs its own
+correct binding, never automatic approval reuse. See [workspace workflow](dataset_reorganisation.md).
+
 Install Python 3.12+ and project dependencies with `uv sync --extra test`. PDF text-layer
 inspection uses the lightweight `pypdf>=6,<7` dependency; no OCR, GPU, video decoding or LLM.
 

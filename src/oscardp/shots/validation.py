@@ -25,8 +25,16 @@ def validate_movie(movie_dir: Path, *, frame_count: int | None = None, official_
         return ValidationResult(False, ["movie directory must use an IMDb ID"], 0, 0)
     if not stage_path.is_file():
         return ValidationResult(False, [f"missing {stage_path.name}"], 0, 0)
-    if official_layout and {path.name for path in movie_dir.iterdir()} != {stage_path.name, "shot_img"}:
-        errors.append("official movie directory must contain only Stage 01 JSON and shot_img")
+    if official_layout:
+        required = {stage_path.name, "shot_img"}
+        optional = {f"Stage02_{movie_id}.json", f"{movie_id}.srt", "stage02_curated"}
+        names = {path.name for path in movie_dir.iterdir()}
+        if not required <= names or names - required - optional:
+            errors.append("official movie directory has missing Stage01 layout entries or unexpected files")
+        for name in names & optional:
+            path = movie_dir / name
+            if path.is_symlink() or (not path.is_dir() if name == "stage02_curated" else not path.is_file()):
+                errors.append(f"invalid canonical workspace entry: {name}")
     try:
         data = _load_json(stage_path)
     except (OSError, ValueError, TypeError) as exc:

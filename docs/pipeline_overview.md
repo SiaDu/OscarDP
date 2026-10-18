@@ -1,5 +1,20 @@
 # Oscar Acting Dataset pipeline
 
+## Workspace and releases
+
+The Canonical Workspace is `/media/sdu/SiyaoDu/datasets/oscar_movie_analysis`.
+Each movie folder holds current Stage01/Stage02 JSON, its current SRT, shot images
+and optional `stage02_curated/` history. Historical subtitles are zipped to avoid
+participating in source discovery. Working revisions preserve old bytes and
+provenance before promotion; they do not alter completed Frozen Releases.
+
+Frozen snapshots live under `/media/sdu/SiyaoDu/datasets/oscardp_releases`.
+Future Stage03/04 input design must explicitly select a Frozen Manifest and verify
+its Release ID and input hashes. The shared movie-folder layout does not authorize
+downstream processing or mutable-workspace fallback. See the [migration and
+future-film workflow](dataset_reorganisation.md). No new stage implementation or
+change to fixed Stage02 Schema v1.0 / Prompt v1.2 is introduced here.
+
 OscarDP links movies, narrative context, character intent, observable acting, facial and gaze behaviour, and explainable acting annotations for controllable 3D character animation research.
 
 | Stage | Status | Output and purpose |

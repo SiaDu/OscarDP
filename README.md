@@ -26,6 +26,10 @@ oscar_movie_analysis/
 
 The official JSON has one movie-level `movie_id`, one `movie_name`, and an ordered `shots` array. Each shot has only `shot_id` and `temporal` (`start`, `end`, `start_frame`, `end_frame`). Frame starts are inclusive and ends exclusive. TransNetV2 detects boundaries; FFprobe provides CFR/VFR timing; FFmpeg extracts one midpoint image per shot in a sequential pass. Optional boundary QC is stored under `.internal/`.
 
+The Canonical Workspace is `/media/sdu/SiyaoDu/datasets/oscar_movie_analysis`. A completed Stage02 movie folder also holds its current `Stage02_<id>.json` and `<id>.srt`, with optional history under `stage02_curated/`. Historical subtitles stay in ZIP archives so recursive discovery sees only the current SRT. Stage01's image and JSON checks remain active when Stage02 files coexist.
+
+Frozen Releases under `/media/sdu/SiyaoDu/datasets/oscardp_releases` are independent versioned snapshots; the mutable workspace is not a frozen research release. See [safe migration, validation and future-film workflow](docs/dataset_reorganisation.md). CLI defaults remain compatible; explicitly set both `--analysis-root` and `--srt-root` to the workspace for Canonical Stage02 validation and retain applicable `--manual-semantic-decisions`.
+
 ## Usage
 
 ```bash
@@ -52,7 +56,7 @@ Stage 02 v1.0 is a **Shot-Centric, text-derived semantic annotation**, currently
 - [Stage 02 annotation prompt v1.1](docs/prompts/stage02_prompt_v1_1.txt) — preserved previous workflow; retained for reproducibility.
 - [Stage 02 annotation prompt v1.2](docs/prompts/stage02_prompt_v1_2.txt) — **recommended for new movies**; mandatory executable source preflight before LLM, mixed-cue/SDH examples, audiovisual ambiguity QC, and post-annotation validation. The fixed Stage02 Schema remains v1.0.
 
-**Inputs:** `Stage01_<movie_id>.json`, the movie's original `<movie_id>.srt`, and its screenplay PDF, together with the fixed specification. The SRT is the sole source of actual dialogue text; the screenplay informs semantic correspondence, characters, locations, events and tentative performance cues; Stage 01 is authoritative for shot IDs and timestamps.
+**Inputs:** `Stage01_<movie_id>.json`, the movie's confirmed `<movie_id>.srt` (original or a separately approved Curated source version), and its screenplay PDF, together with the fixed specification. The selected SRT is the sole source of actual dialogue text; the screenplay informs semantic correspondence, characters, locations, events and tentative performance cues; Stage 01 is authoritative for shot IDs and timestamps. Canonical placement alone does not authenticate a version.
 
 ### Mandatory Stage02 Source Preflight — BEFORE LLM annotation
 
