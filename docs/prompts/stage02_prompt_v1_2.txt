@@ -1,0 +1,182 @@
+# OscarDP — Stage02 Annotation Prompt v1.2 / Fixed Schema v1.0
+
+我要对一部奥斯卡电影进行 Stage02 Shot-Centric Semantic Annotation。
+
+项目：OscarDP（Oscar Acting Dataset）。
+
+请严格遵守我上传的 `Stage02_Spec_v1.md`（仓库路径：`docs/stage02_spec_v1.md`）。**JSON Schema 仍为 v1.0，禁止自行增删字段。** 本 Prompt v1.2 强制在 LLM 标注之前完成独立的 Source Preflight，并加强混合字幕的字段分类、音视频歧义标记与独立验收，不改变原有语义标注任务，也不改变“一次任务覆盖整部电影”的默认工作方式。
+
+## 输入
+
+我会提供：
+
+1. `Stage01_<movie_id>.json` — 镜头 ID、起止时间
+2. `<movie_id>.srt` — 成片实际字幕
+3. `<movie_id>.pdf` — 电影 Screenplay
+4. `Stage02_Spec_v1.md` — 固定格式规范
+
+## 必须先执行 Stage02 Source Preflight（LLM 标注的硬性准入门槛）
+
+**执行顺序不可调换：确定性 Source Preflight → 人工审核/批准异常 → LLM 语义标注 → 独立 Stage02 Validator。** 不要将最终 Validator、LLM 自称的预检、或仓库中用于 Excel 文件清单核对的 `tools/dataset_preflight.py` 冒充 Stage02 Source Preflight。
+
+Source Preflight 必须通过可重复执行的 **Python/确定性程序** 实际读取输入文件，并保存一个独立于 Stage02 JSON 的 `source_preflight.json`。**只有文字描述“已经检查”而没有可核验的程序结果，不能算通过。** 如果当前执行环境没有可用的 Source Preflight 程序或无法访问必要文件，先停止生成正式 Stage02，明确说明阻断及需要运行的工具；不得假装已运行，更不得编造 PASS。
+
+### 必检项目与证据
+
+1. **Stage01 契约**：movie_id、完整 Shot 数量、ID 唯一性与顺序、所有起止时间合法且覆盖连续。Stage01 是 Shot ID/时间唯一权威来源。
+2. **SRT 格式与解析**：读取真实文件内容而非仅看扩展名；识别真正 SRT 与伪装成 `.srt` 的无编号 WebVTT；检查编码、字幕索引正整数且唯一、Cue 起止时间和正文；识别 HTML、ASS/SDH 样式或定位标记而不丢失原文。
+3. **来源完整性**：列出重复编号、广告/网站推广污染、空 Cue、非空但零时长 Cue、明显时序异常、字幕缺失/异常；记录原始 Block 与 Cue 编号、前后文和影响范围。
+4. **时序和版本**：核对 SRT 与 Stage01 覆盖区间和明显整体时移；字幕与实际视频发行版本的精确匹配若无法凭输入证明，标为 `UNVERIFIED` 并请求来源证据，不能宣称仅凭文件名已证实匹配。
+5. **Screenplay**：PDF 可读取且包含可用的连续语境；它允许与成片有改写/删减，不能取代实际字幕正文。
+6. **可追溯性**：记录电影 ID、输入路径、Stage01/SRT/PDF SHA-256、字幕类型、Cue 数量、异常编号、检查是否完成、阻断理由、通过/警告/阻断状态及使用的程序或版本。
+
+### 准入状态
+
+- **PASS**：必检项目已实际执行且没有影响生成的源问题，可以开始 LLM 标注。
+- **WARNING / APPROVED_SOURCE_EXCEPTION**：异常影响范围有确凿证据且不会破坏下游 Cue 索引、实际字幕正文及对齐；有明确记录与适用的人工批准，才可继续。孤立且未引用的空 Cue 可以属于这一类，但应保留异常记录。
+- **BLOCKED**：编号缺失或重复且无法可靠消歧、无编号 WebVTT 与 Stage02 目标索引缺少可追溯映射、源文本不可可靠读取、明显不可信的时序/版本、**非空正文但零时长且没有权威时间依据**，或必需检查未执行；停止正式标注并列出阻断原因。非空零时长 Cue 即使当前无人引用，也不得直接当作无害格式警告。
+
+**源文件永久不可变**：不直接编辑原始 SRT、Stage01、Screenplay 或现有 Stage02。允许使用已经审定的 Curated SRT，但必须另存、记录批准依据、原始/衍生 SHA-256、原始 Cue 对应关系，并在后续所有检查中使用同一已确认版本。禁止未经证据的自动重编号、时间插值、丢弃有意义的正文或静默替换版本。
+
+`source_preflight.json` 是**独立审核工件**，不是固定 Stage02 Schema 的新增字段。LLM 生成前必须明确声明所用输入哈希、预检结果和是否有已批准的例外。
+
+## 核心任务
+
+**请你亲自进行 LLM 语义理解和对齐，不要只使用 Python 文本相似度匹配。**
+
+阅读连续的 Screenplay 和 SRT 上下文，理解：
+
+- 对白对应关系，包括改写、删减和重排
+- 角色和说话者
+- 场景、地点、时间及室内外
+- 剧情事件、人物互动和叙事上下文
+- 剧本明确描述或上下文合理支持的 Performance Intent、Emotion、Gaze 等表演线索
+
+Python 仅负责读取 PDF/SRT、计算时间、关联 Shot、生成与校验 JSON。
+
+### 数据来源规则
+
+SRT 是 `dialogue.text` 的唯一正文来源，必须保留实际台词，不能用剧本对白替换。
+
+Screenplay 用于建立语义对应、定位剧情、辅助确定说话者和提取表演线索。
+
+Stage01 是 Shot ID 和时间的唯一来源。
+
+不要编造没有依据的剧情、角色或表演信息。
+
+没有视频画面证据时，不要将剧本描述当成已发生的视觉行为，也不要推断真实的景别、镜头角度或摄影机运动。
+
+## 混合字幕 Cue：按实际内容拆分，不按整 Cue 机械归类
+
+SRT 的一个 Cue 可能同时包含歌词、普通对白、语气词、非词汇发声、音效以及多个说话者。**先识别完整 Cue 的可追溯组成部分，再写入原有 Schema**；不可将原始整 Cue 同时复制到多个字段。
+
+- `dialogue[].text`：可识别的口头话语、独立的感叹词/应答；只保留实际听写正文，不包括展示性 Speaker Label。
+- `song_lyrics[].text`：实际演唱的歌词以及**已由可靠音视频证据确认**属于演出的歌唱回应。是否有 `♪` 不能单独决定分类。
+- `sound_cues[].text`：声音描述、非词汇发声、环境声、独立欢呼或声音事件（当有证据表明其不是口头话语或歌词时）。
+- 允许从同一 Cue 中提取完整且可定位的字段片段，分别保留原 `srt_indices`/`srt_index`。不要通过模糊匹配删词、改写语言、改写标点或拼接不相邻的文本。
+- **字幕标记不是说出的词**：`<i>`、`{\\an8}` 等显示标记、轮次开头的 `-`、下一行说话轮次的分隔符，以及可确认的 `[John]`、`MAN 2:`、`WOMAN:` 等 SDH Speaker Label，不应混入实际对白或歌词。仅在可确定为展示符号时剥离；真正的词内连字符、负号、话语中断等必须保留。
+- 有两个说话者先后出现在同一 Cue **不等于声学重叠**；只有确有同时发声证据才使用 `voice_overlap: true`。不确定角色身份时 `speaker: null`，不要推断或凭外观猜测。
+- 同一 Cue 时间覆盖多个 Shot 时可在各相应 Shot 依法重复引用，不是同一 Shot 内的重复错误；连续 Cue 合并 Dialogue 必须符合 Spec，保留全部真实索引。
+- 在影片本身的音视频证据缺失时，无法区分 spoken interjection、singing response 与 non-lexical vocalization 的 `Hmm.`/`Yeah!`/`Whoo!` 等只能记录到**外部待复核清单**，不能仅靠文本模式强制归类；有用户实看视频确认时，另存 source-bound 人工决策，列明电影、Cue、完整原文、字段、相关 Shot、证据来源与原始字幕 SHA-256，不添加进固定 Stage02 对象。
+
+### 必须遵守的微型示例
+
+**A. 对白 + 歌词（字段污染，禁止）**
+
+```text
+- ♪ A-wim-a-weh ♪
+- Very delicate,
+```
+
+`song_lyrics.text` 只保留 `♪ A-wim-a-weh ♪`；`dialogue.text` 只保留 `Very delicate,`。错误示例是把上述整个 Cue 当作一条歌词。
+
+**B. SDH 标签 + 对白**
+
+```text
+MAN 2: Nice shirt!
+```
+
+`dialogue.text` 应为 `Nice shirt!`。如果 `MAN 2` 无法可靠对应角色，`speaker: null`，不能把标签内容当作说出的单词或编造真实角色名。
+
+**C. 歌词 + 歧义发声（不能凭文字猜）**
+
+```text
+-♪ To be popular ♪
+-Hmm.
+```
+
+`♪ To be popular ♪` 是歌词。只有音视频证据确认 `Hmm.` 的功能，才能决定它属于 `dialogue`、`song_lyrics` 或 `sound_cues`。对于经用户观察确认为独立非语言反应的特定 Cue，可登记为 `sound_cues`，但这不构成对其他 `Hmm.` 的全局规则。
+
+**D. 音乐回应不必带 ♪**
+
+```text
+-♪ I woke up this morning ♪
+-Yeah!
+```
+
+`Yeah!` 的分类取决于实际表演功能：如有人证实是歌唱 call-and-response，可作为 `song_lyrics`；如果只是人群普通喝彩或独立口头应答，需按已确认的功能另行归类。不要把一个电影特例应用到整部或所有电影。
+
+每个 Cue 的字段拆分必须能解释：**什么被保留、什么是显示元信息、什么已单独归入别的字段、什么无法判断**。这些解释进入外部 QC/Review 工件，不加入 Stage02 固定 JSON。
+
+## 输出
+
+使用 Shot-Centric JSON。每个 Shot 必须包含：
+
+- `shot_id`
+- `temporal`
+- `dialogue`
+- `narrative`
+- `tags`
+
+可选：
+
+- `performance_cues`
+- `sound_cues`
+- `song_lyrics`
+
+字段结构及类型严格按照 `Stage02_Spec_v1.md`。
+
+不要在 Stage02 中加入 PDF page、match_evidence、screenplay_units、unassigned_subtitle_cues 或其他冗长的底层对齐记录。
+
+`performance_cues` 必须明确区分剧本直接证据和 LLM 推断，不能声称已由视频验证。
+
+## 处理方式（默认一次完成整部电影）
+
+1. **必须先运行并检查确定性 Source Preflight 的保存报告，准入通过（或有可追溯人工批准的非阻断例外）才开始 LLM。** 随后读取全部文件并确认 movie_id、Shot 范围、字幕与剧本；不能用 LLM 的自述代替预检证据。
+2. **一次任务覆盖整部电影，从第一个 Shot 到最后一个 Shot。** 无须我手动指定每段时间，也不要每处理 10–15 分钟就停止、交付一个 part 文件并等待我发送「继续」。
+3. 你可以**在内部**按连续剧情或语义场景分段理解剧本与 SRT，再把判断映射到 Stage01 Shot；分段长度由剧情与上下文决定，不规定固定分钟数。内部各段应共享人物、事件、场景和剧本/成片差异等上下文，保证跨段一致性。
+4. 每个部分都必须经过**真正的 LLM 语义理解与对齐**。Python 仅负责确定性解析、时间重叠关联、JSON 组装及验证；不得使用字符串相似度或机械填充来冒充已经完成的语义理解。
+5. 保留 Stage01 的全部 Shot（包括无对白和片头片尾），不更改原始镜头时间。SRT 的实际台词与原始字幕编号必须可追溯；跨 Shot 字幕按规范保留在所有重叠 Shot 中。只有可靠的剧本/上下文信息才可用于人物、场景、动作及 `performance_cues` 标注。
+6. 完成后验证：Shot 数量与 ID 和 Stage01 完全一致、无重号/遗漏、Shot 时间完全一致、`srt_indices` 指向真实且唯一可识别的 SRT Cue；对话、歌词和音效文本具有原始字幕来源；混合 Cue 的分字段内容不应错误混入；字段符合 `Stage02_Spec_v1.md`；没有编造或未经视频验证的视觉事实。**如果有可运行的独立 Stage02 Validator，请对完整输出运行并根据具体 ERROR/WARNING 修正或如实标注未解决项；若当前环境无法运行 Validator，不得声称已经通过独立代码校验。**
+7. **默认只交付一份完整、可下载的 `Stage02_<movie_id>.json`**，并简要报告覆盖的 Shot/时间范围、字幕数量和少量需要人工复核的歧义。不要要求我逐段确认，不要额外输出一系列 `_partNNN.json`。
+8. 辅助说话者识别
+对于无法通过 Screenplay 和上下文确定说话者的 SRT 对白，可在线搜索对应电影的 English SDH / Closed Captions 字幕，辅助确认角色身份。优先选择与当前电影版本匹配的字幕，不得用辅助字幕替换原始 SRT 的台词或时间。
+
+同一条字幕包含两名说话者不代表同时说话；只有确实存在语音重叠的证据时才使用 voice_overlap: true。无法可靠确认说话者时保留 null，不要猜测。
+
+## 生成后的独立 Validator 和外部 QC（不等同于 Preflight）
+
+标注完成后，在独立代码中运行 Stage02 Validator（若本环境可运行），对至少下列维度进行检查：
+
+1. 固定 Stage02 v1.0 JSON Schema、Shot 数量/顺序/时间与 Stage01 完全一致。
+2. 选定 SRT 的真实索引、来源文字、Cue 与 Shot 时间重叠、跨 Shot 引用的一致性。
+3. 混合 Cue 的字段污染，歌词中残存的对白、音效/SDH 标签，`dialogue` 中多余的轮次分隔符，以及错误重复或遗漏。
+4. 已明确绑定的用户音视频判断与实际字段保持一致；不得将个案决定变成 `Hmm.`/`Yeah!`/`Whoo!` 的普遍正则规则。
+5. 对每一项 ERROR/WARNING 保存原文证据和检查状态；不能为了获得 PASS 而放宽验证条件、改变原始字幕或丢弃真实正文。
+
+生成独立的 Source Preflight 报告、Validator 报告，以及仅在必要时的 `semantic_review_required` 清单（movie/shot/srt_index、原文、连续上下文、明确的不确定性和所需证据），**不要写入固定 Stage02 JSON**。需用户审核的真实音视频语义歧义，不得由 Python 或没有音视频的 LLM 冒充已验证。
+
+- 必须分别陈述：`structural_validation`、`source_consistency`、`semantic_review`。前两项通过不代表全片剧情、角色、情绪或表演已人工证实。
+- 允许经审核且不影响语言内容的格式 WARNING；如存在 ERROR、检查不完整或未决的阻断问题，不得标为正式 validated Stage02。
+- 如果 Validator 尚不可运行，明确写出“未执行”，不可使用“代码验证 PASS”措辞。
+- 不得自动把输出替换为后续 Pipeline 的激活输入；正式激活由独立 Dataset Release/Manifest 控制。
+
+### 无法一次完成时的例外
+
+如果受输入文件可读性、上下文、处理能力或输出限制，确实无法在当前任务中完成整部电影：
+
+- 必须如实说明已实际完成的连续 Shot ID 和时间范围、未完成范围及原因；**绝不能将未进行语义分析的 Shot 机械补齐后声称全片已完成**。
+- 仅保存确实处理完成的部分为 `Stage02_<movie_id>_part001.json`（后续按实际情况编号），不得把部分结果命名为完整的 `Stage02_<movie_id>.json`。
+- 不要主动把工作拆成需要我多次发送「继续」的流程；只有确实无法完成时，才说明需要怎样恢复未处理内容。
+
+现在请**首先实际运行并读取 Source Preflight 报告**，只有通过准入门槛才以一次完成整部电影为目标开始 LLM 语义对齐和 Stage02 JSON 生成。若没有可执行的预检程序或有阻断问题，先报告并停止正式标注。
