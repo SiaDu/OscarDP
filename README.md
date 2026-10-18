@@ -2,7 +2,7 @@
 
 OscarDP develops the Oscar Acting Dataset: a movie-first research dataset linking narrative context and character intent to observable acting, facial and gaze behaviour, and explainable performance annotations for controllable 3D character animation.
 
-Only **Stage 01: Shot Detection** is executable. The planned six-stage architecture is in [docs/pipeline_overview.md](docs/pipeline_overview.md). The Stage 01 data contract is in [docs/stage01_spec.md](docs/stage01_spec.md).
+Only **Stage 01: Shot Detection** currently has an executable pipeline in this repository. **Stage 02: Subtitle & Screenplay Alignment** has been manually annotated for 18 films using **ChatGPT GPT-6 (High thinking effort)**, with a fixed specification and prompt documented here; no Stage 02 CLI or batch annotation code is implemented yet. See [the pipeline overview](docs/pipeline_overview.md), [Stage 01 contract](docs/stage01_spec.md), and [Stage 02 contract](docs/stage02_spec_v1.md).
 
 ## Layout
 
@@ -41,7 +41,23 @@ uv run python -m oscardp.shots validate --output-root /path/to/oscar_movie_analy
 uv run python -m oscardp.shots process --input-root /path/to/movies --output-root /path/to/oscar_movie_analysis --titles data/metadata/movie_titles.json --weights /path/to/transnetv2.pth --device cuda
 ```
 
-The batch continues after individual failures and skips valid outputs. Do not run the full dataset before inspecting a test movie. Future Stages 02–06 will write separate JSON files and link records by stable IDs; they are not implemented.
+The batch continues after individual failures and skips valid outputs. Do not run the full dataset before inspecting a test movie. Stages 03–06 remain planned and are not executable in this repository.
+
+## Stage 02 — Subtitle & Screenplay Alignment
+
+Stage 02 v1.0 is a **Shot-Centric, text-derived semantic annotation**, currently completed outside this repository for **18 movies** using **ChatGPT GPT-6 with High thinking effort** (interactive LLM analysis, not an automated Stage 02 API/CLI). The original annotation instructions are preserved without modification:
+
+- [Stage 02 v1.0 specification](docs/stage02_spec_v1.md) — fixed JSON schema and annotation rules.
+- [Stage 02 annotation prompt](docs/prompts/stage02_prompt_v1.txt) — the actual prompt used with the model.
+
+**Inputs:** `Stage01_<movie_id>.json`, the movie's original `<movie_id>.srt`, and its screenplay PDF, together with the fixed specification. The SRT is the sole source of actual dialogue text; the screenplay informs semantic correspondence, characters, locations, events and tentative performance cues; Stage 01 is authoritative for shot IDs and timestamps.
+
+**Output:** one complete `Stage02_<movie_id>.json` containing all Stage 01 shots with `shot_id`, `temporal`, `dialogue`, `narrative` and `tags`, plus optional `performance_cues`, `sound_cues` and `song_lyrics`. Incomplete work must be explicitly marked `_partNNN`, never presented as a full-movie result. The 18 generated JSON files are **not committed to this repository**.
+
+**Reproduction:** in ChatGPT, choose GPT-6 with **High** thinking effort; upload the Stage 01 JSON, original SRT, screenplay PDF and fixed spec; then submit the preserved prompt. Semantic alignment requires the model to read the screenplay and subtitle context rather than relying only on Python string similarity. `performance_cues` derived from the screenplay or LLM inference are **not** video-verified AU, gaze, emotion or facial observations.
+
+**Status:** manual outputs exist, but a repository-native Stage 02 generator and Stage 01/SRT cross-validation tool have not yet been implemented. Downstream scene/beat aggregation and visual analysis are future work.
+
 
 ## Dataset preflight
 
