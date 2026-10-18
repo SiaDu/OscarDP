@@ -33,3 +33,5 @@ reports/stage02_validation_v1_1/
 reports/stage02_patch_review_v1_2
 # Local subtitle evidence and unapplied Phase A review (never publish).
 /reports/stage02_patch_review_v1_3/
+# Local curated-release audit and subtitle evidence.
+/reports/stage02_curated_release_v1/
