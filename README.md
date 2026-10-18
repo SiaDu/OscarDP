@@ -2,11 +2,11 @@
 
 OscarDP develops the Oscar Acting Dataset: a movie-first research dataset linking narrative context and character intent to observable acting, facial and gaze behaviour, and explainable performance annotations for controllable 3D character animation.
 
-Only **Stage 01: Shot Detection** currently has an executable pipeline in this repository. **Stage 02: Subtitle & Screenplay Alignment** has been manually annotated for 18 films using **ChatGPT GPT-6 (High thinking effort)**, with a fixed specification and prompt documented here; no Stage 02 CLI or batch annotation code is implemented yet. See [the pipeline overview](docs/pipeline_overview.md), [Stage 01 contract](docs/stage01_spec.md), and [Stage 02 contract](docs/stage02_spec_v1.md).
+**Stage 01: Shot Detection** has an executable processing pipeline. **Stage 02: Subtitle & Screenplay Alignment** has manual annotations for 18 films using **ChatGPT GPT-6 (High thinking effort)** and an implemented deterministic batch validator. Stage02 Annotation Generation remains manual; Deterministic Validation checks structure and original-source consistency. See [the pipeline overview](docs/pipeline_overview.md), [Stage 01 contract](docs/stage01_spec.md), and [Stage 02 contract](docs/stage02_spec_v1.md).
 
 ## Layout
 
-`src/oscardp/shots/` provides discovery, FFmpeg timing and extraction, TransNetV2 inference, checkpointing, QC, validation and the CLI. `src/oscardp/vendor/` contains the licensed PyTorch TransNetV2 model. `tests/` contains Stage 01 tests. `models/` is for local weights; pass their actual path with `--weights`.
+`src/oscardp/shots/` provides discovery, FFmpeg timing and extraction, TransNetV2 inference, checkpointing, QC, validation and the CLI. `src/oscardp/stage02/` provides read-only Stage02 validation, SRT parsing and reports. `src/oscardp/vendor/` contains the licensed PyTorch TransNetV2 model. `tests/` contains Stage01 and Stage02 tests. `models/` is for local weights; pass their actual path with `--weights`.
 
 ## Environment
 
@@ -56,7 +56,19 @@ Stage 02 v1.0 is a **Shot-Centric, text-derived semantic annotation**, currently
 
 **Reproduction:** in ChatGPT, choose GPT-6 with **High** thinking effort; upload the Stage 01 JSON, original SRT, screenplay PDF and fixed spec; then submit the preserved prompt. Semantic alignment requires the model to read the screenplay and subtitle context rather than relying only on Python string similarity. `performance_cues` derived from the screenplay or LLM inference are **not** video-verified AU, gaze, emotion or facial observations.
 
-**Status:** manual outputs exist, but a repository-native Stage 02 generator and Stage 01/SRT cross-validation tool have not yet been implemented. Downstream scene/beat aggregation and visual analysis are future work.
+**Status:** Annotation Generation still uses manual GPT-6 High interaction. The implemented validator performs **Structural and Source Consistency Validation** against the fixed [JSON Schema](docs/schemas/stage02_v1.schema.json), Stage01 shot IDs/times and original SRT text/indices. It does not evaluate screenplay semantics or movie visuals. Downstream scene/beat aggregation and visual analysis remain future work.
+
+```bash
+# Single movie, then all discovered IMDb-ID directories.
+uv run python -m oscardp.stage02 validate --movie-id tt0025316 --report-root reports/stage02_validation_single
+uv run python -m oscardp.stage02 validate --expect-movies 18
+```
+
+Defaults use the dataset paths above. Override `--analysis-root`, `--srt-root` and `--report-root` as needed. SRT discovery builds one file index, using IMDb IDs in filenames/parent folders, or an identified video in the same directory. Missing or ambiguous sources fail; no fuzzy title matching is used. An optional `--srt-map` JSON object maps IMDb IDs to confirmed subtitle paths to resolve ambiguity.
+
+Reports go to `reports/stage02_validation/`: `summary.csv`, `summary.json`, `issues.csv`, and detailed `movies/<movie_id>.json` with source hashes, shot/index evidence, text differences and incomplete checks. **PASS** means every required check completed without errors or warnings; **WARNING** means no errors but manual review is needed (including formatting-only text normalization); **FAIL** means errors or incomplete required checks. Missing/ambiguous SRT cannot pass. Reports are saved before a failure exit code. Choose a fresh report directory for reruns; existing reports are never overwritten.
+
+The validator never modifies Stage01, Stage02 or subtitles and requires no GPU, video processing or LLM API. Passing structural/source consistency does not establish semantic correctness. See [validation checks and limitations](docs/stage02_validation.md) for CLI options, normalization rules and report details.
 
 
 ## Dataset preflight

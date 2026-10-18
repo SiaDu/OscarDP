@@ -26,3 +26,6 @@ note.md
 # Generated dataset outputs
 oscar_movie_analysis/
 reports/dataset_inventory/
+reports/stage02_validation/
+reports/stage02_validation_single/
+reports/stage02_validation_initial/

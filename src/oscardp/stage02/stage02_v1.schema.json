@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Stage02 v1.0 complete-film structural contract",
+  "description": "Structural and Source Consistency Validation; not screenplay semantics or video observation.",
+  "type": "object",
+  "properties": {
+    "movie_id": {
+      "type": "string",
+      "pattern": "^tt[0-9]{7,10}$"
+    },
+    "movie_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "shots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "shot_id": {
+            "type": "string",
+            "pattern": "^shot_[0-9]{6}$"
+          },
+          "temporal": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "additionalProperties": false
+          },
+          "dialogue": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "srt_indices": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                },
+                "speaker": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "voice_overlap": {
+                  "const": true
+                }
+              },
+              "required": [
+                "srt_indices",
+                "speaker",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "narrative": {
+            "type": "object",
+            "properties": {
+              "scene": {
+                "type": "string"
+              },
+              "location": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "time_of_day": {
+                "type": "string"
+              },
+              "interior_exterior": {
+                "type": "string"
+              },
+              "characters_in_script_context": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "action": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "tag"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "scene",
+              "location",
+              "time_of_day",
+              "interior_exterior",
+              "characters_in_script_context",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+            }
+          },
+          "performance_cues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "character": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "basis": {
+                  "enum": [
+                    "screenplay_explicit",
+                    "llm_inferred"
+                  ]
+                },
+                "verification": {
+                  "const": "screenplay_text_only_not_video_observation"
+                }
+              },
+              "required": [
+                "character",
+                "category",
+                "description",
+                "basis",
+                "verification"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "sound_cues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "srt_index": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "srt_index",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "song_lyrics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "srt_index": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "srt_index",
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "shot_id",
+          "temporal",
+          "dialogue",
+          "narrative",
+          "tags"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "movie_id",
+    "movie_name",
+    "shots"
+  ],
+  "additionalProperties": false
+}
