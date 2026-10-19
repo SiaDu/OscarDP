@@ -1,0 +1,495 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oscardp:stage04:gpt:v1",
+  "title": "OscarDP Stage04 GPT v1 official full-film output",
+  "description": "Visual and narrative annotation; semantic claims and scene partition verified independently, no verified actor identity.",
+  "type": "object",
+  "properties": {
+    "movie_id": {
+      "type": "string",
+      "pattern": "^tt[0-9]{7,10}$"
+    },
+    "stage_version": {
+      "const": "4.0"
+    },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "frozen_release_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frozen_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stage01_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stage02_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stage03_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "frame_samples_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "frozen_release_id",
+        "frozen_manifest_sha256",
+        "stage01_sha256",
+        "stage02_sha256",
+        "stage03_sha256",
+        "frame_samples_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "shot_id": {
+            "type": "string",
+            "pattern": "^shot_[0-9]{6}$"
+          },
+          "scene_id": {
+            "type": "string",
+            "pattern": "^scene_[0-9]{6}$"
+          },
+          "visual": {
+            "type": "object",
+            "properties": {
+              "shot_scale": {
+                "type": "string",
+                "enum": [
+                  "ECU",
+                  "CU",
+                  "MCU",
+                  "MS",
+                  "MLS",
+                  "LS",
+                  "ELS",
+                  "mixed",
+                  "not_applicable",
+                  "unknown"
+                ]
+              },
+              "camera_angle": {
+                "type": "string",
+                "enum": [
+                  "eye_level",
+                  "high",
+                  "low",
+                  "overhead",
+                  "unknown"
+                ]
+              },
+              "camera_motion_evidence": {
+                "type": "string",
+                "enum": [
+                  "no_evident_motion",
+                  "possible_motion",
+                  "unknown"
+                ]
+              },
+              "primary_subject_position": {
+                "type": "string",
+                "enum": [
+                  "left",
+                  "center",
+                  "right",
+                  "multiple",
+                  "not_applicable",
+                  "unknown"
+                ]
+              },
+              "over_the_shoulder": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "visual_focus": {
+                "type": "string",
+                "enum": [
+                  "person",
+                  "object",
+                  "environment",
+                  "mixed",
+                  "unknown"
+                ]
+              },
+              "evidence_roles": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "early",
+                    "middle",
+                    "late"
+                  ]
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "shot_scale",
+              "camera_angle",
+              "camera_motion_evidence",
+              "primary_subject_position",
+              "over_the_shoulder",
+              "visual_focus",
+              "evidence_roles"
+            ],
+            "additionalProperties": false
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subject_id": {
+                  "type": "string",
+                  "pattern": "^subject_[0-9]{3,}$"
+                },
+                "sample_detection_refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "early",
+                          "middle",
+                          "late"
+                        ]
+                      },
+                      "person_detection_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "face_detection_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "role",
+                      "person_detection_id",
+                      "face_detection_id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "subject_facing": {
+                  "enum": [
+                    "frontal",
+                    "three_quarter",
+                    "profile",
+                    "back",
+                    "mixed",
+                    "unknown"
+                  ]
+                },
+                "face_visibility": {
+                  "enum": [
+                    "fully_visible",
+                    "partially_visible",
+                    "not_visible",
+                    "mixed",
+                    "unknown"
+                  ]
+                },
+                "occlusion": {
+                  "enum": [
+                    "none",
+                    "partial",
+                    "heavy",
+                    "unknown"
+                  ]
+                },
+                "appearance_mode": {
+                  "enum": [
+                    "direct",
+                    "reflection",
+                    "screen_or_photo",
+                    "unknown"
+                  ]
+                },
+                "identity_candidate": {
+                  "type": "object",
+                  "properties": {
+                    "character_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "actor_imdb_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^nm[0-9]{7,10}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "status": {
+                      "enum": [
+                        "candidate",
+                        "unknown"
+                      ]
+                    },
+                    "basis": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "character_name",
+                    "actor_imdb_id",
+                    "status",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                },
+                "evidence_roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "early",
+                      "middle",
+                      "late"
+                    ]
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "subject_id",
+                "sample_detection_refs",
+                "subject_facing",
+                "face_visibility",
+                "occlusion",
+                "appearance_mode",
+                "identity_candidate",
+                "evidence_roles"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "objects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object_id": {
+                  "type": "string",
+                  "pattern": "^object_[0-9]{3,}$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "evidence_roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "early",
+                      "middle",
+                      "late"
+                    ]
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "object_id",
+                "label",
+                "evidence_roles"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "visible_relations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subject_id": {
+                  "type": "string"
+                },
+                "object_id": {
+                  "type": "string"
+                },
+                "relation_type": {
+                  "enum": [
+                    "holding",
+                    "touching",
+                    "wearing",
+                    "sitting_on",
+                    "leaning_on",
+                    "near",
+                    "uncertain"
+                  ]
+                },
+                "evidence_roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "early",
+                      "middle",
+                      "late"
+                    ]
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "subject_id",
+                "object_id",
+                "relation_type",
+                "evidence_roles"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "model_reviewed",
+              "human_verified",
+              "human_corrected"
+            ]
+          }
+        },
+        "required": [
+          "shot_id",
+          "scene_id",
+          "visual",
+          "subjects",
+          "objects",
+          "visible_relations",
+          "review_status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "pattern": "^scene_[0-9]{6}$"
+          },
+          "start_shot_id": {
+            "type": "string",
+            "pattern": "^shot_[0-9]{6}$"
+          },
+          "end_shot_id": {
+            "type": "string",
+            "pattern": "^shot_[0-9]{6}$"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "boundary_evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "left_shot_id": {
+                  "type": "string",
+                  "pattern": "^shot_[0-9]{6}$"
+                },
+                "right_shot_id": {
+                  "type": "string",
+                  "pattern": "^shot_[0-9]{6}$"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "basis": {
+                  "enum": [
+                    "visual",
+                    "text",
+                    "combined"
+                  ]
+                }
+              },
+              "required": [
+                "left_shot_id",
+                "right_shot_id",
+                "reason",
+                "basis"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "model_reviewed",
+              "human_verified",
+              "human_corrected"
+            ]
+          }
+        },
+        "required": [
+          "scene_id",
+          "start_shot_id",
+          "end_shot_id",
+          "location",
+          "summary",
+          "boundary_evidence",
+          "review_status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "movie_id",
+    "stage_version",
+    "inputs",
+    "shots",
+    "scenes"
+  ],
+  "additionalProperties": false
+}

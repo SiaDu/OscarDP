@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oscardp:stage03:cv:v1",
+  "title": "OscarDP Stage03 CV v1 official full-film output",
+  "description": "Only person/face detections in sampled frames; sample aliases, valid refs and full coverage checked by Python validator.",
+  "type": "object",
+  "properties": {
+    "movie_id": {
+      "type": "string",
+      "pattern": "^tt[0-9]{7,10}$"
+    },
+    "stage_version": {
+      "const": "3.0"
+    },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "frozen_release_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frozen_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stage01_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stage02_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "frame_samples_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "frozen_release_id",
+        "frozen_manifest_sha256",
+        "stage01_sha256",
+        "stage02_sha256",
+        "frame_samples_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "shots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "shot_id": {
+            "type": "string",
+            "pattern": "^shot_[0-9]{6}$"
+          },
+          "samples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "early",
+                    "middle",
+                    "late"
+                  ]
+                },
+                "frame_index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "image_relpath": {
+                  "type": "string",
+                  "pattern": "^shot_img/shot_[0-9]{6}_(early|middle|late)\\.jpg$"
+                },
+                "image_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "width_px": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "height_px": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "status": {
+                  "const": "ok"
+                },
+                "persons": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "detection_id": {
+                        "type": "string",
+                        "pattern": "^(early|middle|late)_p[0-9]{3,}$"
+                      },
+                      "bbox_xyxy_px": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 4,
+                        "maxItems": 4
+                      },
+                      "score": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    },
+                    "required": [
+                      "detection_id",
+                      "bbox_xyxy_px",
+                      "score"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "faces": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "detection_id": {
+                        "type": "string",
+                        "pattern": "^(early|middle|late)_f[0-9]{3,}$"
+                      },
+                      "bbox_xyxy_px": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 4,
+                        "maxItems": 4
+                      },
+                      "score": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "landmarks5_xy_px": {
+                        "oneOf": [
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "array",
+                              "items": {
+                                "type": "number"
+                              },
+                              "minItems": 2,
+                              "maxItems": 2
+                            },
+                            "minItems": 5,
+                            "maxItems": 5
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "person_detection_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "detection_id",
+                      "bbox_xyxy_px",
+                      "score",
+                      "landmarks5_xy_px",
+                      "person_detection_id"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "role",
+                "frame_index",
+                "image_relpath",
+                "image_sha256",
+                "width_px",
+                "height_px",
+                "status",
+                "persons",
+                "faces"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 3,
+            "maxItems": 3
+          }
+        },
+        "required": [
+          "shot_id",
+          "samples"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "movie_id",
+    "stage_version",
+    "inputs",
+    "run_id",
+    "shots"
+  ],
+  "additionalProperties": false
+}
