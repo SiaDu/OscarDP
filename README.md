@@ -151,7 +151,7 @@ text or time checks and do not classify matching words globally. Source Integrit
 and Annotation Consistency remain separate results. Local Phase A proposals in `reports/stage02_patch_review_v1_3/` remain historical, unmodified proposals. Separately, four locally curated Stage02 v1.1.1 copies were produced and validated in Phase B under a separate dataset root as reported by the dataset maintainer; they have **not been activated as default Pipeline inputs** and are **not stored in this public repository**. Later stages remain unimplemented.
 
 Existing frozen-selected movies can be upgraded without inference using
-`uv run python -m oscardp.shots frames-upgrade`. Default mode is a dry-run; image
+`uv run python -m oscardp.shots frames-upgrade`. Dry-run and apply now show per-movie and per-stage progress on stderr by default; use `--no-progress` to disable it. stdout remains JSON. Default mode is a dry-run; image
 changes require `--apply`. Stage01/Stage02 JSON and SRT bytes remain unchanged,
 legacy Middle JPEGs retain their original hashes, and journals support recovery.
 See [exact single-film and 17-film commands](docs/stage01_frames_upgrade.md).

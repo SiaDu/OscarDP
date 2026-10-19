@@ -76,7 +76,7 @@ def fixture(tmp_path, monkeypatch):
     monkeypatch.setattr(upgrade, "probe_video", lambda *a: (metadata, {}))
     monkeypatch.setattr(upgrade, "scan_timeline", lambda *a: timeline)
     calls = []
-    def extract(path, indices, target_dir, progress=None):
+    def extract(path, indices, target_dir, progress=None, *, decode_progress=None):
         calls.append(list(indices))
         target_dir.mkdir(parents=True, exist_ok=True)
         paths = []
@@ -159,7 +159,7 @@ def test_interrupted_publication_recovers_without_reextract(fixture, monkeypatch
         frames_upgrade(**fixture["options"], apply=True)
     monkeypatch.setattr(upgrade, "publish_image", original)
     # Simulated extractor models the real persistent per-frame cache.
-    def cached(path, indices, work, progress=None):
+    def cached(path, indices, work, progress=None, *, decode_progress=None):
         outputs=[work/f"frame_{n:08d}.jpg" for n in indices]
         assert all(p.exists() for p in outputs)
         return outputs
@@ -363,6 +363,8 @@ def test_cli_upgrade_modes_and_profile():
         "--expect-movies","17","--report-root","/tmp/report","--exclude-movie-id","tt12300742"]
     args=parser.parse_args(common)
     assert not args.apply and not args.dry_run and args.expect_movies==17
+    assert not args.no_progress
+    assert parser.parse_args(common+["--no-progress"]).no_progress
     assert parser.parse_args(common+["--apply"]).apply
     with pytest.raises(SystemExit): parser.parse_args(common+["--movie-id","tt1234567"])
     with pytest.raises(SystemExit): parser.parse_args(common+["--dry-run","--apply"])

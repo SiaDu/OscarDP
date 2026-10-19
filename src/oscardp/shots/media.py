@@ -172,6 +172,8 @@ def extract_selected_frames(
     frame_indices: list[int],
     target_dir: Path,
     progress: Callable[[int], None] | None = None,
+    *,
+    decode_progress: Callable[[int, int], None] | None = None,
 ) -> list[Path]:
     """One sequential decode, bounded memory, JPEG encoding only for selected frames.
 
@@ -208,6 +210,7 @@ def extract_selected_frames(
     if not cache_path.exists():
         atomic_json(cache_path, {"source": identity, "frames": {}})
     paths = {n: target_dir / f"frame_{n:08d}.jpg" for n in indices}
+    cached_count = 0
     for n, path in paths.items():
         safe_path(target_dir, path.name)
         tmp = safe_path(target_dir, path.with_suffix(".tmp").name)
@@ -221,7 +224,13 @@ def extract_selected_frames(
             sync_dir(target_dir)
         if path.exists() and cache["frames"].get(str(n)) != image_info(path)["sha256"]:
             raise ExternalToolError(f"Unverified/conflicting extraction cache: {path}")
+        if path.exists():
+            cached_count += 1
+        if progress:
+            progress(cached_count)
     pending = {n for n, path in paths.items() if not path.exists()}
+    if progress:
+        progress(len(indices) - len(pending))
     if not pending:
         if progress:
             progress(len(indices))
@@ -234,15 +243,20 @@ def extract_selected_frames(
                "-map", "0:v:0", "-vsync", "0", "-pix_fmt", "rgb24",
                "-frames:v", str(max(pending) + 1), "-f", "rawvideo", "pipe:1"]
     completed = len(indices) - len(pending)
+    decode_total = max(pending) + 1
+    if decode_progress:
+        decode_progress(0, decode_total)
     with tempfile.TemporaryFile() as errors:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors)
         assert process.stdout is not None
         try:
-            for n in range(max(pending) + 1):
+            for n in range(decode_total):
                 raw = process.stdout.read(frame_bytes)
                 if len(raw) != frame_bytes:
                     raise ExternalToolError(f"Incomplete decode at exact frame {n}")
                 if n not in pending:
+                    if decode_progress:
+                        decode_progress(n + 1, decode_total)
                     continue
                 path = paths[n]
                 tmp = path.with_suffix(".tmp")
@@ -260,6 +274,8 @@ def extract_selected_frames(
                 completed += 1
                 if progress:
                     progress(completed)
+                if decode_progress:
+                    decode_progress(n + 1, decode_total)
             process.stdout.close()
             code = process.wait()
             if code:

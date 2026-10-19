@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,8 @@ def _load_json(path: Path) -> Any:
 
 
 def validate_movie(movie_dir: Path, *, frame_count: int | None = None, official_layout: bool = True,
-                   frame_profile: str = "auto", samples_path: Path | None = None) -> ValidationResult:
+                   frame_profile: str = "auto", samples_path: Path | None = None,
+                   image_progress: Callable[[int, int], None] | None = None) -> ValidationResult:
     errors: list[str] = []
     movie_id = movie_dir.name
     stage_path = movie_dir / f"Stage01_{movie_id}.json"
@@ -76,6 +78,17 @@ def validate_movie(movie_dir: Path, *, frame_count: int | None = None, official_
         errors.append("symlink shot_img directory is not valid output")
     images = list(image_dir.iterdir()) if image_dir.is_dir() else []
     expected_images = set()
+    verified_images: set[Path] = set()
+    if image_progress:
+        image_progress(0, len(images))
+
+    def inspect_image(path: Path) -> dict:
+        info = image_info(path)
+        verified_images.add(path)
+        if image_progress:
+            image_progress(len(verified_images), len(images))
+        return info
+
     image_by_id: dict[str, list[Path]] = {}
     for image in images:
         if frame_profile == "legacy" and not IMAGE_NAME.fullmatch(image.name):
@@ -110,7 +123,7 @@ def validate_movie(movie_dir: Path, *, frame_count: int | None = None, official_
                 errors.append(f"shot {index} must have exactly one image")
             for path in matches:
                 try:
-                    image_info(path)
+                    inspect_image(path)
                 except (OSError, ValueError) as exc:
                     missing += 1
                     errors.append(f"shot {index} has corrupt image: {exc}")
@@ -127,7 +140,7 @@ def validate_movie(movie_dir: Path, *, frame_count: int | None = None, official_
                     sample = actual[role]
                     if any(sample.get(key) != value for key, value in spec.items()):
                         raise ValueError(f"wrong {role} frame, filename or alias")
-                    if image_info(movie_dir / spec["image_relpath"])["sha256"] != sample["sha256"]:
+                    if inspect_image(movie_dir / spec["image_relpath"])["sha256"] != sample["sha256"]:
                         raise ValueError(f"changed {role} image hash")
                     timestamp = sample.get("timestamp_sec")
                     if timestamp is not None and (type(timestamp) not in (float, int)

@@ -33,6 +33,9 @@ class ProgressReporter:
         self.clock = clock
         self.is_tty = bool(getattr(self.stream, "isatty", lambda: False)())
         self.label = ""
+        self.context = ""
+        self.unit = "frames"
+        self.detail = ""
         self.total: int | None = None
         self.estimated = False
         self.current = 0
@@ -40,11 +43,14 @@ class ProgressReporter:
         self.last_rendered_at = float("-inf")
         self.line_active = False
 
-    def stage(self, label: str, total: int | None = None, *, estimated: bool = False) -> None:
+    def stage(self, label: str, total: int | None = None, *, estimated: bool = False,
+              unit: str = "frames") -> None:
         if not self.enabled:
             return
         self._end_active_line()
-        self.label = label
+        self.label = f"{self.context} {label}".strip()
+        self.unit = unit
+        self.detail = ""
         self.total = total if total and total > 0 else None
         self.estimated = estimated
         self.current = 0
@@ -52,15 +58,16 @@ class ProgressReporter:
         self.last_rendered_at = float("-inf")
         self._render(force=True)
 
-    def update(self, current: int, total: int | None = None) -> None:
+    def update(self, current: int, total: int | None = None, *, detail: str | None = None) -> None:
         if not self.enabled:
             return
         self.current = max(0, current)
+        if detail is not None:
+            self.detail = detail
         if total is not None and total > 0:
             self.total = total
         now = self.clock()
-        complete = self.total is not None and self.current >= self.total
-        if complete or now - self.last_rendered_at >= self.min_interval:
+        if now - self.last_rendered_at >= self.min_interval:
             self._render(now=now, force=True)
 
     def finish(self, detail: str | None = None) -> None:
@@ -88,23 +95,29 @@ class ProgressReporter:
         now = self.clock() if now is None else now
         elapsed = max(0.0, now - self.started_at)
         fields = [self.label]
-        if self.current:
+        if self.current or self.total is not None:
             if self.total is not None:
                 total_prefix = "~" if self.estimated else ""
                 percent = min(100.0, self.current / self.total * 100.0)
                 fields.append(
-                    f"{self.current:,}/{total_prefix}{self.total:,} frames ({percent:5.1f}%)"
+                    f"{self.current:,}/{total_prefix}{self.total:,} {self.unit} ({percent:5.1f}%)"
                 )
+                if self.is_tty:
+                    filled = min(20, int(percent / 5))
+                    fields.append("[" + "#" * filled + "-" * (20 - filled) + "]")
             else:
-                fields.append(f"{self.current:,} frames")
+                fields.append(f"{self.current:,} {self.unit}")
         fields.append(f"elapsed {_duration(elapsed)}")
-        if self.current and elapsed > 0:
+        if self.current and elapsed > 0 and self.total is not None:
             rate = self.current / elapsed
-            fields.append(f"{rate:,.1f} frames/s")
+            if self.unit == "bytes":
+                fields.append(f"{rate / (1024 * 1024):,.1f} MiB/s")
+            else:
+                fields.append(f"{rate:,.1f} {self.unit}/s")
             if self.total is not None and self.current < self.total and rate > 0:
                 fields.append(f"ETA {_duration((self.total - self.current) / rate)}")
-        if detail:
-            fields.append(detail)
+        if detail or self.detail:
+            fields.append(detail or self.detail)
         text = " | ".join(fields)
         if self.is_tty:
             self.stream.write("\r\x1b[2K" + text)

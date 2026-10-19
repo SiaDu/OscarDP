@@ -55,6 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
         upgrade.add_argument(f"--{name}", type=Path, required=True)
     upgrade.add_argument("--expected-manifest-sha256", required=True)
     upgrade.add_argument("--expect-movies", type=int, required=True)
+    upgrade.add_argument("--no-progress", action="store_true", help="disable stderr progress for preflight and apply")
     selection = upgrade.add_mutually_exclusive_group()
     selection.add_argument("--movie-id")
     selection.add_argument("--exclude-movie-id")

@@ -18,11 +18,16 @@ class WindowPredictor(Protocol):
     def predict_window(self, frames: list[bytes]) -> list[float]: ...
 
 
-def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+def sha256_file(path: Path, chunk_size: int = 1024 * 1024, *,
+                progress: Callable[[int], None] | None = None) -> str:
     digest = hashlib.sha256()
+    processed = 0
     with path.open("rb") as handle:
         while chunk := handle.read(chunk_size):
             digest.update(chunk)
+            processed += len(chunk)
+            if progress is not None:
+                progress(processed)
     return digest.hexdigest()
 
 

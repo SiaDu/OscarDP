@@ -25,6 +25,36 @@ Middle images, unknown files and filename collisions stop the operation. Reports
 must be outside source, workspace and frozen roots. All writable paths reject
 symlinks. Concurrent upgrades cooperate through an exclusive workspace lock.
 
+## Progress display
+
+Existing commands display progress by default in both dry-run and apply. Movie
+labels distinguish manifest verification, preflight and application, for example
+`[预检 3/17] tt0025316` and `[应用 3/17] tt0025316`. Each long operation has its
+own progress: source SHA-256 counts bytes with MiB/s, image checks count files,
+and the full decoded timestamp scan counts frames. Apply also reports Middle
+migration, sample publication, final validation and cache cleanup. Repeated source
+hash checks are displayed too.
+
+During extraction, the frame counter tracks the sequential decoder even between
+widely separated requested samples. A separate `samples acquired/required` count
+includes verified cached samples. A complete cache does not start a decoder, and
+completed movie upgrades explicitly display `已验证，跳过` after verification.
+
+Interactive terminals use an in-place progress bar with percentage, elapsed time,
+speed and per-stage ETA when a total is known. Unknown totals show the stage,
+completed count and elapsed time without estimating an ETA. Movie counts show batch
+position; there is no weighted overall percentage or whole-batch ETA. Updates are
+throttled to one every 0.5 seconds, with immediate stage starts, finishes and failures.
+When stderr is redirected, progress becomes plain newline-separated logs without
+terminal escape codes. The final JSON remains exclusively on stdout; progress is
+written and flushed to stderr. Failures identify the active movie and stage.
+
+Add `--no-progress` to any `frames-upgrade` command to disable progress in either
+mode. This changes no selection, validation, migration, recovery or report behavior.
+Existing running commands keep their original behavior; progress appears in newly
+started commands after this update. No extra video reads or decode passes are
+introduced for progress reporting.
+
 The following commands are examples for manual execution. They have **not** been
 run against the real dataset during implementation.
 
