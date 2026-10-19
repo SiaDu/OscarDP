@@ -25,3 +25,7 @@ Each `boundary_evidence[]`: `left_shot_id`, `right_shot_id`, `basis=visual|text|
 Use continuous shots and textual context, not scene breaks asserted from isolated changes in shot scale/camera position. A future validator must check scene ranges, chronological IDs, full coverage and referential integrity. GPT review alone has `review_status=model_reviewed`; human statuses require actual human action.
 
 Stage05 may later link verified characters/actors and extract continuous performances; Stage06 may infer explainable acting from stage-linked evidence. No Stage04 code is implemented by this contract.
+
+## Shot boundary QC dependency
+
+Read any available [Shot Boundary QC v1](shot_boundary_qc_v1.md) as a **separate, optional quality signal**. A Stage01 Shot flagged as under-segmented may contain multiple true editorial Shots; Stage04 must not infer one continuous camera view or a precise scene cut from those three Stage03 images. Stage04 scene IDs remain keyed to original stable Stage01 shot IDs unless a separately approved repair/migration introduces explicit finer segmentation. Flag ambiguity for review rather than silently modifying Stage01/02 or forcing unsupported scene boundaries.

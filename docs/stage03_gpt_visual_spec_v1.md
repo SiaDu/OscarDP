@@ -50,3 +50,15 @@ Shot Scale is human-relative: use `not_applicable` when human scale cannot be ju
 Validate strict JSON schema, Stage01 inventory/order, unique Shot IDs/roles, image correspondence, valid person/object refs and evidence roles. If a programmatic validator is not run, say so. The GPT output may be a pilot and should be labelled as such.
 
 Stage04 combines Stage02 narrative and Stage03 visuals to construct actual movie scenes and *unverified* character candidates. Stage05 owns continuous-video identity verification, face tracking, AU and gaze; Stage06 owns explainable acting decisions.
+
+## Batch processing and throughput policy (v1.0 clarification)
+
+Batch files are **resumable checkpoints**, not 20-Shot maximums or mandatory human confirmation points. Default to adaptive work chunks of **50–100 Shots when feasible**, and automatically continue to the next chunk **within the same active user request** until the available evidence or execution limits are reached. The user should not need to say “继续” after each work chunk. Do not degrade visual review to reach a numerical quota.
+
+Discover any existing Stage03 batch outputs in the user's linked Drive folder, validate them where possible, and skip previously completed Shots. Distinguish an *accessible saved checkpoint* from remembered claims in a previous conversation. A pilot file held only on the user's local machine cannot be reopened by a fresh chat without an attachment or cloud upload. Preserve the existing naming convention `Stage03_<movie_id>_batch_NNN.json` with precise contiguous inclusive ranges. Multiple batch JSON outputs per active request are fine. No assumption that 1,100 Shots and 3,300 image roles fit a single interactive execution; never promise background work.
+
+## Separate Shot Boundary QC
+
+Stage03 GPT may notice that Early/Middle/Late images within one Stage01 Shot depict discontinuous compositions, suggesting a missed cut or gradual transition. This is **evidence for a QC flag**, not a basis to recompute shot boundaries or assign precise cut frames. Record issues separately under the [Shot Boundary QC v1.0 contract](shot_boundary_qc_v1.md), validated against [its JSON Schema](schemas/shot_boundary_qc_v1.schema.json), not in the Stage03 shot object. Preserve all original Stage01/02 shot IDs and existing valid Stage03 annotations. User review of the original video can confirm a report, but do not overstate what the three stills alone establish.
+
+When evaluating Stage05 candidates, a QC-flagged Shot may require targeted video inspection before extracting a performance interval; do not globally discard all such Shots, since some may contain valuable acting. Stage04 should likewise avoid treating an under-segmented Shot as proof of a single true scene.

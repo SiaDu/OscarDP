@@ -35,3 +35,9 @@ with independent internal sampling provenance. Existing frozen-selected movies u
 the [image-only frames-upgrade command](stage01_frames_upgrade.md); their JSON,
 shot IDs and boundaries remain unchanged. Future Stage03 readiness requires the
 explicit `three_sample` validation profile. This Stage01 enhancement does not implement Stage03. The separate Stage03/04 design contracts are documentation only, not executable annotation pipelines. Frozen releases remain immutable.
+
+## Stage03 throughput and shot boundary quality
+
+Stage03 batch size is adaptive; 20 Shots was a pilot choice, **not** a required stop condition. The GPT prompt requests 50–100 Shot work chunks when practical and continuous in-request processing without repeated user “继续” messages. Each completed chunk must be checkpointed as a downloadable batch JSON; existing saved batches must be accessible to resume a later chat. Never substitute filenames/Drive metadata for actually inspected JPGs, or claim automatic background processing. Full-film coverage requires inspecting every available target Shot and validating all results.
+
+Visually discordant Early/Middle/Late samples may identify missed dissolve/fade cuts. Follow [Shot Boundary QC v1.0](shot_boundary_qc_v1.md) and its separate [JSON Schema](schemas/shot_boundary_qc_v1.schema.json). Existing Stage01/02 IDs are frozen; do not alter valid Stage03 batches or quietly revise boundary frames. Stage05 candidate extraction uses the QC sidecar as a review signal, not a blanket exclusion criterion.

@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oscardp:shot-boundary-qc:v1",
+  "title": "OscarDP Shot Boundary QC v1.0 sidecar",
+  "description": "Advisory boundary quality observations, independent of Stage01 shot inventory and Stage03 image annotation.",
+  "type": "object",
+  "properties": {
+    "movie_id": {
+      "type": "string",
+      "pattern": "^tt[0-9]{7,10}$"
+    },
+    "qc_version": {
+      "const": "1.0"
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "shot_id": {
+            "type": "string",
+            "pattern": "^shot_[0-9]{6}$"
+          },
+          "issue_type": {
+            "type": "string",
+            "enum": [
+              "visual_discontinuity",
+              "suspected_undersegmentation",
+              "confirmed_undersegmentation",
+              "other"
+            ]
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "model_suspected",
+              "user_confirmed",
+              "human_video_verified"
+            ]
+          },
+          "evidence_roles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "early",
+                "middle",
+                "late"
+              ]
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "observation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reported_transition": {
+            "type": "string",
+            "enum": [
+              "fade_or_dissolve",
+              "hard_cut",
+              "other",
+              "unknown"
+            ]
+          },
+          "estimated_true_shot_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 2
+          },
+          "exact_boundaries_verified": {
+            "type": "boolean"
+          },
+          "performance_selection": {
+            "type": "string",
+            "enum": [
+              "needs_review",
+              "avoid_without_video_check",
+              "no_action"
+            ]
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "sampled_images",
+              "user_video_report",
+              "human_video_review"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shot_id",
+          "issue_type",
+          "review_status",
+          "evidence_roles",
+          "observation",
+          "reported_transition",
+          "estimated_true_shot_count",
+          "exact_boundaries_verified",
+          "performance_selection",
+          "basis",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "movie_id",
+    "qc_version",
+    "issues"
+  ],
+  "additionalProperties": false
+}
