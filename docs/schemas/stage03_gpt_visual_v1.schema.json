@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:oscardp:stage03:gpt-visual:v1",
   "title": "OscarDP Stage03 GPT Visual Annotation v1",
-  "description": "Manually reviewed sparse-sample observations; no object or person BBoxes, no automated CV, no verified identity or continuous video claims.",
+  "description": "GPT visual annotation using Stage01 JSON, Stage02 JSON and sampled JPGs; no mandatory manifest, hashes or local CV. Batch indicates incomplete film coverage.",
   "type": "object",
   "properties": {
     "movie_id": {
@@ -11,39 +11,6 @@
     },
     "stage_version": {
       "const": "3.0"
-    },
-    "inputs": {
-      "type": "object",
-      "properties": {
-        "frozen_release_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "frozen_manifest_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "stage01_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "stage02_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "frame_samples_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        }
-      },
-      "required": [
-        "frozen_release_id",
-        "frozen_manifest_sha256",
-        "stage01_sha256",
-        "stage02_sha256",
-        "frame_samples_sha256"
-      ],
-      "additionalProperties": false
     },
     "shots": {
       "type": "array",
@@ -67,24 +34,14 @@
                     "late"
                   ]
                 },
-                "frame_index": {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                "image_relpath": {
+                "image_file": {
                   "type": "string",
-                  "pattern": "^shot_img/shot_[0-9]{6}_(early|middle|late)\\.jpg$"
-                },
-                "image_sha256": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$"
+                  "pattern": "^shot_[0-9]{6}_(early|middle|late)\\.jpg$"
                 }
               },
               "required": [
                 "role",
-                "frame_index",
-                "image_relpath",
-                "image_sha256"
+                "image_file"
               ],
               "additionalProperties": false
             },
@@ -385,12 +342,34 @@
         "additionalProperties": false
       },
       "minItems": 1
+    },
+    "batch": {
+      "type": "object",
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "pattern": "^batch_[0-9]{3,}$"
+        },
+        "start_shot_id": {
+          "type": "string",
+          "pattern": "^shot_[0-9]{6}$"
+        },
+        "end_shot_id": {
+          "type": "string",
+          "pattern": "^shot_[0-9]{6}$"
+        }
+      },
+      "required": [
+        "batch_id",
+        "start_shot_id",
+        "end_shot_id"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [
     "movie_id",
     "stage_version",
-    "inputs",
     "shots"
   ],
   "additionalProperties": false

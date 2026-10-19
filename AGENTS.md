@@ -14,3 +14,5 @@ Stage 01 uses movie-first directories named by IMDb ID, stable `shot_000001` IDs
 
 
 Stage03 is **GPT Visual Annotation from Stage01 sampled images**, not a required local YOLO, SCRFD, Face Recognition or object-detection stage. Never invent BBoxes, face embeddings, verified actors, action units or continuous gaze from three still images. Stage04 builds scene and unverified character context using Stage02+03. Stage05 owns video-based face detection, actor identity and continuous performance measurements. Follow the current Stage03/04 specs and never resurrect deleted CV contracts or model dependencies without explicit approval.
+
+The standalone new-chat Stage03 entry prompt is `docs/prompts/stage03_gpt_visual_prompt_v1.md`. Stage03 requires only user-provided Stage01 JSON, Stage02 JSON and viewable Early/Middle/Late images. Never require manual frozen manifest, precomputed hashes or frame_samples_v1.json from the user for annotation. A GPT output is not a formally verified dataset release; independent local provenance checks may be performed later.

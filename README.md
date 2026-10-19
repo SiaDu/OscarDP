@@ -160,6 +160,9 @@ outputs remain valid under `--frame-profile legacy` or the default `auto` mode.
 
 ## Stage03 / Stage04 — Planned GPT workflow (contracts only)
 
+**New conversation:** send `做 OscarDP Stage03，按 SiaDu/OscarDP main 的 Stage03 Prompt。Google Drive：<folder link>`. The Drive folder only needs Stage01 JSON, Stage02 JSON and actual Early/Middle/Late images. The [standing prompt](docs/prompts/stage03_gpt_visual_prompt_v1.md) and [schema](docs/schemas/stage03_gpt_visual_v1.schema.json) no longer require the user to supply frozen manifest, manual hashes, batch metadata or frame sample metadata. Formal release provenance is checked separately later; always verify real image access.
+
+
 - **Stage03 GPT Visual Annotation**: manually inspect the Early/Middle/Late images in ChatGPT, optionally delivered in small batches from Google Drive; label visible shot scale, camera evidence, people, salient props and visible interactions. No mandatory local YOLO, SCRFD, bounding boxes, identity verification, AU or gaze. [Stage03 contract](docs/stage03_gpt_visual_spec_v1.md) · [Schema](docs/schemas/stage03_gpt_visual_v1.schema.json) · [Annotation prompt](docs/prompts/stage03_gpt_visual_prompt_v1.md).
 - **Stage04 Scene & Character Context**: combine Stage02 textual narrative with Stage03 visual observations to assign finalized scene ranges and **unverified** character candidates. [Stage04 contract](docs/stage04_scene_context_spec_v1.md) · [Schema](docs/schemas/stage04_scene_context_v1.schema.json).
 - **Stage05**: verified Actor/Character identity, continuous face detection/tracking, facial AUs, head pose and gaze on selected source-video intervals. **Stage06**: evidence-linked explainable acting annotations.
