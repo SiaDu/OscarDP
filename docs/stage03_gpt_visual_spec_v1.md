@@ -1,23 +1,29 @@
-# OscarDP — Stage03 v1.0: GPT Visual Annotation
+# OscarDP — Stage03 GPT Visual Annotation v1.0
 
-**Status:** Proposed data contract; annotation is interactive/manual with ChatGPT GPT-6 High, not a deployed API or CV pipeline. Do **not** implement local YOLO, SCRFD, ArcFace, object detection, face tracking, AU, gaze or emotion here.
+**Status:** Interactive GPT annotation contract (not a local CV pipeline). Fixed structure: [Stage03 JSON Schema](schemas/stage03_gpt_visual_v1.schema.json). Default new-window entry: [Stage03 Prompt](prompts/stage03_gpt_visual_prompt_v1.md).
 
-## Inputs and source integrity
-- Verified explicit Frozen Stage02 Release: `frozen_manifest.json` with Release ID and SHA-256, plus the selected immutable Stage01 and Stage02 hashes. This selects a movie and authenticates textual context, **not** the sampling JPEGs.
-- Canonical Stage01 Early/Middle/Late JPEGs and `.internal/<movie_id>/frame_samples_v1.json`; verify sample policy, image files and per-image hashes separately. Short Shot aliases can have repeated image paths; do not fabricate distinct frames.
-- Use only the three sampled images as **visual evidence**. Do not let Stage02 screenplay characters become visually present by assertion. Stage02 belongs primarily to Stage04, where textual context is deliberately combined.
-- Images may be uploaded directly or accessed through connected Google Drive in small batches. Never claim to have viewed a file not successfully opened.
+## Inputs — only three resources
 
-## Official output and batching
-One `oscar_movie_analysis/<movie_id>/Stage03_<movie_id>.json` per **fully covered** film. Intermediate batch fragments are saved under `reports/stage03_pilot/` or other nonofficial workspace paths with explicit movie, Shot range, batch ID, input hashes and annotation version. A future deterministic merge/validator must check exact Stage01 Shot inventory, order, completeness, image hashes, aliases and cross-references before publication. Model output alone is not a PASS, and no automation is implemented by this contract.
+The user provides **only** (typically in one Google Drive folder):
+1. `Stage01_<movie_id>.json`: authoritative movie ID, ordered shot IDs and boundaries.
+2. `Stage02_<movie_id>.json`: text-derived context for referencing/inventory checks, **not proof of visible objects, characters or behaviour**.
+3. Actual Early/Middle/Late JPGs for each selected Shot, named `shot_000001_early.jpg`, `shot_000001_middle.jpg`, `shot_000001_late.jpg`, etc.
 
-**Root fields**: `movie_id`, `stage_version="3.0"`, `inputs` (verified `frozen_release_id`, `frozen_manifest_sha256`, `stage01_sha256`, `stage02_sha256`, `frame_samples_sha256`), `shots[]`. Per-Shot `shot_id` references Stage01. Never duplicate Stage02 narrative, dialogue or temporal fields.
+**Do not ask the user for Frozen Manifest, manually supplied SHA-256, `frame_samples_v1.json`, a batch manifest, screenplay, SRT, videos or YOLO output.** GPT uses actual accessible images, not Drive file names/metadata as a substitute for visual inspection. If any file cannot be opened or viewed, report that instead of inventing evidence. Stage02 may be reviewed for bookkeeping, but must **not** dictate Stage03 visual labels.
 
-## Per-Shot `samples[]`
-Exactly the three logical roles `early`, `middle`, `late`, each with `frame_index`, `image_relpath`, and `image_sha256` bound to Stage01 sample metadata. Two logical roles may refer to the same physical JPEG for very short Shots.
+Provenance/frozen-source hashing is deliberately **not part of the GPT output schema**. It can be computed independently by local post-annotation validation and release packaging; no visual inference is a formal release by itself.
 
-## Per-Shot `visual` (GPT, controlled tags)
-| Field | Allowed values |
+## Output
+
+For fully completed films: `Stage03_<movie_id>.json`, including all Stage01 shots in order. For *partial* work: `Stage03_<movie_id>_batch_001.json`, increment on continuation, with optional root `batch` object specifying `batch_id`, inclusive `start_shot_id`, inclusive `end_shot_id`. Never present a partial batch as full-movie coverage.
+
+Root: `movie_id`, `stage_version="3.0"`, `shots[]`; optional `batch` for partial files. No `inputs` hash object. Every Shot has `shot_id`, `samples`, `visual`, `subjects`, `objects`, `visible_relations`, `visual_summary`, `review_status`. Do not copy Stage01 time boundaries or Stage02 dialogue/narrative into the visual JSON.
+
+`samples[]` lists exactly three **logical roles** `early`, `middle`, `late` with each one's `image_file` (actual viewed JPG name, not a path or hash). Stage01 1–2-frame Shots may alias sample roles to the same physical image; if confirmed, reuse the actual image filename. Never fabricate an unavailable image or silently substitute a neighboring shot. Unresolvable missing images block that shot.
+
+## Shot-level visual tags
+
+| Field | Allowed Values |
 | --- | --- |
 | `shot_scale` | `ECU, CU, MCU, MS, MLS, LS, ELS, mixed, not_applicable, unknown` |
 | `camera_angle` | `eye_level, high, low, overhead, unknown` |
@@ -25,22 +31,22 @@ Exactly the three logical roles `early`, `middle`, `late`, each with `frame_inde
 | `primary_subject_position` | `left, center, right, multiple, not_applicable, unknown` |
 | `over_the_shoulder` | `true, false, null` |
 | `visual_focus` | `person, object, environment, mixed, unknown` |
-| `evidence_roles` | Nonempty unique subset of `early, middle, late` |
+| `evidence_roles` | Nonempty subset of `early,middle,late` (distinct roles) |
 
-`shot_scale` is relative to human figures; when none are assessable, use `not_applicable`. `mixed` means a visible change across samples, not uncertainty. Three stills do not establish specific pan/dolly/zoom actions, and still-frame similarity does **not** prove a static camera.
+Shot Scale is human-relative: use `not_applicable` when human scale cannot be judged, even for an object closeup. `mixed` requires a visible change across samples, not uncertainty. Three stills cannot reliably prove detailed camera movements; use the cautious evidence tags.
 
-## `subjects[]` (visually distinct people within this Shot)
-Each has a **Shot-local** `subject_id` (e.g. `subject_001`), `evidence_roles`, `subject_facing` (`frontal, three_quarter, profile, back, mixed, unknown`), `face_visibility` (`fully_visible, partially_visible, not_visible, mixed, unknown`), `face_quality` (`good, limited, unusable, mixed, not_applicable, unknown`), `occlusion` (`none, partial, heavy, mixed, not_applicable, unknown`), `appearance_mode` (`direct, reflection, screen_or_photo, unknown`). If a person is seen across samples, use one ID only when appearance/position support that link. Do not equate an ID with a verified actor, speaker, or continuous track. Record apparent on-screen people, including background extras where salient, but do not infer off-screen subjects.
+## Visible subjects and props
 
-## `objects[]` (salient props only)
-Each has Shot-local `object_id`, short English `label` (e.g., `letter`, `cup`), `object_framing` (`detail_closeup, prominent, contextual, unknown`), and `evidence_roles`. Objects have **no invented BBox**. It is not necessary to exhaustively enumerate every background object.
+`subjects[]`: each visible person has a **Shot-local** `subject_id` (e.g. `subject_001`), `evidence_roles`, `subject_facing` (`frontal,three_quarter,profile,back,mixed,unknown`), `face_visibility` (`fully_visible,partially_visible,not_visible,mixed,unknown`), `face_quality` (`good,limited,unusable,mixed,not_applicable,unknown`), `occlusion` (`none,partial,heavy,mixed,not_applicable,unknown`), and `appearance_mode` (`direct,reflection,screen_or_photo,unknown`). Link a person across sparse samples only when visually supportable. Do not claim verified actor/character ID, face track or offscreen visibility.
 
-## `visible_relations[]`
-Each references existing `subject_id` and `object_id`, `relation_type` (`holding, touching, wearing, sitting_on, leaning_on, near, uncertain`) and `evidence_roles`. Only directly observable relations; no imagined transfer action, gaze target, motive or temporal continuity. Empty arrays are valid.
+`objects[]`: salient items only, each with Shot-local `object_id`, English noun `label`, `object_framing` (`detail_closeup,prominent,contextual,unknown`), and `evidence_roles`. No bounding boxes.
 
-Other per-Shot fields: `visual_summary` (short, strictly visible content, not narrative interpretation), and `review_status` (`unreviewed, model_reviewed, human_verified, human_corrected`). GPT self-checking cannot set a human status.
+`visible_relations[]`: references to valid Shot-local `subject_id` and `object_id`, a `relation_type` (`holding,touching,wearing,sitting_on,leaning_on,near,uncertain`) and `evidence_roles`. Include **only** visually evident relations. Empty arrays are valid; do not infer gaze target, emotions, intent, offscreen acts or motion continuity from stills.
 
-## Validation and research boundary
-The schema rejects extra CV/face fields, Actor IMDb IDs, verified identities, bbox coordinates and unrestricted tags. A future Python validator must additionally enforce all `shot_id` and sample inventory bindings, unique subject/object IDs, existing interaction references, role evidence, no conflicting batch overlaps, and zero invented roles. Uncertain predictions must remain `unknown` or `null` rather than guessed.
+`visual_summary` is brief, visual-only prose. `review_status`: `unreviewed,model_reviewed,human_verified,human_corrected`; GPT checking itself can reach at most `model_reviewed`.
 
-Stage04 alone merges actual visual observations with Stage02's scene/character narrative. Stage05 performs real video-based face detection, identity verification and temporal AU/head/gaze analysis; Stage06 addresses explanations and intent.
+## Verification & downstream
+
+Validate strict JSON schema, Stage01 inventory/order, unique Shot IDs/roles, image correspondence, valid person/object refs and evidence roles. If a programmatic validator is not run, say so. The GPT output may be a pilot and should be labelled as such.
+
+Stage04 combines Stage02 narrative and Stage03 visuals to construct actual movie scenes and *unverified* character candidates. Stage05 owns continuous-video identity verification, face tracking, AU and gaze; Stage06 owns explainable acting decisions.

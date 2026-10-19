@@ -9,8 +9,7 @@ participating in source discovery. Working revisions preserve old bytes and
 provenance before promotion; they do not alter completed Frozen Releases.
 
 Frozen snapshots live under `/media/sdu/SiyaoDu/datasets/oscardp_releases`.
-Stage03/04 input design must explicitly select a Frozen Manifest and verify
-its Release ID and input hashes. The shared movie-folder layout does not authorize
+Stage03 interactive GPT annotation needs only Stage01/Stage02 JSONs and accessible sampled JPGs. The user need not supply a Frozen Manifest, hashes or frame-sample metadata. Formal release packaging and the future Stage04 publication contract may independently verify the selected release ID and source hashes. The shared movie-folder layout does not authorize
 downstream processing or mutable-workspace fallback. See the [migration and
 future-film workflow](dataset_reorganisation.md). No new stage implementation or
 change to fixed Stage02 Schema v1.0 / Prompt v1.2 is introduced here.

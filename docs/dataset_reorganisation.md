@@ -9,10 +9,7 @@ retaining its shot, image, frame and timing checks.
 
 Fixed research snapshots live under
 `/media/sdu/SiyaoDu/datasets/oscardp_releases`. The workspace can change; a Frozen
-Release cannot. Stage03/04 contracts require an explicitly selected Frozen
-Manifest, verify Release ID and hashes, and resolve `movies[].inputs` relative
-to its root. They must not silently scan mutable working directories. These
-stages are not implemented by this reorganisation.
+Release cannot. Stage03 interactive GPT visual annotation accepts Stage01/Stage02 JSONs and JPG samples from an explicitly supplied folder without user-supplied Frozen Manifest or hashes. Later local dataset release packaging and Stage04 publication can independently verify frozen release IDs and hashes. No new stage code is implemented by this reorganisation.
 
 ## Frozen-selected migration
 
