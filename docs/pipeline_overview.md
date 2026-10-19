@@ -19,7 +19,7 @@ OscarDP links movies, narrative context, character intent, observable acting, fa
 
 | Stage | Status | Output and purpose |
 | --- | --- | --- |
-| 01 Shot Detection | Implemented | TransNetV2 boundaries, shot times and midpoint images |
+| 01 Shot Detection | Implemented | TransNetV2 boundaries, shot times and Early/Middle/Late images |
 | 02 Subtitle & Screenplay Alignment | Source Preflight v1.0 and Validator v1.1.1 implemented; manual annotations available (18 movies) | GPT-6 High annotation generation remains manual. [Preflight](stage02_preflight.md) checks Stage01/SRT/PDF before annotation. Validation separately checks source integrity, annotation consistency and completeness afterwards. [Spec](stage02_spec_v1.md) · [Original Prompt v1.0](prompts/stage02_prompt_v1.txt) · [Prompt v1.1 (archived)](prompts/stage02_prompt_v1_1.txt) · [New-film Prompt v1.2](prompts/stage02_prompt_v1_2.txt) · [Validator](stage02_validation.md) |
 | 03 Cinematic Semantic Enrichment | Planned | Shot size, angle, composition, movement, lighting and visible characters |
 | 04 Scene & Narrative Sequence Construction | Planned | Film scenes, sequences, goals and conflicts |
@@ -30,3 +30,10 @@ Stage01 implements shot processing. Stage02 v1.0 annotations for 18 movies were 
 
 
 **New-film Stage02 gate:** run `uv run python -m oscardp.stage02 preflight --stage01 /path/to/Stage01_tt1234567.json --srt /path/to/tt1234567.srt --screenplay /path/to/tt1234567.pdf --report-root reports/stage02_preflight/tt1234567`. Retain its reviewed `source_preflight.json`; proceed only when `llm_annotation_allowed=true`. The order is Stage01 + SRT + Screenplay → deterministic Source Preflight → PASS / source-bound approved WARNING → manual GPT-6 High semantic annotation → Validator v1.1.1 → separately approved Curated Dataset Release. The preflight is independent of the post-annotation validator and workbook-based inventory audit. Neither performs LLM annotation or activates downstream input. The fixed Stage02 Schema remains v1.0; the spec and v1.2 prompt are unchanged.
+
+Stage01 now uses [three-frame sampling](stage01_spec.md#three-representative-frames-sampling-policy-v1)
+with independent internal sampling provenance. Existing frozen-selected movies use
+the [image-only frames-upgrade command](stage01_frames_upgrade.md); their JSON,
+shot IDs and boundaries remain unchanged. Future Stage03 readiness requires the
+explicit `three_sample` validation profile. This enhancement implements neither
+Stage03 semantics nor a Stage03 schema. Frozen releases remain immutable.

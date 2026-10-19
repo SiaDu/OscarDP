@@ -79,9 +79,10 @@ def test_process_one_publishes_and_resumes(tmp_path: Path, monkeypatch: pytest.M
     assert stage["movie_name"] == "Verified Movie"
     assert len(stage["shots"]) == 2
     assert set(stage["shots"][0]) == {"shot_id", "temporal"}
-    assert len(list((movie_dir / "shot_img").glob("*.jpg"))) == 2
+    assert len(list((movie_dir / "shot_img").glob("*.jpg"))) == 6
     assert sorted(path.name for path in (movie_dir / "shot_img").glob("*.jpg")) == [
-        "shot_000001_00-00-00-200.jpg", "shot_000002_00-00-00-700.jpg"
+        "shot_000001_early.jpg", "shot_000001_late.jpg", "shot_000001_middle.jpg",
+        "shot_000002_early.jpg", "shot_000002_late.jpg", "shot_000002_middle.jpg"
     ]
     assert sorted(path.name for path in movie_dir.iterdir()) == ["Stage01_tt1234567.json", "shot_img"]
     assert not (movie_dir / ".resume").exists()

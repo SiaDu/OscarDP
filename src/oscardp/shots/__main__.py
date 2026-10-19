@@ -49,6 +49,18 @@ def build_parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate")
     validate.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     validate.add_argument("--movie-id")
+    validate.add_argument("--frame-profile", choices=("auto", "legacy", "three_sample"), default="auto")
+    upgrade = commands.add_parser("frames-upgrade", help="frozen-selected image-only upgrade; default dry-run")
+    for name in ("input-root", "output-root", "frozen-manifest", "report-root"):
+        upgrade.add_argument(f"--{name}", type=Path, required=True)
+    upgrade.add_argument("--expected-manifest-sha256", required=True)
+    upgrade.add_argument("--expect-movies", type=int, required=True)
+    selection = upgrade.add_mutually_exclusive_group()
+    selection.add_argument("--movie-id")
+    selection.add_argument("--exclude-movie-id")
+    mode = upgrade.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--apply", action="store_true")
     return parser
 
 
@@ -66,6 +78,10 @@ def _options(args: argparse.Namespace) -> ProcessOptions:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "frames-upgrade":
+            from .frames_upgrade import frames_upgrade
+            print(json_dumps(frames_upgrade(**{k: v for k, v in vars(args).items() if k != "command"}), pretty=True))
+            return 0
         if args.command == "discover":
             titles = load_movie_titles(args.titles) if args.titles else None
             if titles is not None and args.movie_id and args.movie_id not in titles:
@@ -98,14 +114,14 @@ def main(argv: list[str] | None = None) -> int:
                     print(json_dumps({"movie_id": movie.movie_key, "status": "failed", "error": str(exc)}), file=sys.stderr)
             return 1 if failures else 0
         if args.command == "validate":
-            results = validate_output_root(args.output_root, args.movie_id)
+            results = validate_output_root(args.output_root, args.movie_id, frame_profile=args.frame_profile)
             if not results:
                 print("No movie outputs found", file=sys.stderr)
                 return 1
             for movie_id, result in results.items():
                 print(json_dumps({"movie_id": movie_id, **vars(result)}))
             return 0 if all(result.passed for result in results.values()) else 1
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, IndexError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return 2

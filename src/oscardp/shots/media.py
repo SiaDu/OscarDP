@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
+import os
 from collections.abc import Callable, Iterator
 from itertools import pairwise
 from pathlib import Path
@@ -80,7 +82,7 @@ def iter_frame_timestamps(
     require_media_tools()
     command = [
         "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames",
-        "-show_entries", "frame=best_effort_timestamp_time,pkt_duration_time",
+        "-show_entries", "frame=media_type,best_effort_timestamp_time,pkt_duration_time",
         "-of", "compact=p=0:nk=0", str(video_path),
     ]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -92,9 +94,15 @@ def iter_frame_timestamps(
             key, separator, value = item.partition("=")
             if separator:
                 fields[key] = value
+        # FFprobe may emit blank/side-data-only records (not decoded frames),
+        # notably H.264 SEI. Identify frames explicitly before requiring PTS.
+        if fields.get("media_type") != "video":
+            continue
         raw_pts = fields.get("best_effort_timestamp_time")
         if raw_pts in (None, "N/A"):
-            continue
+            process.kill()
+            process.wait()
+            raise ExternalToolError("Decoded frame timing unavailable (missing PTS); refusing to shift frame indices")
         raw_duration = fields.get("pkt_duration_time")
         duration = None if raw_duration in (None, "N/A") else float(raw_duration)
         frame_count += 1
@@ -159,49 +167,107 @@ def decode_transnet_frames(video_path: Path) -> Iterator[bytes]:
         raise ExternalToolError(stderr.strip() or "FFmpeg frame decode failed")
 
 
-def _select_expression(frame_indices: list[int]) -> str:
-    if not frame_indices:
-        raise ValueError("At least one frame index is required")
-    return "+".join(f"eq(n\\,{index})" for index in frame_indices)
-
-
 def extract_selected_frames(
     video_path: Path,
     frame_indices: list[int],
     target_dir: Path,
     progress: Callable[[int], None] | None = None,
 ) -> list[Path]:
+    """One sequential decode, bounded memory, JPEG encoding only for selected frames.
+
+    Fixed-size RGB avoids large select expressions and linear filter evaluation.
+    The tradeoff is full-resolution pipe bandwidth. Per-frame cache commits allow
+    interruption recovery; a complete cache requires no FFmpeg invocation.
+    """
+    from PIL import Image
+    from .frame_samples import atomic_json, image_info, load_json, sync_dir, safe_path, rename_noreplace, append_receipt, read_receipts
+
+    indices = sorted(set(frame_indices))
+    if not indices or any(type(n) is not int or n < 0 for n in indices):
+        raise ValueError("Nonnegative selected frame indices required")
     require_media_tools()
-    unique_indices = sorted(set(frame_indices))
-    if target_dir.exists():
-        shutil.rmtree(target_dir)
+    stat = video_path.stat()
+    identity = {"path": str(video_path.resolve()), "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns}
+    safe_path(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
-    output_pattern = target_dir / "frame_%08d.jpg"
-    filter_script = target_dir / "select_filter.txt"
-    filter_script.write_text(f"select={_select_expression(unique_indices)}", encoding="utf-8")
-    command = [
-        "ffmpeg", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
-        "-i", str(video_path), "-map", "0:v:0",
-        "-filter_script:v", str(filter_script), "-vsync", "0",
-        "-q:v", "2", str(output_pattern),
-    ]
-    process = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    assert process.stdout is not None
-    for line in process.stdout:
-        key, separator, value = line.strip().partition("=")
-        if progress is not None and separator and key == "frame":
-            try:
-                progress(int(value))
-            except ValueError:
-                pass
-    stderr = process.stderr.read() if process.stderr else ""
-    return_code = process.wait()
-    filter_script.unlink(missing_ok=True)
-    if return_code:
-        raise ExternalToolError(stderr.strip() or "FFmpeg selected-frame extraction failed")
-    outputs = sorted(target_dir.glob("frame_*.jpg"))
-    if len(outputs) != len(unique_indices):
-        raise ExternalToolError(
-            f"Expected {len(unique_indices)} selected frames, FFmpeg wrote {len(outputs)}"
-        )
-    return outputs
+    cache_path = target_dir / "extraction.json"
+    safe_path(target_dir, cache_path.name)
+    cache = load_json(cache_path) if cache_path.exists() else {"source": identity, "frames": {}}
+    if cache.get("source") != identity:
+        raise ExternalToolError("Extraction cache belongs to a different video")
+    started = set()
+    for receipt in read_receipts(target_dir / "frames.jsonl"):
+        if receipt.get("status") == "encoding":
+            started.add(receipt["frame_index"])
+            continue
+        key = str(receipt["frame_index"])
+        if key in cache["frames"] and cache["frames"][key] != receipt["sha256"]:
+            raise ExternalToolError("Conflicting frame extraction receipts")
+        cache["frames"][key] = receipt["sha256"]
+    if not cache_path.exists():
+        atomic_json(cache_path, {"source": identity, "frames": {}})
+    paths = {n: target_dir / f"frame_{n:08d}.jpg" for n in indices}
+    for n, path in paths.items():
+        safe_path(target_dir, path.name)
+        tmp = safe_path(target_dir, path.with_suffix(".tmp").name)
+        if not path.exists() and tmp.exists() and str(n) not in cache["frames"] and n in started:
+            # An fsynced intent owns this incomplete encode; re-decode this frame.
+            tmp.unlink()
+        if not path.exists() and tmp.exists():
+            if cache["frames"].get(str(n)) != image_info(tmp)["sha256"]:
+                raise ExternalToolError(f"Unverified interrupted temporary image: {tmp}")
+            rename_noreplace(tmp, path)
+            sync_dir(target_dir)
+        if path.exists() and cache["frames"].get(str(n)) != image_info(path)["sha256"]:
+            raise ExternalToolError(f"Unverified/conflicting extraction cache: {path}")
+    pending = {n for n, path in paths.items() if not path.exists()}
+    if not pending:
+        if progress:
+            progress(len(indices))
+        return list(paths.values())
+    metadata, _ = probe_video(video_path, video_path.name)
+    frame_bytes = metadata.width * metadata.height * 3
+    if frame_bytes <= 0:
+        raise ExternalToolError("Invalid decoded frame dimensions")
+    command = ["ffmpeg", "-v", "error", "-noautorotate", "-i", str(video_path),
+               "-map", "0:v:0", "-vsync", "0", "-pix_fmt", "rgb24",
+               "-frames:v", str(max(pending) + 1), "-f", "rawvideo", "pipe:1"]
+    completed = len(indices) - len(pending)
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors)
+        assert process.stdout is not None
+        try:
+            for n in range(max(pending) + 1):
+                raw = process.stdout.read(frame_bytes)
+                if len(raw) != frame_bytes:
+                    raise ExternalToolError(f"Incomplete decode at exact frame {n}")
+                if n not in pending:
+                    continue
+                path = paths[n]
+                tmp = path.with_suffix(".tmp")
+                append_receipt(target_dir / "frames.jsonl", {"frame_index": n, "status": "encoding"})
+                with tmp.open("xb") as stream:
+                    Image.frombytes("RGB", (metadata.width, metadata.height), raw).save(
+                        stream, format="JPEG", quality=95)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                digest = image_info(tmp)["sha256"]
+                cache["frames"][str(n)] = digest
+                append_receipt(target_dir / "frames.jsonl", {"frame_index": n, "sha256": digest})
+                rename_noreplace(tmp, path)
+                sync_dir(target_dir)
+                completed += 1
+                if progress:
+                    progress(completed)
+            process.stdout.close()
+            code = process.wait()
+            if code:
+                errors.seek(0)
+                raise ExternalToolError(errors.read().decode(errors="replace"))
+        finally:
+            process.stdout.close()
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+    return list(paths.values())

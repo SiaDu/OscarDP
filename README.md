@@ -20,11 +20,13 @@ The default input is `/media/sdu/SiyaoDu/datasets/oscar_movie`; the default outp
 oscar_movie_analysis/
   tt1234567/
     Stage01_tt1234567.json
-    shot_img/shot_000001_00-00-02-500.jpg
+    shot_img/shot_000001_early.jpg
+    shot_img/shot_000001_middle.jpg
+    shot_img/shot_000001_late.jpg
   .internal/tt1234567/video_metadata.json
 ```
 
-The official JSON has one movie-level `movie_id`, one `movie_name`, and an ordered `shots` array. Each shot has only `shot_id` and `temporal` (`start`, `end`, `start_frame`, `end_frame`). Frame starts are inclusive and ends exclusive. TransNetV2 detects boundaries; FFprobe provides CFR/VFR timing; FFmpeg extracts one midpoint image per shot in a sequential pass. Optional boundary QC is stored under `.internal/`.
+The official JSON has one movie-level `movie_id`, one `movie_name`, and an ordered `shots` array. Each shot has only `shot_id` and `temporal` (`start`, `end`, `start_frame`, `end_frame`). Frame starts are inclusive and ends exclusive. TransNetV2 detects boundaries; FFprobe provides CFR/VFR timing; FFmpeg extracts Early/Middle/Late samples in one sequential pass (short shots use aliases). Optional boundary QC is stored under `.internal/`.
 
 The Canonical Workspace is `/media/sdu/SiyaoDu/datasets/oscar_movie_analysis`. A completed Stage02 movie folder also holds its current `Stage02_<id>.json` and `<id>.srt`, with optional history under `stage02_curated/`. Historical subtitles stay in ZIP archives so recursive discovery sees only the current SRT. Stage01's image and JSON checks remain active when Stage02 files coexist.
 
@@ -147,3 +149,11 @@ and supports optional source-bound user audiovisual decisions with
 `--manual-semantic-decisions PATH`. These decisions do not waive schema, shot,
 text or time checks and do not classify matching words globally. Source Integrity
 and Annotation Consistency remain separate results. Local Phase A proposals in `reports/stage02_patch_review_v1_3/` remain historical, unmodified proposals. Separately, four locally curated Stage02 v1.1.1 copies were produced and validated in Phase B under a separate dataset root as reported by the dataset maintainer; they have **not been activated as default Pipeline inputs** and are **not stored in this public repository**. Later stages remain unimplemented.
+
+Existing frozen-selected movies can be upgraded without inference using
+`uv run python -m oscardp.shots frames-upgrade`. Default mode is a dry-run; image
+changes require `--apply`. Stage01/Stage02 JSON and SRT bytes remain unchanged,
+legacy Middle JPEGs retain their original hashes, and journals support recovery.
+See [exact single-film and 17-film commands](docs/stage01_frames_upgrade.md).
+For downstream readiness, use `validate --frame-profile three_sample`; historical
+outputs remain valid under `--frame-profile legacy` or the default `auto` mode.

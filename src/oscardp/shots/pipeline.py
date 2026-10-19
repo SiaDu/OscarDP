@@ -13,6 +13,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+from .frame_samples import POLICY, physical_samples, image_info
 from .discovery import derive_movie_key, load_movie_titles
 from .media import (
     decode_transnet_frames,
@@ -155,7 +156,7 @@ def build_shot_records(
                 duration_sec=rounded_seconds(end_sec - start_sec),
                 keyframe_frame=keyframe,
                 keyframe_time_sec=rounded_seconds(timeline.timestamp(keyframe)),
-                keyframe_relpath=f"shot_img/{shot_id}.jpg",
+                keyframe_relpath=f"shot_img/{shot_id}_middle.jpg",
                 boundary_before_confidence=(
                     rounded_seconds(boundary_by_frame[start]) if start in boundary_by_frame else None
                 ),
@@ -340,7 +341,8 @@ def _materialize_frames(
     keyframes_dir.mkdir(parents=True, exist_ok=True)
     if selected_qc:
         boundaries_dir.mkdir(parents=True, exist_ok=True)
-    needed = [shot.keyframe_frame for shot in shots]
+    needed = [sample["frame_index"] for shot in shots
+              for sample in physical_samples(shot.shot_id, shot.start_frame, shot.end_frame).values()]
     for boundary in selected_qc:
         needed.extend([boundary.frame - 1, boundary.frame])
     extracted_dir = work_dir / ".selected_frames"
@@ -349,8 +351,8 @@ def _materialize_frames(
     )
     frame_map = dict(zip(sorted(set(needed)), outputs))
     for shot in shots:
-        name = f"{shot.shot_id}_{format_timestamp(shot.keyframe_time_sec).replace(':', '-').replace('.', '-')}.jpg"
-        shutil.copy2(frame_map[shot.keyframe_frame], keyframes_dir / name)
+        for sample in physical_samples(shot.shot_id, shot.start_frame, shot.end_frame).values():
+            shutil.copy2(frame_map[sample["frame_index"]], work_dir / sample["image_relpath"])
     boundary_ordinals = {boundary.frame: index for index, boundary in enumerate(boundaries, 1)}
     pairs: list[tuple[Path, Path, str]] = []
     for boundary in selected_qc:
@@ -363,6 +365,15 @@ def _materialize_frames(
         pairs.append((before, after, label))
     shutil.rmtree(extracted_dir)
     return pairs
+
+
+def _protect_movie_directory(final_dir: Path, movie_id: str, overwrite: bool) -> None:
+    if final_dir.is_symlink():
+        raise RuntimeError("Refusing a symlink movie directory")
+    if overwrite and final_dir.exists():
+        owned = {f"Stage01_{movie_id}.json", "shot_img"}
+        if any(path.name not in owned or path.is_symlink() for path in final_dir.iterdir()):
+            raise RuntimeError("Refusing --overwrite: movie directory contains downstream or unknown content; use frames-upgrade for existing films")
 
 
 def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
@@ -387,6 +398,7 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
         raise ValueError("threshold must be between 0 and 1")
     if options.overwrite and options.resume:
         options = dataclasses.replace(options, resume=False)
+    _protect_movie_directory(final_dir, movie.movie_key, options.overwrite)
     if final_dir.is_dir() and not options.overwrite:
         progress.stage("[1/1] Validate existing output")
         internal_dir = options.output_root.resolve() / ".internal" / movie.movie_key
@@ -444,7 +456,8 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
             boundaries, shots, threshold=options.threshold,
             save_all=options.save_all_boundary_frames,
         ) if options.qc or options.save_all_boundary_frames else []
-        needed_count = len({shot.keyframe_frame for shot in shots} | {
+        needed_count = len({sample["frame_index"] for shot in shots
+                            for sample in physical_samples(shot.shot_id, shot.start_frame, shot.end_frame).values()} | {
             frame
             for boundary in selected_qc
             for frame in (boundary.frame - 1, boundary.frame)
@@ -466,7 +479,21 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
                 debug_dir / "raw_predictions.npz",
                 single_frame_predictions=np.asarray(predictions, dtype=np.float32),
             )
-        validation = validate_movie(work_dir, frame_count=metadata.frame_count, official_layout=False)
+        samples = {"policy": POLICY, "movie_id": movie.movie_key, "status": "complete",
+                   "stage01_sha256": sha256_file(work_dir / f"Stage01_{movie.movie_key}.json"),
+                   "source_video": {**expected_state, "sha256": sha256_file(movie.source_path)},
+                   "renames": [], "shots": {}}
+        for shot in shots:
+            roles = physical_samples(shot.shot_id, shot.start_frame, shot.end_frame)
+            for sample in roles.values():
+                sample.update(image_info(work_dir / sample["image_relpath"]))
+                sample["timestamp_sec"] = timeline.pts_sec[sample["frame_index"]]
+                sample["timestamp_source"] = "decoded_pts_relative_to_first_frame"
+            samples["shots"][shot.shot_id] = roles
+        sample_path = work_dir / "frame_samples_v1.json"
+        _write_json(sample_path, samples)
+        validation = validate_movie(work_dir, frame_count=metadata.frame_count, official_layout=False,
+                                    frame_profile="three_sample", samples_path=sample_path)
         summary = build_qc_summary(
             shots,
             missing_keyframes=validation.missing_keyframes,
@@ -484,6 +511,7 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
         state_path = work_dir / "state.json"
         if state_path.exists():
             state_path.unlink()
+        _protect_movie_directory(final_dir, movie.movie_key, options.overwrite)
         internal_dir = options.output_root.resolve() / ".internal" / movie.movie_key
         if internal_dir.exists():
             backup_internal = _backup_path(options.output_root.resolve(), movie.movie_key, "-internal")
@@ -493,6 +521,7 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
         shutil.copy2(work_dir / "video_metadata.json", internal_dir / "video_metadata.json")
         _write_json(internal_dir / "fingerprint.json", expected_state)
         (work_dir / "video_metadata.json").unlink()
+        sample_path.replace(internal_dir / "frame_samples_v1.json")
         for name in ("logs", "qc", "debug"):
             source = work_dir / name
             if source.exists():
@@ -500,6 +529,7 @@ def process_one(video_path: Path, options: ProcessOptions) -> dict[str, Any]:
                 if destination.exists():
                     shutil.rmtree(destination)
                 source.replace(destination)
+        _protect_movie_directory(final_dir, movie.movie_key, options.overwrite)
         if final_dir.exists():
             backup = _backup_path(options.output_root.resolve(), movie.movie_key)
             backup.parent.mkdir(parents=True, exist_ok=True)

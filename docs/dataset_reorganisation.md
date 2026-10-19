@@ -87,3 +87,15 @@ edition/audio identity or full semantic truth. Preflight issue IDs can include
 source paths: retain original approvals and scopes, never silently rewrite or
 reuse them for a newly generated issue after relocation. Historical reports remain
 traceable through migration path/hash mappings.
+
+## Stage01 image upgrades after reorganisation
+
+Canonical movie directories contain downstream data. Use the dedicated
+[Stage01 frames-upgrade command](stage01_frames_upgrade.md) after reorganisation,
+with the same explicitly verified Frozen Manifest. It edits only known `shot_img/`
+entries and writes internal sampling provenance; it never republishes a whole movie
+directory. Stage01 `process-one --overwrite` refuses directories containing Stage02,
+SRT, curation history or unknown entries. Reorganisation treats images as opaque
+files and preserves both legacy and three-sample filenames; no Stage02 schema or
+input selection changes are needed. Preserve `.internal/` and upgrade reports when
+copying an upgraded workspace, since they bind source identity and Middle hashes.
