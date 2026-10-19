@@ -1,6 +1,6 @@
 # Stage 01 output contract
 
-Stage01 writes only `Stage01_<movie_id>.json` and `shot_img/*.jpg` in its official movie directory. In the Canonical Workspace, the same directory may also contain the current `Stage02_<movie_id>.json`, `<movie_id>.srt` and optional `stage02_curated/` history; Stage01 validates its own outputs without treating these named coexisting entries as errors. The JSON has exactly `movie_id`, `movie_name` (verified title or `null`), and ordered `shots`. Each shot has exactly `shot_id` and `temporal`; `temporal` has exactly `start`, `end`, `start_frame`, and `end_frame`. Frame indices are zero-based; `start_frame` is inclusive and `end_frame` exclusive. Consecutive shots share a boundary. Seconds are measured from the first decoded video frame. CFR uses frame index divided by the actual frame rate; VFR uses decoded PTS. The final end time is the exclusive endpoint.
+Stage01 writes only `Stage01_<movie_id>.json` and `shot_img/*.jpg` in its official movie directory. In the Canonical Workspace, the same directory may also contain the current `Stage02_<movie_id>.json`, future validated `Stage03_<movie_id>.json` and `Stage04_<movie_id>.json`, `<movie_id>.srt` and optional `stage02_curated/` history; Stage01 validates its own outputs without treating these named coexisting entries as errors. The JSON has exactly `movie_id`, `movie_name` (verified title or `null`), and ordered `shots`. Each shot has exactly `shot_id` and `temporal`; `temporal` has exactly `start`, `end`, `start_frame`, and `end_frame`. Frame indices are zero-based; `start_frame` is inclusive and `end_frame` exclusive. Consecutive shots share a boundary. Seconds are measured from the first decoded video frame. CFR uses frame index divided by the actual frame rate; VFR uses decoded PTS. The final end time is the exclusive endpoint.
 
 The historical representative frame is `floor((start_frame + end_frame - 1) / 2)`. Legacy output used `shot_000001_HH-MM-SS-mmm.jpg`. New output uses the three-frame profile described below, preserving this exact Middle frame. Images are extracted in one sequential FFmpeg pass. TransNetV2 uses its official PyTorch inference model. Model weights are supplied with `--weights`.
 
@@ -57,5 +57,5 @@ validation still apply in both profiles, including final decoded-frame checks.
 
 See [frame upgrade instructions](stage01_frames_upgrade.md) for frozen-selected,
 image-only upgrades. `process-one --overwrite` refuses a movie directory containing
-Stage02, subtitles, curation history or any other content beyond Stage01 and
+Stage02, Stage03, Stage04, subtitles, curation history or any other content beyond Stage01 and
 `shot_img/`; it is not an existing-movie upgrade mechanism.

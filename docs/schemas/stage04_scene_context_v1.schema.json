@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:oscardp:stage04:scene-context:v1",
+  "title": "OscarDP Stage04 Scene & Character Context v1",
+  "description": "Scene partition from Stage02 narrative and Stage03 visual evidence; candidate identity only.",
+  "type": "object",
+  "properties": {
+    "movie_id": {
+      "type": "string",
+      "pattern": "^tt[0-9]{7,10}$"
+    },
+    "stage_version": {
+      "const": "4.0"
+    },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "frozen_release_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frozen_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stage01_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stage02_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "frame_samples_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stage03_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "frozen_release_id",
+        "frozen_manifest_sha256",
+        "stage01_sha256",
+        "stage02_sha256",
+        "frame_samples_sha256",
+        "stage03_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "shots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "shot_id": {
+            "type": "string",
+            "pattern": "^shot_[0-9]{6}$"
+          },
+          "scene_id": {
+            "type": "string",
+            "pattern": "^scene_[0-9]{6}$"
+          },
+          "character_candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subject_id": {
+                  "type": "string",
+                  "pattern": "^subject_[0-9]{3,}$"
+                },
+                "character_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "candidate",
+                    "unknown"
+                  ]
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "visual_context",
+                    "text_and_visual",
+                    "unknown"
+                  ]
+                },
+                "evidence_roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "early",
+                      "middle",
+                      "late"
+                    ]
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "subject_id",
+                "character_name",
+                "status",
+                "basis",
+                "evidence_roles"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "context_summary": {
+            "type": "string"
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "model_reviewed",
+              "human_verified",
+              "human_corrected"
+            ]
+          }
+        },
+        "required": [
+          "shot_id",
+          "scene_id",
+          "character_candidates",
+          "context_summary",
+          "review_status"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scene_id": {
+            "type": "string",
+            "pattern": "^scene_[0-9]{6}$"
+          },
+          "start_shot_id": {
+            "type": "string",
+            "pattern": "^shot_[0-9]{6}$"
+          },
+          "end_shot_id": {
+            "type": "string",
+            "pattern": "^shot_[0-9]{6}$"
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "boundary_evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "left_shot_id": {
+                  "type": "string",
+                  "pattern": "^shot_[0-9]{6}$"
+                },
+                "right_shot_id": {
+                  "type": "string",
+                  "pattern": "^shot_[0-9]{6}$"
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "visual",
+                    "text",
+                    "combined"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "left_shot_id",
+                "right_shot_id",
+                "basis",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "model_reviewed",
+              "human_verified",
+              "human_corrected"
+            ]
+          }
+        },
+        "required": [
+          "scene_id",
+          "start_shot_id",
+          "end_shot_id",
+          "location",
+          "summary",
+          "boundary_evidence",
+          "review_status"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "movie_id",
+    "stage_version",
+    "inputs",
+    "shots",
+    "scenes"
+  ],
+  "additionalProperties": false
+}

@@ -29,7 +29,7 @@ def validate_movie(movie_dir: Path, *, frame_count: int | None = None, official_
         return ValidationResult(False, [f"missing {stage_path.name}"], 0, 0)
     if official_layout:
         required = {stage_path.name, "shot_img"}
-        optional = {f"Stage02_{movie_id}.json", f"{movie_id}.srt", "stage02_curated"}
+        optional = {f"Stage02_{movie_id}.json", f"Stage03_{movie_id}.json", f"Stage04_{movie_id}.json", f"{movie_id}.srt", "stage02_curated"}
         names = {path.name for path in movie_dir.iterdir()}
         if not required <= names or names - required - optional:
             errors.append("official movie directory has missing Stage01 layout entries or unexpected files")

@@ -47,7 +47,7 @@ uv run python -m oscardp.shots validate --output-root /path/to/oscar_movie_analy
 uv run python -m oscardp.shots process --input-root /path/to/movies --output-root /path/to/oscar_movie_analysis --titles data/metadata/movie_titles.json --weights /path/to/transnetv2.pth --device cuda
 ```
 
-The batch continues after individual failures and skips valid outputs. Do not run the full dataset before inspecting a test movie. Stages 03–06 remain planned and are not executable in this repository.
+The batch continues after individual failures and skips valid outputs. Do not run the full dataset before inspecting a test movie. Stages 03–06 remain planned and are not executable in this repository. Stage03 is now **manual GPT Visual Annotation**, not a YOLO/SCRFD pipeline; Stage05 will own video-based identity and face analysis.
 
 ## Stage 02 — Subtitle & Screenplay Alignment
 
@@ -157,3 +157,11 @@ legacy Middle JPEGs retain their original hashes, and journals support recovery.
 See [exact single-film and 17-film commands](docs/stage01_frames_upgrade.md).
 For downstream readiness, use `validate --frame-profile three_sample`; historical
 outputs remain valid under `--frame-profile legacy` or the default `auto` mode.
+
+## Stage03 / Stage04 — Planned GPT workflow (contracts only)
+
+- **Stage03 GPT Visual Annotation**: manually inspect the Early/Middle/Late images in ChatGPT, optionally delivered in small batches from Google Drive; label visible shot scale, camera evidence, people, salient props and visible interactions. No mandatory local YOLO, SCRFD, bounding boxes, identity verification, AU or gaze. [Stage03 contract](docs/stage03_gpt_visual_spec_v1.md) · [Schema](docs/schemas/stage03_gpt_visual_v1.schema.json) · [Annotation prompt](docs/prompts/stage03_gpt_visual_prompt_v1.md).
+- **Stage04 Scene & Character Context**: combine Stage02 textual narrative with Stage03 visual observations to assign finalized scene ranges and **unverified** character candidates. [Stage04 contract](docs/stage04_scene_context_spec_v1.md) · [Schema](docs/schemas/stage04_scene_context_v1.schema.json).
+- **Stage05**: verified Actor/Character identity, continuous face detection/tracking, facial AUs, head pose and gaze on selected source-video intervals. **Stage06**: evidence-linked explainable acting annotations.
+
+These schemas are **design contracts**, not implemented annotation/validation CLIs. A pilot is not a full-film publication. The frozen Stage02 release and its image-independent hashes are never modified; source JPEGs are verified through Stage01 sample metadata and kept separate from frozen inputs.

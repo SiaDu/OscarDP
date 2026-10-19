@@ -9,7 +9,7 @@ participating in source discovery. Working revisions preserve old bytes and
 provenance before promotion; they do not alter completed Frozen Releases.
 
 Frozen snapshots live under `/media/sdu/SiyaoDu/datasets/oscardp_releases`.
-Future Stage03/04 input design must explicitly select a Frozen Manifest and verify
+Stage03/04 input design must explicitly select a Frozen Manifest and verify
 its Release ID and input hashes. The shared movie-folder layout does not authorize
 downstream processing or mutable-workspace fallback. See the [migration and
 future-film workflow](dataset_reorganisation.md). No new stage implementation or
@@ -21,9 +21,9 @@ OscarDP links movies, narrative context, character intent, observable acting, fa
 | --- | --- | --- |
 | 01 Shot Detection | Implemented | TransNetV2 boundaries, shot times and Early/Middle/Late images |
 | 02 Subtitle & Screenplay Alignment | Source Preflight v1.0 and Validator v1.1.1 implemented; manual annotations available (18 movies) | GPT-6 High annotation generation remains manual. [Preflight](stage02_preflight.md) checks Stage01/SRT/PDF before annotation. Validation separately checks source integrity, annotation consistency and completeness afterwards. [Spec](stage02_spec_v1.md) · [Original Prompt v1.0](prompts/stage02_prompt_v1.txt) · [Prompt v1.1 (archived)](prompts/stage02_prompt_v1_1.txt) · [New-film Prompt v1.2](prompts/stage02_prompt_v1_2.txt) · [Validator](stage02_validation.md) |
-| 03 Cinematic Semantic Enrichment | Planned | Shot size, angle, composition, movement, lighting and visible characters |
-| 04 Scene & Narrative Sequence Construction | Planned | Film scenes, sequences, goals and conflicts |
-| 05 Actor Performance Analysis | Planned | Target actor, face tracking, Action Units, pose, gaze and performance events |
+| 03 GPT Visual Annotation | Contract drafted; no executable pipeline | Manually inspect Early/Middle/Late frames via ChatGPT; shot-scale, camera evidence, visible people, props and visible interactions; no person/face detector or verified identity. [Spec](stage03_gpt_visual_spec_v1.md) · [Schema](schemas/stage03_gpt_visual_v1.schema.json) · [Prompt](prompts/stage03_gpt_visual_prompt_v1.md) |
+| 04 Scene & Character Context | Contract drafted; no executable pipeline | Combine Stage02 text and Stage03 visuals into contiguous film scenes and unverified character candidates. [Spec](stage04_scene_context_spec_v1.md) · [Schema](schemas/stage04_scene_context_v1.schema.json) |
+| 05 Actor Identity & Performance Analysis | Planned | Verified actor/character identity, continuous face detection/tracking, Action Units, head pose, gaze and performance events on selected video segments |
 | 06 Explainable Acting Annotation | Planned | Evidence-linked acting and intent annotations |
 
 Stage01 implements shot processing. Stage02 v1.0 annotations for 18 movies were generated externally through interactive ChatGPT GPT-6 (High thinking effort), following the linked fixed specification and prompt. Annotation Generation remains manual; the implemented Deterministic Validation CLI is `python -m oscardp.stage02 validate`. It performs Structural and Source Consistency Validation, with source SHA-256 hashes and detailed reports outside the dataset, and does not evaluate screenplay semantics or actual movie visuals. It never modifies earlier outputs or original subtitles. These JSON data files and generated reports are not committed. Stages03–06 remain planned. Future stages should produce separate `StageNN_<movie_id>.json` files in the same IMDb-ID movie directory, reference stable upstream IDs, and record SHA-256 provenance without modifying earlier stages.
@@ -35,5 +35,4 @@ Stage01 now uses [three-frame sampling](stage01_spec.md#three-representative-fra
 with independent internal sampling provenance. Existing frozen-selected movies use
 the [image-only frames-upgrade command](stage01_frames_upgrade.md); their JSON,
 shot IDs and boundaries remain unchanged. Future Stage03 readiness requires the
-explicit `three_sample` validation profile. This enhancement implements neither
-Stage03 semantics nor a Stage03 schema. Frozen releases remain immutable.
+explicit `three_sample` validation profile. This Stage01 enhancement does not implement Stage03. The separate Stage03/04 design contracts are documentation only, not executable annotation pipelines. Frozen releases remain immutable.

@@ -2,14 +2,14 @@
 
 The mutable Canonical Workspace is
 `/media/sdu/SiyaoDu/datasets/oscar_movie_analysis`. A movie directory contains the
-current `Stage01_<id>.json`, `Stage02_<id>.json`, `<id>.srt`, `shot_img/`, and optional
+current `Stage01_<id>.json`, `Stage02_<id>.json`, future `Stage03_<id>.json` and `Stage04_<id>.json`, `<id>.srt`, `shot_img/`, and optional
 `stage02_curated/` history. Stage02 JSON is the annotation, not a Validator-generated
-`Stage02Val` file. Stage01's layout check accepts these coexisting entries while
+`Stage02Val` file. Stage01's layout check accepts these explicitly named coexisting entries while
 retaining its shot, image, frame and timing checks.
 
 Fixed research snapshots live under
 `/media/sdu/SiyaoDu/datasets/oscardp_releases`. The workspace can change; a Frozen
-Release cannot. Future Stage03/04 must accept an explicitly selected Frozen
+Release cannot. Stage03/04 contracts require an explicitly selected Frozen
 Manifest, verify Release ID and hashes, and resolve `movies[].inputs` relative
 to its root. They must not silently scan mutable working directories. These
 stages are not implemented by this reorganisation.

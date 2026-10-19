@@ -40,3 +40,13 @@ def test_corrupt_image_and_extra_schema_fail(tmp_path: Path) -> None:
     data["shots"][0]["extra"] = 1
     (root / "Stage01_tt1234567.json").write_text(json.dumps(data))
     assert not validate_movie(root).passed
+
+
+def test_stage01_accepts_only_named_later_stage_files(tmp_path: Path) -> None:
+    write_fixture(tmp_path)
+    root = tmp_path / "tt1234567"
+    for filename in ("Stage03_tt1234567.json", "Stage04_tt1234567.json"):
+        (root / filename).write_text("{}", encoding="utf-8")
+    assert validate_movie(root, frame_count=10).passed
+    (root / "Stage03_tt7654321.json").write_text("{}", encoding="utf-8")
+    assert not validate_movie(root, frame_count=10).passed

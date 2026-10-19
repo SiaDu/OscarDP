@@ -8,15 +8,12 @@ version = "0.1.0"
 description = "Stage 01 shot detection for the Oscar Acting Dataset"
 requires-python = ">=3.12"
 dependencies = [
-  "insightface==0.7.3",
   "jsonschema>=4.23,<5",
   "numpy>=1.26,<3",
-  "onnxruntime-gpu>=1.31.0",
   "openpyxl>=3.1.5",
   "Pillow>=10,<12",
   "pypdf>=6,<7",
   "torch==2.14.*",
-  "ultralytics>=8.4.182",
 ]
 
 [project.optional-dependencies]
