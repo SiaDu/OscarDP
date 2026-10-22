@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
+stage05 = ["opencv-python-headless>=4.10,<5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
