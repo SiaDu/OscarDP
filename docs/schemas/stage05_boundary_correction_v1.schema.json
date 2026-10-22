@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Stage05 Boundary Correction Proposal v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "movie_id", "application_status", "scope", "frame_semantics", "timestamp_rule", "source_stage01", "source_video", "audit_manifest", "corrections"],
+  "properties": {
+    "schema_version": {"const": "stage05.boundary_correction.v1"},
+    "movie_id": {"type": "string", "pattern": "^tt[0-9]{7,10}$"},
+    "application_status": {"const": "proposal_only_not_applied"},
+    "scope": {"const": "explicit_audited_shots_only_no_global_offset"},
+    "frame_semantics": {"const": "zero_based_start_inclusive_end_exclusive"},
+    "timestamp_rule": {"enum": ["frame_index_cfr", "decoded_pts_relative_to_first_frame"]},
+    "source_stage01": {"type": "object", "required": ["path", "sha256"]},
+    "source_video": {"type": "object", "required": ["path", "size", "mtime_ns"]},
+    "audit_manifest": {"type": "string", "minLength": 1},
+    "corrections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["shot_id", "original_temporal", "proposed_processing_temporal", "boundary_changes", "reason", "evidence", "review", "neighbor_effect"],
+        "properties": {
+          "shot_id": {"type": "string", "pattern": "^shot_[0-9]{6}$"},
+          "original_temporal": {"$ref": "#/$defs/temporal"},
+          "proposed_processing_temporal": {"$ref": "#/$defs/temporal"},
+          "boundary_changes": {
+            "type": "object", "additionalProperties": false,
+            "required": ["start_delta_frames", "end_delta_frames"],
+            "properties": {"start_delta_frames": {"type": "integer"}, "end_delta_frames": {"type": "integer"}}
+          },
+          "reason": {"type": "string", "minLength": 1},
+          "evidence": {
+            "type": "object", "additionalProperties": false,
+            "required": ["basis", "start_boundary_id", "end_boundary_id", "source_frame_indices"],
+            "properties": {
+              "basis": {"const": "source_video_frames_with_independent_ordinal_and_decoder_checks"},
+              "start_boundary_id": {"type": "string"},
+              "end_boundary_id": {"type": "string"},
+              "source_frame_indices": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 6, "uniqueItems": true}
+            }
+          },
+          "review": {
+            "type": "object", "additionalProperties": false,
+            "required": ["status", "reviewer", "reviewed_on", "human_verified", "approved_for_processing"],
+            "properties": {
+              "status": {"enum": ["proposed", "model_reviewed_pending_human", "approved", "rejected"]},
+              "reviewer": {"type": "string", "minLength": 1},
+              "reviewed_on": {"type": "string"},
+              "human_verified": {"type": "boolean"},
+              "approved_for_processing": {"type": "boolean"}
+            },
+            "allOf": [
+              {"if": {"properties": {"status": {"enum": ["proposed", "model_reviewed_pending_human", "rejected"]}}},
+               "then": {"properties": {"approved_for_processing": {"const": false}}}},
+              {"if": {"properties": {"status": {"const": "model_reviewed_pending_human"}}},
+               "then": {"properties": {"human_verified": {"const": false}}}}
+            ]
+          },
+          "neighbor_effect": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "temporal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["start", "end", "start_frame", "end_frame"],
+      "properties": {
+        "start": {"type": "number", "minimum": 0},
+        "end": {"type": "number", "exclusiveMinimum": 0},
+        "start_frame": {"type": "integer", "minimum": 0},
+        "end_frame": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}
