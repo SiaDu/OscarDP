@@ -21,6 +21,8 @@ def parser():
     d.add_argument("--min-hits", type=int, default=3, help="Observed frames required to confirm a track; tentative tracks remain in output")
     d.add_argument("--discontinuity-threshold", type=float, default=.18, help="Normalized thumbnail difference that conservatively breaks associations; does not change shot bounds")
     d.add_argument("--output-root", type=Path, default=Path("reports/stage05_2"), help="Reports parent; appends movie ID")
+    d.add_argument("--boundary-sidecar", type=Path, help="Explicit audited boundary correction JSON; original Stage01 is never changed")
+    d.add_argument("--allow-experimental-boundaries", action="store_true", help="Opt in to model-reviewed, unapproved draft ranges in a separate experimental output directory")
     d.add_argument("--dry-run", action="store_true", help="Validate discovery, bounds, timeline hints and real model inference; write no reports")
     mode = d.add_mutually_exclusive_group()
     mode.add_argument("--resume", action="store_true", help="Skip completed shots only when input/configuration match")

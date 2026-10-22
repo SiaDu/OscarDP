@@ -25,6 +25,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "oscardp.stage02" = ["*.schema.json"]
+"oscardp.stage05" = ["*.schema.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]

@@ -119,6 +119,24 @@ frame indices, timestamps, original-pixel boxes and landmarks; it must validate
 crop quality and cannot treat gaps or predictions as observed faces. Track IDs
 do not encode identity and never imply cross-shot links.
 
+## Experimental audited boundary overrides
+
+Use `--boundary-sidecar PATH` to opt into explicitly listed corrections; default
+processing continues to use unmodified Stage01 ranges. Unapproved model-reviewed
+drafts additionally require `--allow-experimental-boundaries` and a separate
+output directory such as `--output-root reports/stage05_2_corrected`. They cannot
+overwrite/reuse an original-range run. No source file or review status is changed.
+Unaudited selected shots retain original ranges. Conflicts with unselected original
+neighbors are printed and recorded; overlapping selected intervals or disagreement
+between adjacent corrected cuts fail. Both original/effective temporal objects
+are recorded in config, observations, tracks, QC, checkpoints and run metrics.
+Sidecar/audit fingerprints participate in resume checks, and each completed
+corrected-shot receipt must match its exact processing configuration.
+
+See `stage05_boundary_correction_sidecar_v1.md` for validation and evidence rules.
+The proposed ranges for Bugonia were used only in an explicit five-shot experiment.
+Its before/after report is under `reports/stage05_2_corrected/tt12300742/comparison/`.
+
 ## Validation
 
 `uv run --no-sync python -m pytest tests/test_stage05.py`

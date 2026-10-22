@@ -10,6 +10,7 @@ from oscardp.shots.discovery import CANONICAL_ID, discover_movies
 from oscardp.shots.media import probe_video
 from oscardp.shots.schema import json_dumps
 from .detectors import YuNetDetector
+from .boundaries import apply_sidecar
 from .output import atomic_json, identity, load_json
 from .qc import DiscontinuityGuard, Preview, report
 from .tracker import ShotTracker
@@ -51,7 +52,8 @@ def preflight(args):
         raise ValueError("Invalid input video dimensions")
     cfr = all(abs(s["temporal"][key]-s["temporal"][frame_key]/metadata.fps) < .0001
               for s in data["shots"] for key, frame_key in [("start", "start_frame"), ("end", "end_frame")])
-    shots = sorted([lookup[s] for s in args.shot_ids], key=lambda s: s["temporal"]["start_frame"])
+    effective_shots, sidecar = apply_sidecar(args, data, source, video, metadata, cfr)
+    shots = effective_shots if effective_shots is not None else sorted([lookup[s] for s in args.shot_ids], key=lambda s: s["temporal"]["start_frame"])
     last_end = -1
     for shot in shots:
         if not re.fullmatch(r"shot_\d{6}", shot["shot_id"]):
@@ -85,7 +87,16 @@ def preflight(args):
               "timestamp_rule": "frame_index_cfr" if cfr else "decoded_pts_relative_to_first_frame",
               "decode_method": "sequential FFmpeg global frame select; no seeking; selected boundary PTS checked",
               "frame_boundaries": "zero-based start inclusive, end exclusive", "preview_fps": 6}
+    if sidecar is not None:
+        config.update(implementation_version=3, boundary_sidecar=sidecar)
     return video, shots, metadata, cfr, detector, config
+
+
+def processing_provenance(shot, config):
+    if not config.get("boundary_sidecar"):
+        return {}
+    return {"original_temporal": shot["original_temporal"],
+            "effective_processing_temporal": shot["effective_processing_temporal"]}
 
 
 def aggregate(root, shots, config):
@@ -96,17 +107,23 @@ def aggregate(root, shots, config):
         for shot in shots:
             sid = shot["shot_id"]
             path = root / "checkpoints" / f"{sid}.json"
-            result = load_json(path) if path.exists() else {"shot_id": sid, "status": "incomplete"}
+            result = load_json(path) if path.exists() else dict(shot_id=sid, status="incomplete", **processing_provenance(shot, config))
             results.append(result)
             if result["status"] == "complete":
                 with (root / "checkpoints" / f"{sid}.jsonl").open(encoding="utf-8") as shard:
                     for line in shard:
                         output.write(line)
     temporary.replace(destination)
-    atomic_json(root / "face_tracks.json", {"schema_version": "stage05.2.v1", "movie_id": config["movie_id"],
-                "frame_boundaries": config["frame_boundaries"], "tracks": [t for r in results for t in r.get("tracks", [])]})
-    atomic_json(root / "qc_report.json", report(results, {k: config[k] for k in [
-        "detector", "device", "opencv_version", "model", "model_sha256", "score_threshold", "nms_threshold", "inference_max_size"]}))
+    tracks = {"schema_version": "stage05.2.v1", "movie_id": config["movie_id"],
+              "frame_boundaries": config["frame_boundaries"], "tracks": [t for r in results for t in r.get("tracks", [])]}
+    qc = report(results, {k: config[k] for k in [
+        "detector", "device", "opencv_version", "model", "model_sha256", "score_threshold", "nms_threshold", "inference_max_size"]})
+    if config.get("boundary_sidecar"):
+        ranges = [dict(shot_id=s["shot_id"], **processing_provenance(s, config)) for s in shots]
+        tracks.update(shot_ranges=ranges, boundary_sidecar=config["boundary_sidecar"])
+        qc.update(shot_ranges=ranges, boundary_sidecar=config["boundary_sidecar"])
+    atomic_json(root / "face_tracks.json", tracks)
+    atomic_json(root / "qc_report.json", qc)
     return results
 
 
@@ -115,6 +132,9 @@ def run(args):
     # Keep CPU work bounded and reproducible; no CUDA/ORT configuration is touched.
     cv2.setNumThreads(4)
     video, shots, metadata, cfr, detector, config = preflight(args)
+    if config.get("boundary_sidecar"):
+        for conflict in config["boundary_sidecar"]["neighbor_conflicts"]:
+            print(f"Boundary neighbor conflict (unchanged neighbor): {json_dumps(conflict)}", file=sys.stderr)
     if args.dry_run:
         print(json_dumps(dict(config, dry_run=True, selected_frame_count=sum(
             s["temporal"]["end_frame"]-s["temporal"]["start_frame"] for s in shots)), pretty=True))
@@ -130,6 +150,7 @@ def run(args):
 
 
 def execute(args, root, video, shots, metadata, cfr, detector, config):
+    config_sha = hashlib.sha256(json_dumps(config).encode()).hexdigest()
     old = root / "run_config.json"
     if old.exists():
         if not (args.resume or args.overwrite):
@@ -153,6 +174,8 @@ def execute(args, root, video, shots, metadata, cfr, detector, config):
         checkpoint = root/"checkpoints"/f"{s['shot_id']}.json"
         if args.resume and checkpoint.exists() and load_json(checkpoint)["status"] == "complete":
             receipt = load_json(checkpoint)
+            if config.get("boundary_sidecar") and receipt.get("processing_config_sha256") != config_sha:
+                raise ValueError(f"Checkpoint belongs to different boundary ranges/configuration: {s['shot_id']}")
             shard = root/"checkpoints"/f"{s['shot_id']}.jsonl"
             preview = root/"previews"/f"{s['shot_id']}.mp4"
             if not shard.exists() or not preview.exists() or shard.stat().st_size != receipt["detection_file_bytes"] or preview.stat().st_size != receipt["preview_file_bytes"]:
@@ -179,7 +202,8 @@ def execute(args, root, video, shots, metadata, cfr, detector, config):
             count = low_quality = 0
             detection_sec = decode_sec = 0.
             shot_start = time.perf_counter()
-            result = {"shot_id": sid, "status": "failed"}
+            provenance = processing_provenance(shot, config)
+            result = dict(shot_id=sid, status="failed", **provenance)
             try:
                 with temp.open("w", encoding="utf-8") as output:
                     total = temporal["end_frame"]-temporal["start_frame"]
@@ -204,6 +228,7 @@ def execute(args, root, video, shots, metadata, cfr, detector, config):
                             tracker.break_links(frame.index, difference)
                         records = tracker.update(detections, frame.index, frame.timestamp, frame.next_timestamp)
                         for record in records:
+                            record.update(provenance)
                             output.write(json_dumps(record)+"\n")
                         low_quality += sum(r["detection_score"] < .9 or min(r["bbox_xywh"][2:]) < 24 for r in records)
                         preview.add(frame, records, sid)
@@ -224,6 +249,11 @@ def execute(args, root, video, shots, metadata, cfr, detector, config):
                           "elapsed_sec": time.perf_counter()-shot_start,
                           "preview": str(preview_path), "detection_file_bytes": shard.stat().st_size,
                           "preview_file_bytes": preview_path.stat().st_size}
+                result.update(provenance)
+                if config.get("boundary_sidecar"):
+                    result["processing_config_sha256"] = config_sha
+                    for track in result["tracks"]:
+                        track.update(provenance)
             except (Exception, KeyboardInterrupt) as exc:
                 preview.close()
                 result.update(error=f"{type(exc).__name__}: {exc}", decoded_frame_count=count,
@@ -239,8 +269,12 @@ def execute(args, root, video, shots, metadata, cfr, detector, config):
     finally:
         frames.close()
         results = aggregate(root, shots, config)
-        atomic_json(root/"run_metrics.json", {"wall_sec": time.perf_counter()-started,
+        metrics = {"wall_sec": time.perf_counter()-started,
                     "sequential_prefix_through_frame": pending[-1]["temporal"]["end_frame"],
                     "requested_frame_count": sum(s["temporal"]["end_frame"]-s["temporal"]["start_frame"] for s in pending),
-                    "note": "Decode wait includes sequential prefix/gaps on first access. Only requested frames enter detection. Metrics cover this invocation."})
+                    "note": "Decode wait includes sequential prefix/gaps on first access. Only requested frames enter detection. Metrics cover this invocation."}
+        if config.get("boundary_sidecar"):
+            metrics.update(boundary_sidecar=config["boundary_sidecar"], shot_ranges=[
+                dict(shot_id=s["shot_id"], **processing_provenance(s, config)) for s in pending])
+        atomic_json(root/"run_metrics.json", metrics)
     return 1 if any(r["status"] != "complete" for r in results) else 0

@@ -2,8 +2,9 @@
 
 This sidecar proposes processing ranges for Stage05 while preserving immutable
 Stage01–04 records. It is not a corrected Stage01 release, new shot inventory,
-identity annotation, or an automatic offset policy. No Stage05 reader consumes
-it yet. The boundary audit must precede any decision to change production logic.
+identity annotation, or an automatic offset policy. Stage05 can explicitly
+consume an audited sidecar using `--boundary-sidecar PATH`. The boundary audit
+precedes any decision to change production TransNet/Stage01 logic.
 
 Store `Stage05_<movie_id>_boundary_corrections.proposed.json` beside an independent
 audit report under `reports/stage05_2_boundary_audit/`, never in official movie
@@ -34,12 +35,19 @@ detected. This is lightweight traceability, not a frozen release system.
 Review states are `proposed`, `model_reviewed_pending_human`, `approved`, or
 `rejected`. An LLM examining actual decoded frames is still model review;
 it must not self-assign human verification. Approval metadata identifies who,
-when and what evidence was reviewed. A draft does not authorize processing.
-Future application must be an explicit new run, record the sidecar identity and
-the effective ranges in its configuration, preserve original-shot references,
-and refuse conflicting corrections, unapproved entries, source mismatches,
-out-of-range endpoints or unexplained overlaps/gaps. None of that application
-logic is implemented by this audit.
+when and what evidence was reviewed. A draft does not authorize default processing.
+An explicitly requested experiment may use `model_reviewed_pending_human` only
+with both `--boundary-sidecar PATH` and `--allow-experimental-boundaries`, in an
+independent output directory. No approval or human-verification flag is changed.
+Plain `proposed` and `rejected` entries remain unusable even with the opt-in.
+The CLI validates the schema, original temporal values, Stage01 path/SHA256,
+video identity, audit evidence for both endpoints, timing rule, frame/time bounds,
+and agreement of adjacent corrected intervals. Selected intervals cannot overlap.
+It records sidecar/audit SHA256, reviewer metadata, original/effective ranges
+and neighbor conflicts. Matching completed checkpoints must carry the full
+processing-configuration fingerprint; old-range receipts cannot be reused.
+The source sidecar's `proposal_only_not_applied` field remains a historical
+proposal state; the experimental run configuration explicitly records its use.
 
 Adjacent audited shots share one physical boundary. Reuse the same boundary ID
 for the left exclusive end and right inclusive start. A proposed correction of
@@ -80,3 +88,8 @@ Stage05.3 code is invoked. Generated Contact Sheets show N−2 through N+3;
 N−1 / N / N+1 are explicitly labelled. Audit targets are selected boundary
 windows, not whole-movie face tracking; precise no-seek decoding still incurs
 the source prefix decode through the last selected boundary.
+
+The paragraph above describes the standalone audit command. A subsequent explicit
+`detect-track --boundary-sidecar ... --allow-experimental-boundaries` run does
+consume the proposal and performs normal Stage05.2 detection/tracking. Omitting
+`--boundary-sidecar` retains the earlier ranges and output behavior.
