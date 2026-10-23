@@ -46,6 +46,17 @@ def parser():
     i.add_argument("--consistency-q10", type=float, default=.50, help="Minimum within-track lower-decile cosine")
     i.add_argument("--min-samples", type=int, default=3, help="Minimum quality-passing samples per eligible track")
     i.add_argument("--dry-run", action="store_true", help="Validate corrected provenance/model/candidate selection without source-frame decode or outputs")
+    f = sub.add_parser("extract-performance", help="Stage05.4: OpenFace frame-level AU, pose, gaze and landmarks; no events")
+    f.add_argument("--movie-id", required=True)
+    f.add_argument("--tracking-run", type=Path, required=True, help="Corrected Stage05.2 run only")
+    f.add_argument("--identity-run", type=Path, required=True, help="Matching tentative Stage05.3 identity pilot")
+    f.add_argument("--shot-ids", nargs="+", required=True, help="Explicit single-track pilot shots")
+    f.add_argument("--openface-binary", type=Path, required=True, help="Existing original OpenFace FeatureExtraction executable")
+    f.add_argument("--au-mode", choices=["static","dynamic","both"], default="both", help="Separate modes; both compares default video and -au_static")
+    f.add_argument("--min-confidence", type=float, default=.8, help="Tracking confidence gate; additional per-modality QC also applies")
+    f.add_argument("--output-dir", type=Path, required=True, help="New independent pilot directory; no overwrite")
+    f.add_argument("--scratch-root", type=Path, help="Existing parent for automatically removed full-frame FFV1 scratch media")
+    f.add_argument("--dry-run", action="store_true", help="Validate source provenance and local executable/models/libraries; do not decode/extract or write outputs")
     return p
 
 
@@ -54,11 +65,13 @@ def main(argv=None):
     try:
         if args.command == "associate-identities":
             from .identity_pipeline import run
+        elif args.command == "extract-performance":
+            from .performance_pipeline import run
         else:
             from .pipeline import run
         return run(args)
     except (Exception, KeyboardInterrupt) as exc:
-        stage = "Stage05.3" if args.command == "associate-identities" else "Stage05.2"
+        stage = {"associate-identities":"Stage05.3","extract-performance":"Stage05.4"}.get(args.command,"Stage05.2")
         print(f"{stage} failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
