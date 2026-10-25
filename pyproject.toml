@@ -28,6 +28,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "oscardp.stage02" = ["*.schema.json"]
 "oscardp.stage05" = ["*.schema.json"]
+"oscardp.stage05_review" = ["*.html", "*.js", "*.css"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]

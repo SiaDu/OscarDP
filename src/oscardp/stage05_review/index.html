@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OscarDP · Stage05.6 Review</title><link rel="stylesheet" href="viewer.css">
+<header><h1>OscarDP · Event Review</h1><p>Research Prototype · algorithm candidates · 尚未人工验证</p><div id="status">Loading…</div></header>
+<main><aside><label>审查集合 <select id="scope"><option value="pilot">Pilot (48)</option><option value="all">Full queue (205)</option></select></label>
+<label>Shot <select id="shotFilter"><option value="all">All shots</option></select></label><label>Queue Item <select id="queue" size="18"></select></label>
+<p id="progress"></p><button id="reload">恢复磁盘进度</button><button id="export">导出独立审核 JSON</button>
+<label>导入审核 JSON <input id="import" type="file" accept="application/json"></label><p>导入需通过 Source Hash / Event ID 校验；显式保存后写入独立目录。</p></aside>
+<section><h2 id="title"></h2><div class="screen"><video id="video" controls preload="metadata"></video><img id="still" hidden alt="Original source frame, spatially compressed"></div>
+<div class="controls"><button id="play">正常播放</button><button id="previous">← 原始前一帧</button><button id="next">原始后一帧 →</button><button id="window">Event ±0.5 秒窗口</button><label>源帧 <input id="frame" type="number"></label><button id="go">跳转</button></div>
+<p id="frameLabel"></p><p class="muted">静音压缩预览；逐帧按钮显示对应原电影帧的静帧。测量使用原始时间戳，不使用播放器帧率。</p>
+<h3>Shot Event Timeline <small>点击区间选择审查项</small></h3><canvas id="timeline" width="1000" height="180"></canvas>
+<h3>Raw / Processed Curves</h3><label>Feature <select id="feature"></select></label><canvas id="curve" width="1000" height="340"></canvas>
+<p id="curveLabel"></p><details><summary>逐帧数值（raw / processed / valid / speed）</summary><pre id="values"></pre></details>
+<h3>Event / QC / Sampling</h3><pre id="detail"></pre>
+<h3>Stage02 Dialogue / Narrative · Stage04 Scene Context</h3><pre id="context"></pre>
+<h3>独立人工复核</h3><p>视频人工审核后填写。存在性与时间边界分开判断；任何建议都不覆盖算法原事件。</p>
+<form id="reviewForm"><label>Reviewer <input id="reviewer" required></label><label>Observed event label <input id="observed" required placeholder="仅记录可观察事件"></label>
+<label>Event presence <select id="presence" required><option value="">未审核</option><option>present</option><option>absent</option><option>uncertain</option><option>insufficient_video_evidence</option></select></label>
+<label>Temporal boundary <select id="boundary" required><option value="">未审核</option><option>acceptable</option><option>needs_adjustment</option><option>not_assessable</option></select></label>
+<label>Evidence quality <select id="quality" required><option value="">未审核</option><option>good</option><option>limited</option><option>insufficient</option></select></label>
+<label>Suggested onset <input id="onset" type="number"></label><label>Suggested apex <input id="apex" type="number"></label><label>Suggested offset (exclusive) <input id="offset" type="number"></label>
+<label>实际查看的源帧起点 <input id="reviewStart" type="number" required></label><label>实际查看的源帧终点（exclusive）<input id="reviewEnd" type="number" required></label>
+<label>Notes <textarea id="notes" rows="3"></textarea></label><label class="attest"><input id="attest" type="checkbox" required> 我已亲自查看所填范围的视频，并独立作出上述判断。</label>
+<button type="submit">保存本条人工审核及当前进度</button></form><p id="saveStatus"></p>
+</section></main><script src="viewer.js"></script></html>
