@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OscarDP Stage05.5 temporal event candidates v1",
+  "type": "object",
+  "required": ["schema_version", "movie_id", "source_provenance", "primary_au_mode", "human_verified", "events"],
+  "properties": {
+    "schema_version": {"const": "stage05.5.events.v1"},
+    "movie_id": {"type": "string"},
+    "source_provenance": {"type": "object"},
+    "primary_au_mode": {"const": "static"},
+    "human_verified": {"const": false},
+    "events": {"type": "array", "items": {"$ref": "#/$defs/event"}}
+  },
+  "$defs": {
+    "nullable_frame": {"type": ["integer", "null"], "minimum": 0},
+    "event": {
+      "type": "object",
+      "required": ["event_id", "movie_id", "shot_id", "track_id", "identity_cluster_id", "identity_status", "event_type", "feature", "extraction_mode", "start_frame", "end_frame", "onset_frame", "apex_frame", "offset_frame", "start_sec", "end_sec", "left_censored", "right_censored", "measurements", "evidence", "qc_flags", "review_status", "human_verified", "algorithm_version", "thresholds_sha256", "boundary_status"],
+      "properties": {
+        "event_id": {"type": "string", "pattern": "^event_[0-9]{6}$"},
+        "identity_status": {"enum": ["tentative", "unknown"]},
+        "event_type": {"enum": ["au_activation", "eye_closure_candidate", "head_orientation_change", "camera_relative_gaze_change"]},
+        "extraction_mode": {"const": "static"},
+        "start_frame": {"type": "integer", "minimum": 0},
+        "end_frame": {"type": "integer", "minimum": 1},
+        "onset_frame": {"$ref": "#/$defs/nullable_frame"},
+        "apex_frame": {"$ref": "#/$defs/nullable_frame"},
+        "offset_frame": {"$ref": "#/$defs/nullable_frame"},
+        "start_sec": {"type": "number"},
+        "end_sec": {"type": "number"},
+        "left_censored": {"type": "boolean"},
+        "right_censored": {"type": "boolean"},
+        "measurements": {"type": "object"},
+        "evidence": {"type": "object", "required": ["source_measurement_qc", "processed_trace_key"]},
+        "qc_flags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "review_status": {"const": "algorithm_candidate"},
+        "human_verified": {"const": false},
+        "boundary_status": {"const": "experimental_model_reviewed_pending_human"},
+        "thresholds_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "rule_support": {"type": "object", "properties": {"is_probability": {"const": false}}, "required": ["is_probability"]}
+      }
+    }
+  }
+}

@@ -57,6 +57,15 @@ def parser():
     f.add_argument("--output-dir", type=Path, required=True, help="New independent pilot directory; no overwrite")
     f.add_argument("--scratch-root", type=Path, help="Existing parent for automatically removed full-frame FFV1 scratch media")
     f.add_argument("--dry-run", action="store_true", help="Validate source provenance and local executable/models/libraries; do not decode/extract or write outputs")
+    e = sub.add_parser("detect-events", help="Stage05.5: temporal candidates from measured static AU, eye geometry, pose and gaze")
+    e.add_argument("--movie-id", required=True)
+    e.add_argument("--measurement-run", type=Path, required=True)
+    e.add_argument("--shot-ids", nargs="+", required=True)
+    e.add_argument("--au-mode", choices=["static"], default="static")
+    e.add_argument("--compare-dynamic", action="store_true", help="Sensitivity/QC only; never add dynamic formal events")
+    e.add_argument("--config", type=Path, help="Versioned JSON research parameter overrides")
+    e.add_argument("--output-dir", type=Path, required=True, help="New independent pilot directory; no overwrite")
+    e.add_argument("--dry-run", action="store_true")
     return p
 
 
@@ -67,11 +76,13 @@ def main(argv=None):
             from .identity_pipeline import run
         elif args.command == "extract-performance":
             from .performance_pipeline import run
+        elif args.command == "detect-events":
+            from .event_pipeline import run
         else:
             from .pipeline import run
         return run(args)
     except (Exception, KeyboardInterrupt) as exc:
-        stage = {"associate-identities":"Stage05.3","extract-performance":"Stage05.4"}.get(args.command,"Stage05.2")
+        stage = {"associate-identities":"Stage05.3","extract-performance":"Stage05.4","detect-events":"Stage05.5"}.get(args.command,"Stage05.2")
         print(f"{stage} failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
