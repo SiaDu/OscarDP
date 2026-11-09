@@ -21,6 +21,7 @@ test = ["pytest>=8,<9"]
 stage05 = ["opencv-python-headless>=4.10,<5"]
 stage05-identity = ["opencv-python-headless>=4.10,<5", "onnxruntime>=1.20,<2", "onnx>=1.16,<2"]
 stage05-performance = ["opencv-python-headless>=4.10,<5", "pyarrow>=18,<24", "matplotlib>=3.9,<4"]
+stage06 = ["transformers>=4.51,<5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
