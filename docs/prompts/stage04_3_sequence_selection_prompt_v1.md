@@ -1,4 +1,4 @@
-# OscarDP Stage04.3 — LLM-assisted Performance Sequence Candidate Selection Prompt v1.1
+# OscarDP Stage04.3 — LLM-assisted Performance Sequence Candidate Selection Prompt v1.2
 
 ## Purpose
 
@@ -78,13 +78,13 @@ Each `sequence_candidates[]` entry:
 ### Three independent review axes (mandatory)
 Keep **selection/curation**, **actual continuous-video quality review**, and **downstream extraction** independent.
 
-- `selection_decision`: `pending_video_review` / `excluded_by_user` / `approved_after_video_review` / `rejected_after_video_review`. A user's preference-based exclusion is NOT proof a reviewer watched the complete video.
-- `video_review_status`: `not_reviewed` / `reviewed` / `needs_recheck`. Default `not_reviewed`. State what evidence was actually inspected rather than inferring it from manual curation.
+- `selection_decision`: `pending_video_review` / `approved_after_video_review` / `rejected_after_video_review`. **An explicit user/curator statement that they manually checked and rejected a segment IS a completed human review and must be recorded as `rejected_after_video_review`, not downgraded to an unreviewed preference exclusion.** Legacy `excluded_by_user` applies only to historical records whose review status is truly unknown, not to verified curator decisions.
+- `video_review_status`: `not_reviewed` / `reviewed` / `needs_recheck`. Default `not_reviewed` for model candidates. **When the curator explicitly confirms they have manually checked the sequence, set `reviewed`.** A curator's direct review report is sufficient; do not demand a separate frame-by-frame proof, reviewer form or quality report. If no detailed reason was given, leave the reason unknown.
 - `downstream_processing_status`: `not_assessed` / `not_linked_to_existing_processed_segment` / `existing_stage05_and_legacy_stage06_pilot` (or a documented actual processing stage). An older processed pilot does **not** imply approved sequence quality.
-- Record `selection_decision_source`, `video_review_basis` and a short decision note where relevant.
-- Retain a compact `candidate_review_register[]` of **every original sequence ID**, including excluded ones, so users and batch tools can audit all decisions. The full active `sequence_candidates[]` may exclude user-rejected candidates only if they are still represented in `human_rejected_sequences[]` and the register.
+- Record `selection_decision_source="user_manual_review"` and `video_review_basis="user_confirmed_manual_review"` for curator-confirmed decisions, with a short note and actual recording date. Do not invent a specific reason such as poor visibility, weak performance or lack of gaze.
+- Retain a compact `candidate_review_register[]` of **every original sequence ID**, including manually rejected ones, so future batches never confuse reviewed/rejected with pending. The active `sequence_candidates[]` may exclude user-rejected items only if they remain represented in `human_rejected_sequences[]` and the register with their **reviewed/rejected** status.
 - `review_plan` must exclude rejected/excluded IDs and must not automatically replace them with new candidates without an explicit reranking pass.
-- Count model candidates, active/pending, user-excluded, video-reviewed, video-approved, and existing-pilot-linked entries **separately**.
+- Count model candidates, active/pending, human-reviewed rejected, human-approved, and existing-pilot-linked entries **separately**. A curator-confirmed rejection must be included in `video_reviewed_sequences`.
 
 Do not silently upgrade candidates to `human_approved`, confuse existing Stage05 data with approval, or imply human video review happened. Store external source metadata once at the root and refer to IDs, not duplicate long reviews inside every candidate.
 
