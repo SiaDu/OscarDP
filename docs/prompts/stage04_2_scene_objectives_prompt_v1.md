@@ -1,4 +1,4 @@
-# OscarDP Stage04.2 — Film-wide Scene Character Objectives Prompt v1.3
+# OscarDP Stage04.2 — Film-wide Scene Character Objectives Prompt v1.4
 
 ## Purpose
 Analyse **every existing Stage04 scene** for scene-level character objectives, obstacles and supported dramatic tactics, using Stage04.1 for background. This analyses *story action*, not measured acting, AU, head movement, gaze direction/target or affect.
@@ -26,6 +26,7 @@ Secondary commentary may **inform a hypothesis**, but cannot override primary di
 7. Support each non-null claim with real **within-scene** Stage02 shot/dialogue references and/or screenplay PDF pages actually inspected. Screenplay pages are not film timestamps. Mark uncertainty where the draft and released-film evidence differ.
 8. **Protect narrative chronology**: late plot revelations, creator interviews or ending interpretations cannot prove what an early scene character/viewer knew. Distinguish story fact, character claim, possible tactic and outside reading.
 9. **Do not conflate** similarly named or connected institutions, missions, experiments or goals. Establish their aims, responsible parties, outcomes and relationships separately; say when the connection is uncertain.
+9a. **Violence and agency:** when one character initiates harm against another, identify the aggressor and the victim accurately. Do not euphemise active assault, coercion or killing as merely "stopping" or "controlling" the victim unless there is separate primary evidence of something the victim was actively doing that the agent sought to interrupt. Separate (a) the inferred purpose (e.g. protect a secret), (b) the obstacle/risk, (c) concrete enacted tactics or harm and (d) emotional or symbolic aftermath. A perpetrator's rationale is an **inference**, not an established fact unless directly stated. The victim's suffering or survival reflex is not automatically an independently pursued dramatic objective. Screenplay-specific physical actions remain script evidence until the finished film visuals are checked.
 10. Use `target_actor` only for an actor/character linked to the film's supplied Oscar eligibility data; other participants are `context_character` or `unknown`. Story protagonist status is not an automatic eligibility label. Keep interpretations `status="model_proposal"`.
 11. Attach `selected_sequence`, `selected_sequence_objective` and `selected_sequence_role` **only** where a selected excerpt was explicitly provided. The optional sub-sequence must lie within its Stage04 scene. No automatically invented candidate sequences.
 
