@@ -1,47 +1,54 @@
-# OscarDP Stage04.1 — Film-level Character Profile Prompt v1.0
+# OscarDP Stage04.1 — Film-level Character Profile Prompt v1.1
 
-## Task
-Create an evidence-linked film-level narrative character profile. This is CHARACTERISATION, not observed acting, facial motion or an emotion timeline.
+## Goal
+Generate a concise, evidence-linked **full-film character profile**, separating screenplay facts, film-story claims, the character's beliefs, research interpretation and third-party commentary. Use Uta Hagen (given circumstances, relationships, objectives/obstacles) and John Truby (desire/need/conflict) as theoretical inspiration, not as a purported standard JSON taxonomy. Do not infer facial acting, AU, head pose, gaze, stable expression habits or clinical diagnoses.
 
 ## Required inputs
-- Complete Stage02 movie JSON: dialogue, narrative, action and optional performance cues.
-- Complete Stage04 movie JSON: authoritative movie scenes, scene IDs, shot-to-scene mapping and unverified character links.
-- Original screenplay PDF when available. Record screenplay writer, draft, date and any discrepancies with the completed film.
-- Oscar acting nominees CSV, movie IMDb ID and intended character names.
-- Pilot: Bugonia tt12300742, Michelle, Teddy, Don.
+- Complete Stage02 film JSON (dialogue, narrative, screenplay-based cues).
+- Complete Stage04 film JSON (canonical edited-film scene IDs and narrative participants).
+- Original screenplay PDF where available, identifying its draft/date.
+- Oscar acting nominees CSV / exact IMDb movie ID to determine target_actor versus context_character.
+- Explicit characters to annotate. Bugonia pilot: MICHELLE, TEDDY, DON.
 
-## Research framing
-Adapt Uta Hagen's given circumstances, relationships, objectives and obstacles and John Truby's desire/need and conflict concepts into these FIVE OscarDP fields. This is a project-specific operationalisation, not a verbatim standard taxonomy:
-1. identity_context — identity and meaningful circumstances.
-2. beliefs_disposition — core beliefs and recurring tendencies with cross-scene evidence.
-3. dramatic_desire — long-term desire or need; allow changing goals and narrative spans.
-4. relationships — important interpersonal ties, dependence, opposition or power.
-5. dramatic_conflict — substantial contradictions and obstacles in the character's arc.
+## Web research: use when browsing is available
+Before final interpretation, search the film title/year together with character analyses and ending explanations. **Prioritise source quality**:
+1. Director/screenwriter interviews and other firsthand production commentary.
+2. Substantive reviews or analysis in established film publications (e.g. BFI Sight and Sound, RogerEbert.com).
+3. Other reviews or audience readings only as explicitly attributed viewpoints, never as narrative fact.
+Use a small diverse sample, normally 3–8 useful sources per film, rather than copying consensus or repeatedly searching each claim. Read the source; do not fabricate pages, URLs, quotes or interviews.
 
-Return only 1–3 meaningful claims per field. Unknown information must remain unknown; do not invent adjective inventories.
+For each useful external source save title, author (if known), publication, date (if known), URL, type (creator_interview / professional_criticism / other_interpretation) and a brief paraphrased contribution. Add these to an optional root `external_research[]`, with `source_id`. Every interpretation drawn from them must be **explicitly attributed**, and competing readings may coexist. An interview describes authorial intention, **not proof of the sole valid interpretation**. An external review cannot independently verify a screenplay gesture, exact shot timing, eye target or the character's objective.
 
-## Evidence and narrative-time rules
-- Ground every substantive claim in exact source locations: the 1-based PDF page number of the screenplay, the existing Stage04 scene ID and, when useful, Stage02 shot IDs. The PDF page number is NOT the page number printed in the screenplay body.
-- Mark how each claim is supported: screenplay_explicit, narrative_inference, insufficient_source_information, or evidence_boundary. Merely seeing the Stage02 label screenplay_explicit is not independent PDF verification.
-- A dated shooting-script draft is not a guaranteed transcript of the released film. Keep film shot timing and Stage04 scene boundaries authoritative, and disclose unsupported screenplay/film alignments.
-- Film-level analysis may include the ending and a later identity revelation. Record first_explicitly_revealed_in_stage04_scene on late-revealed claims. Do not leak those claims as audience-known information into earlier scene objectives.
-- Distinguish what a character sincerely believes, what the character claims to others, and what is established by the narrative. No clinical diagnoses or IQ judgments.
-- Exclude AU, Head, Gaze, facial expressivity, recurring actor gestures (such as hair-touching), emotion labels and actor performance techniques. These require the later video analysis.
-- Award selection: read the user CSV, handle pipe-delimited FilmId fields, and match the exact film ID with its nominee ID and character, rather than guessing from protagonist status. Pilot mapping in the provided CSV: Emma Stone, Michelle, Actress in a Leading Role, nominee (not winner). Teddy and Don are context_character, not inferior acting samples.
-- All candidate character identities and interpretive claims remain provisional.
+If browsing is unavailable, leave `external_research=[]` and identify the limitation. Do not silently invent web citations.
 
-## Output JSON
-Write one new file Stage04_1_<movie_id>.json; do not overwrite Stage04.
-Root: movie_id, stage="04.1", stage_name, stage_version, source_materials, eligibility_policy, claims_policy, profiles[], limitations[].
-Each profile: character_name, profile_scope, analysis_role (target_actor/context_character), actor_nominee (object or null), and the FIVE fields above.
-Each field contains claim objects with:
-- statement_en, statement_zh: equivalent brief English and Chinese claims.
-- basis, confidence (high/medium/low), status="model_proposal".
-- evidence_refs: list of sourced references with source="screenplay_pdf" and pdf_pages, source="stage04" and scene_ids, or source="stage02" and shot_ids.
-- dramatic_desire may have narrative_scope (start_scene_id, end_scene_id, note).
-- late-revealed claims may have first_explicitly_revealed_in_stage04_scene.
+## The five profile fields
+1. `identity_context` — identities, history, social position.
+2. `beliefs_disposition` — recurring stated beliefs and supported tendencies.
+3. `dramatic_desire` — long-term desires/needs, allowing multiple chronological spans.
+4. `relationships` — important interpersonal relationships.
+5. `dramatic_conflict` — major internal and external contradictions/obstacles.
 
-## Check before saving
-Verify source IDs actually exist, evidence pages fall inside the PDF, film IMDb IDs and nominee IDs match, source status is honest and claims are bilingual. Report important uncertainty, screenplay vs film discrepancies and limited coverage. No hashes, large validation framework, new model installation or modifications to Stage01–04.
+Keep 1–3 substantial claims per field. Each is a claim object:
+- `statement_en`, `statement_zh` (equivalent concise statements);
+- `basis` (screenplay_explicit / narrative_inference / insufficient_source_information / evidence_boundary);
+- `evidence_refs[]`: actual 1-based screenplay PDF page numbers and/or Stage04 scene IDs / Stage02 shot IDs;
+- `confidence` (high/medium/low), `status="model_proposal"`.
+- Optional `external_source_refs[]`: IDs of external sources informing an **interpretation**, not replacing primary evidence.
+- For evolving desires: optional `narrative_scope` with start/end scene IDs.
+- For later revelations: `first_explicitly_revealed_in_stage04_scene`.
 
-Specific Bugonia warning: the August 12, 2024 Draft Eight / Pink Shooting Script contains a major final-act revelation concerning Michelle. Stage04.1 may record it with a late-reveal marker. Stage04.2 for the earlier basement scene must NOT explain earlier dialogue as though this later reveal were already public knowledge.
+## Essential distinctions
+- **Source fact vs character claim vs analyst inference vs critical interpretation**: do not collapse into one truth. Record chronology and whose perspective each assertion represents. Film-level profiles can include late revelations, but later knowledge must not leak into earlier-scene interpretation.
+- A draft shooting script is not the edited movie. Stage04 scenes and Stage02 film times govern film alignment; screenplay PDF pages are separate text evidence.
+- **Never conflate nested or related experiments / institutions / aims.** For Bugonia specifically distinguish:
+  (A) Auxolith's **opioid-withdrawal drug clinical trial** involving Sandy, reported complications, corporate response and compensation (shooting-script PDF pp. 53–54, 64);
+  (B) the **Andromedan programme to alter humanity's inherited traits** to protect humanity/Earth, Sandy's claimed status as a test subject, and a late report of near-total programme failure (PDF pp. 88–89, 100–101).
+  They may be connected in story logic; **do not assert they are completely independent or precisely identical without direct support**. Keep distinct goals, responsible institutions, outcomes and evidential status. A corporate trial's failure is NOT the same claim as failure of the species-level programme.
+- The final-act extraterrestrial reveal must not retroactively make early dialogue a verified expression of secret knowledge.
+- Oscar award category is eligibility context, not a hierarchy of acting quality. For supplied Bugonia CSV: Emma Stone / Michelle is target_actor; Teddy and Don are context_character.
+
+## Deliverable
+One UTF-8 `Stage04_1_<movie_id>.json`, **without changing Stage04**. Root: movie_id, stage="04.1", stage_name, stage_version, source_materials, eligibility_policy, claims_policy, profiles[], limitations[], optional external_research[].
+Each profile: character_name, profile_scope, analysis_role, actor_nominee (or null), five fields.
+
+Before saving check actual scene IDs, PDF pages and award matching, bilingual consistency, chronology, distinct experiments and honest uncertainty. Do not add hash/release bureaucracy or modify upstream stages.
