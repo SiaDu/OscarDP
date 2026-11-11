@@ -1,56 +1,91 @@
-# OscarDP Stage04.2 — Scene Character Objectives Prompt v1.0
+# OscarDP Stage04.2 — Film-wide Scene Character Objectives Prompt v1.1
 
 ## Task
-Analyse scene-level dramatic objectives and tactics for the selected film scene or its selected sub-sequence, using actual screenplay and Stage02/04 evidence. This is narrative intention analysis, NOT affect inference or observed actor performance.
 
-## Required inputs
-- Complete Stage02 movie JSON, especially dialogue in and around the selected scene.
-- Complete Stage04 movie JSON: the authoritative scene ID, scene start/end, shot IDs, and character associations.
-- Stage04.1 Film-level Character Profiles.
-- Original screenplay PDF (recommended, and provided in the Bugonia pilot), with its draft/date.
-- Exact user-selected scene ID and optional movie-global selection start/end.
-- Oscar award/nominee mapping or a supplied target_actor/context_character list.
-Pilot: movie tt12300742, scene_000021, full film time 1322.237582–1766.306207, selected 1432.013915–1547.212332, Michelle/Teddy/Don.
+Generate one evidence-linked Scene Character Objectives JSON for the **entire film** using **every Scene in Stage04**. Stage04 scene boundaries, IDs and narrative participants are authoritative and must remain unchanged. Do not treat a Stage06 pilot clip as the only scene to annotate.
 
-## Definitions (following acting/script analysis, adapted from Uta Hagen)
-- scene_objective: what this particular character wants to obtain or change in the FULL Stage04 scene; formulate as a playable action, not an emotion.
-- obstacle: what prevents the character from achieving that objective.
-- tactic: a concrete narrative or dialogue action attempted to pursue the objective (challenge, persuade, reassure, assert authority, threaten, negotiate, etc.), not automatically proof of corresponding visual performance.
-- selected_sequence_objective: the character's aim IN THE SELECTED EXCERPT; set separately only to clarify a specific local objective. The selected excerpt may be shorter than the Stage04 scene.
-- The character can retain an objective while switching tactics. Do not create a new scene on each edit or dialogue-topic shift.
+This is a narrative analysis of objectives, obstacles and dramatic tactics. It is **not** facial-performance recognition, emotion detection, AU, head-pose or gaze-target prediction.
 
-## Crucial evidence boundaries
-1. Use Stage04 existing scene IDs; NEVER resegment the scene or pretend the Stage06 selected excerpt is a new Stage04 scene.
-2. Read the full scene AND relevant preceding narrative before analysing the selected excerpt. Align film words/timestamps via Stage02 shots. Do not transfer screenplay timestamps directly to film.
-3. A screenplay scene heading is not automatically identical to the Stage04 edited-film scene. For the pilot, the relevant screenplay basement confrontation is marked scene 44; Stage04 calls it scene_000021.
-4. Use Stage04.1's long-term desire as context, but DO NOT repeat long-term goals as the current scene objective. Crucially, exclude later-revealed plot knowledge from contemporaneous interpretation of an earlier scene. Distinguish the character's own belief from verified story truth.
-5. Output one independently supported objective and obstacle per participating character. If an objective is not demonstrated (for example, a silent context character), say unknown or limited; do not fabricate a hidden intent or speech.
-6. Each tactic must point to actual screenplay pages and/or Stage02 movie shot IDs. Where a tactic has a film time interval, derive it from existing Stage02/04 timestamps, not PDF page offsets or guessed timing. Timing is approximate if the evidence is shot-level rather than word-aligned.
-7. Do not label emotion, mental state, gaze target/direction, AU, head pose or effect caused by an observed gesture. Those belong to Stage05/Gaze Enrichment/Stage06.
-8. The supplied nominee CSV determines target_actor, not film protagonist/supporting-character importance. A context character can have meaningful narrative objectives without becoming the dataset's award-eligible target.
-9. A 2024 shooting-script draft and the final film can differ. Do not silently replace film dialogue or invent cross-source alignment. Label unsupported differences.
-10. No unsupported causal assertions or medical diagnoses. Every output remains status="model_proposal".
+## Inputs
 
-## Output JSON
-Write one new Stage04_2_<movie_id>.json without overwriting Stage04 or Stage04.1.
-Root: movie_id, stage="04.2", stage_name, stage_version, source_materials, time_reference, analysis_policy, scene_objectives[], limitations[].
-Each entry in scene_objectives[]:
-- scene_id, scene_title, full_scene_range (start/end/first_shot_id/last_shot_id).
-- selected_sequence (start/end/source/first_overlapping_shot/last_overlapping_shot/selection_is_whole_scene), or null when no excerpt specified.
-- narrative_participants, characters[].
+Required:
+- Complete Stage02 movie JSON: dialogue, narrative and related actions.
+- Complete Stage04 movie JSON: `scenes[]`, `shots[]`, scene time boundaries, participants, and shot-to-scene mapping.
+- Stage04.1 Film-level Character Profile JSON.
+- Exact `movie_id`, and Oscar nomination metadata if target actors must be marked.
+
+Recommended:
+- Original screenplay PDF, identifying its draft/date; do not treat a draft as the final-cut transcript.
+- A manually selected Sequence (optional), with its Stage04 `scene_id` and **movie-global** start/end seconds. Only enrich the selected part when actually provided; all other scenes still receive full-scene records.
+
+Bugonia pilot inputs: `tt12300742`; Stage04 has **80 scenes**; the original screenplay is Will Tracy's 2024-08-12 Draft Eight shooting script. Existing selected sequence is inside `scene_000021`, 1432.013915–1547.212332 s.
+
+## Definitions
+
+Adapt Uta Hagen's Objective / Obstacle / Action distinction to the OscarDP film timeline.
+
+- `scene_objective`: what a particular character tries to obtain, change or prevent **within that Stage04 scene**; should be playable and specific, not an emotion or the character's lifelong desire.
+- `obstacle`: another character, condition or constraint obstructing that goal.
+- `tactics`: actions through dialogue or narrative events that advance the goal (e.g., persuade, challenge, reassure, conceal, demand, delay). Describe intended story action; do **not** claim measured acting, facial expression or actual gaze.
+- `selected_sequence_objective` (optional): a narrower goal in a supplied subscene excerpt. Do not assume it exists for all scenes.
+- Changing tactic is **not** proof of an emotion transition or a new Stage04 scene.
+
+## Full-film workflow — mandatory
+
+1. Load and enumerate **all** Stage04 `scenes[]` in their existing order. Create exactly **one** `scene_objectives[]` entry **per Stage04 scene**, even a title, transition, flashback, intercut, montage or credits section.
+2. Copy each entry's original `scene_id`, `title`, `scene_type`, time range, first/last shot ID and `narrative_participants`. Do not resegment or revise original Stage04.
+3. For each listed `narrative_participant`, create one `characters[]` record and determine whether their **own actionable goal** is supported in that scene. The participant list may include voice-over narrators, memories, offscreen persons, incapacitated characters, groups or an individual appearing only in an insert. **Participation does not imply visible face, a speaking turn or an independent goal.**
+4. For supported participants, provide a concise objective, an obstacle if evidenced, and up to three salient tactics **only if supported**. For insufficient evidence, write `scene_objective: null`, `obstacle: null`, `tactics: []`, and `coverage_status: "insufficient_evidence"`. For titles, credits or anonymous groups with no playable individual goal, use `not_applicable`. Never fill blanks with invented hidden motivations.
+5. Read nearby dialogue and scene summaries to infer specific goals, not merely paraphrase the scene title. Prefer directly evidenced action. Distinguish claims based on Stage02 dialogue from interpretive summaries of Stage04. Point to exact source IDs.
+6. Original screenplay PDF pages are useful independent text evidence **only where the matching scripted passage has been checked**. The shooting-script scene heading is not the Stage04 scene ID; screenplay pages are not movie timestamps. Preserve draft-versus-final-cut uncertainty.
+7. Use Stage04.1 as character background, not a template for copying the film-level long-term goal into every scene. **Protect chronology:** later plot revelations cannot retroactively establish what the audience or a character knew in earlier scenes. Distinguish the speaker's belief from established narrative facts.
+8. Explicitly assign `analysis_role="target_actor"` only to an award-eligible actor matched against the supplied **FilmId + nominee/character** data. Other participants are `context_character` even if important or playing a narrative lead. Do not use protagonist/supporting importance to rank acting quality.
+9. Include detailed `selected_sequence` and `selected_sequence_objective` only for explicitly provided clips. If one is already annotated, preserve its reviewed/proposed work rather than collapsing full-scene coverage back to one pilot. All other scenes use `selected_sequence: null`.
+10. Keep all inferential claims `status="model_proposal"`. Do not invent human review, verified actor IDs, precise gaze targets, actual emotional causes or exact action onset times.
+
+## Output: a single separate JSON
+
+Write `Stage04_2_<movie_id>.json`. Never overwrite Stage04, Stage04.1, Stage02 or earlier processing.
+
+Root:
+- `movie_id`, `stage="04.2"`, `stage_name="Film-wide Scene Character Objectives"`, `stage_version`
+- `source_materials`, `coverage`, `time_reference`, `analysis_policy`
+- `scene_objectives[]` in **the exact order and number of Stage04 scenes**
+- `limitations[]`
+
+Each `scene_objectives[]` record:
+- `scene_id`, `scene_title`, `scene_type`
+- `full_scene_range`: movie-global start/end seconds, first/last Stage04 shot ID
+- `selected_sequence`: object (only if explicitly supplied and within the full scene), otherwise null
+- `narrative_participants`: copied from Stage04
+- `coverage_status`: objective_annotated / insufficient_objective_evidence / non_dramatic
+- `characters[]`: **one record per narrative participant**, including unknown/no-objective records
+
 Each character:
-- character_name, analysis_role, scene_objective, obstacle, tactics[], selected_sequence_objective (nullable), selected_sequence_role, uncertainty.
-- objective/obstacle/tactic records: statement_en, statement_zh, basis, confidence, evidence_refs, status="model_proposal".
-- Each optional movie_time_range is movie-global seconds and must remain inside the selected Stage04 scene.
-- Do not require a separate tactic in every shot; be explicit when the target is an attentive listener, an offscreen participant, or has insufficient evidence.
+- `character_name`, `analysis_role`, `coverage_status` (supported / limited_evidence / insufficient_evidence / not_applicable)
+- `scene_objective`: claim object or null
+- `obstacle`: claim object or null
+- `tactics[]`: zero or more claim objects
+- `selected_sequence_objective`: claim object or null
+- `selected_sequence_role`: value or null
+- `uncertainty`: short grounded statement
 
-## Mandatory pilot-specific checks
-- Michelle: the selected 115s runs from reclaiming the floor to presenting legal and corporate consequences and offering a mutual deal. The first Teddy reaction after the full speech is OUTSIDE the selected interval.
-- Teddy: visible in the scene and addressed by Michelle, but do not invent acceptance of her bargain or independent speaking tactics during a period mostly spent listening.
-- Don: visible in some sampled shots and follows Teddy's directions, but has little independent dialogue in the selected 115s. Do not invent strong motivations or a low-intelligence diagnosis.
-- Compare screenplay pages 24–30 with Stage02 shots 202–253. Movie times come from Stage02/04, which cover the full scene; selected excerpt overlaps shots 211–223.
-- The final-act Michelle revelation in Stage04.1 does NOT authorise post-hoc motive assertions in this early interrogation sequence.
-- Confirm target mapping: Michelle / Emma Stone is the sole matching Oscar acting nominee in the supplied CSV; Teddy and Don are context.
+Claim object:
+- `statement_en`, `statement_zh`: aligned concise bilingual prose
+- `basis`: stage02_dialogue_and_stage04_context / stage04_narrative_inference / screenplay_explicit as appropriate
+- `evidence_refs[]`: actual Stage04 `scene_ids`, Stage02 `shot_ids` and/or **checked** screenplay `pdf_pages`
+- `confidence`: high / medium / low, `status="model_proposal"`
+- Optional `movie_time_range` may only be supplied with justified film-time evidence; never calculate it from screenplay pages.
 
-## Final check
-Validate JSON syntax, exact IDs, nonempty evidence per claim, selected time within full scene, no out-of-range tactics, bilingual descriptions and honest uncertainty. Keep Stage01–06 pre-existing outputs untouched. No unnecessary hash/release bureaucracy or extra project framework.
+## Final checks
+
+- The count and ordered list of output scenes must **exactly equal Stage04** (Bugonia: 80/80).
+- Original `scene_id`, scene boundaries, shot boundaries and `narrative_participants` must match Stage04 exactly.
+- All referenced `shot_ids` belong to their indicated Stage04 scene; all PDF page numbers are 1-based and within the actual document; all movie ranges fit the corresponding scene.
+- Characters lacking goal evidence remain explicit null; no duplicate character entries; every supported objective has sourced evidence.
+- Preserve the existing detailed Bugonia `scene_000021` (full scene 1322.237582–1766.306207 s; selected excerpt 1432.013915–1547.212332 s).
+- Report how many scenes and character-scene entries were annotated versus left null; do not present 80 scene records as 80 confidently inferred objectives.
+- Character identities and inferred goals are not ground truth.
+- No hashes, approval bureaucracy, unnecessary new validation framework or edits to upstream stages.
+
+This prompt is an OscarDP-specific operationalisation of acting/script analysis, not a claim that Hagen defined the above JSON taxonomy.
