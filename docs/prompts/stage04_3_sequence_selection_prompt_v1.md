@@ -1,4 +1,4 @@
-# OscarDP Stage04.3 — LLM-assisted Performance Sequence Candidate Selection Prompt v1.0
+# OscarDP Stage04.3 — LLM-assisted Performance Sequence Candidate Selection Prompt v1.1
 
 ## Purpose
 
@@ -14,7 +14,7 @@ Required:
 
 Recommended:
 - Film title/year, production screenplay PDF (version/date; textual context only).
-- Optional prior Stage05/06 pilot selections and their exact film-global time boundaries; they are **not human-approved** merely because they exist.
+- Optional prior Stage05 / legacy Stage06 acting-pilot selections (conceptually Stage07 in the new pipeline) and their exact film-global time boundaries; they are **not human-approved** merely because they exist.
 - Optional runtime review budget (maximum candidate count, preferred durations, priority first-batch count).
 
 If a required source is absent, report the limitation rather than invent the contents. Stage02/04 film timing—not screenplay page numbers or web clips—is the authority for local sequence boundaries.
@@ -60,7 +60,7 @@ One independent UTF-8 JSON: `Stage04_3_<movie_id>.json`. Do not change Stage01�
 Root fields:
 - `movie_id`, `movie_name` (if known), `stage="04.3"`, `stage_name`, `stage_version`, `generated_on`;
 - `target_performances[]` (actor, character, award evidence, exact eligibility scope and identity status);
-- `inputs`, `policy`, `external_research[]`, `coverage`, `scene_screening[]`, `sequence_candidates[]`, `review_plan`, `limitations[]`.
+- `inputs`, `policy`, `external_research[]`, `coverage`, `scene_screening[]`, `sequence_candidates[]`, `review_plan`, `candidate_review_register[]`, `review_state_policy`, optional `human_rejected_sequences[]`, `limitations[]`.
 
 Each `scene_screening[]` entry: `scene_id`, whether the target is a Stage04 narrative participant, screening decision and IDs of selected candidates, possibly empty.
 
@@ -72,10 +72,21 @@ Each `sequence_candidates[]` entry:
 - `primary_evidence`: Stage04 scene, Stage04.2 character/goal, actual in-range Stage02 dialogue-shot IDs, sampled Stage03/04 character-candidate visual-shot IDs;
 - `external_evidence[]`: source IDs and an honest role such as `candidate_recall_or_context_only`;
 - `visual_suitability`: estimated sampled-shot coverage and evidence limitations;
-- `limitations_zh`, `status="model_candidate"`, `human_review_status="not_reviewed"`;
+- `limitations_zh`, `status="model_candidate"`, plus independent `selection_decision`, `video_review_status`, `downstream_processing_status`; legacy `human_review_status` may be retained for backward compatibility but is not the canonical decision field;
 - optionally `previous_stage06_pilot` for known reused excerpts.
 
-Do not silently upgrade candidate to `human_approved` or imply human review happened. Store source metadata once at the root and refer to source IDs, not duplicate long reviews inside every candidate.
+### Three independent review axes (mandatory)
+Keep **selection/curation**, **actual continuous-video quality review**, and **downstream extraction** independent.
+
+- `selection_decision`: `pending_video_review` / `excluded_by_user` / `approved_after_video_review` / `rejected_after_video_review`. A user's preference-based exclusion is NOT proof a reviewer watched the complete video.
+- `video_review_status`: `not_reviewed` / `reviewed` / `needs_recheck`. Default `not_reviewed`. State what evidence was actually inspected rather than inferring it from manual curation.
+- `downstream_processing_status`: `not_assessed` / `not_linked_to_existing_processed_segment` / `existing_stage05_and_legacy_stage06_pilot` (or a documented actual processing stage). An older processed pilot does **not** imply approved sequence quality.
+- Record `selection_decision_source`, `video_review_basis` and a short decision note where relevant.
+- Retain a compact `candidate_review_register[]` of **every original sequence ID**, including excluded ones, so users and batch tools can audit all decisions. The full active `sequence_candidates[]` may exclude user-rejected candidates only if they are still represented in `human_rejected_sequences[]` and the register.
+- `review_plan` must exclude rejected/excluded IDs and must not automatically replace them with new candidates without an explicit reranking pass.
+- Count model candidates, active/pending, user-excluded, video-reviewed, video-approved, and existing-pilot-linked entries **separately**.
+
+Do not silently upgrade candidates to `human_approved`, confuse existing Stage05 data with approval, or imply human video review happened. Store external source metadata once at the root and refer to IDs, not duplicate long reviews inside every candidate.
 
 ## End-of-run quality checks
 
@@ -85,5 +96,5 @@ Do not silently upgrade candidate to `human_approved` or imply human review happ
 - Each primary evidence reference points to existing input rows; every external source ID resolves to a real recorded URL. If an external article is generally about the film, it must not be credited as discussing the candidate's exact scene.
 - Report total candidate count, distinct scenes, total runtime, priority/channel mix, first-batch count, and **human-approved count (default zero)**.
 - Check diversity: at least consider quiet/listening/nonverbal material, not just speeches, violence and heavily reviewed scenes.
-- Clearly label sampled-frame limitations and no-new-CV status. Stage05, Gaze Direction/Target and Stage06 are **downstream, after video review**.
+- Clearly label sampled-frame limitations and no-new-CV status. Stage05 performance extraction, planned Stage06 cross-shot Gaze Target Estimation and Stage07 hierarchical acting are **downstream of video review**.
 - Avoid new hashing, release approvals or gratuitous pipeline machinery for this research prototype.
