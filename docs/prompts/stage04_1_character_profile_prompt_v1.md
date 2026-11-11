@@ -1,54 +1,53 @@
-# OscarDP Stage04.1 — Film-level Character Profile Prompt v1.1
+# OscarDP Stage04.1 — Film-level Character Profile Prompt v1.2
 
-## Goal
-Generate a concise, evidence-linked **full-film character profile**, separating screenplay facts, film-story claims, the character's beliefs, research interpretation and third-party commentary. Use Uta Hagen (given circumstances, relationships, objectives/obstacles) and John Truby (desire/need/conflict) as theoretical inspiration, not as a purported standard JSON taxonomy. Do not infer facial acting, AU, head pose, gaze, stable expression habits or clinical diagnoses.
+## Purpose
+Create concise, evidence-linked **film-level narrative character profiles**. This concerns a character's circumstances, beliefs, goals, relationships and dramatic conflicts—not observed acting, facial motion, gaze, AU or emotion detection.
 
-## Required inputs
-- Complete Stage02 film JSON (dialogue, narrative, screenplay-based cues).
-- Complete Stage04 film JSON (canonical edited-film scene IDs and narrative participants).
-- Original screenplay PDF where available, identifying its draft/date.
-- Oscar acting nominees CSV / exact IMDb movie ID to determine target_actor versus context_character.
-- Explicit characters to annotate. Bugonia pilot: MICHELLE, TEDDY, DON.
+Use Uta Hagen's given circumstances, relationships, objectives and obstacles, and John Truby's desire/need/conflict, as theoretical inspiration. The five output fields below are **OscarDP's own research schema**, not a verbatim taxonomy from either author.
 
-## Web research: use when browsing is available
-Before final interpretation, search the film title/year together with character analyses and ending explanations. **Prioritise source quality**:
-1. Director/screenwriter interviews and other firsthand production commentary.
-2. Substantive reviews or analysis in established film publications (e.g. BFI Sight and Sound, RogerEbert.com).
-3. Other reviews or audience readings only as explicitly attributed viewpoints, never as narrative fact.
-Use a small diverse sample, normally 3–8 useful sources per film, rather than copying consensus or repeatedly searching each claim. Read the source; do not fabricate pages, URLs, quotes or interviews.
+## Per-film inputs (supplied at runtime)
+- **Required:** `movie_id`, complete Stage02 JSON and Stage04 JSON.
+- **Recommended:** film title and release year, original screenplay PDF (identify draft and date), and Oscar acting-nominee metadata for target-actor identification.
+- **Characters:** explicit `target_characters`, if given. Otherwise select the film's matched Oscar acting-nominated characters and major interacting characters supported by Stage02/04. Do not fabricate an actor–character mapping.
+- If a source is missing, state the limitation and leave unsupported claims unresolved; do not pretend to have read it.
 
-For each useful external source save title, author (if known), publication, date (if known), URL, type (creator_interview / professional_criticism / other_interpretation) and a brief paraphrased contribution. Add these to an optional root `external_research[]`, with `source_id`. Every interpretation drawn from them must be **explicitly attributed**, and competing readings may coexist. An interview describes authorial intention, **not proof of the sole valid interpretation**. An external review cannot independently verify a screenplay gesture, exact shot timing, eye target or the character's objective.
+Do not hard-code any film, character, award year, source page, scene ID, scene count or plot detail into this prompt.
 
-If browsing is unavailable, leave `external_research=[]` and identify the limitation. Do not silently invent web citations.
+## External research
+When browsing is available, search the film title/year and relevant character/story interpretations **before finalising profiles**. Use a small, diverse set of relevant sources; prioritise:
+1. Director, screenwriter or other firsthand creator interviews.
+2. Substantive professional film criticism.
+3. Other audience interpretations, clearly attributed as opinions.
 
-## The five profile fields
-1. `identity_context` — identities, history, social position.
-2. `beliefs_disposition` — recurring stated beliefs and supported tendencies.
-3. `dramatic_desire` — long-term desires/needs, allowing multiple chronological spans.
-4. `relationships` — important interpersonal relationships.
-5. `dramatic_conflict` — major internal and external contradictions/obstacles.
+Read actual sources; record `source_id`, title, author (if known), publication, publication date (if known), URL, `source_type` (`creator_interview`, `professional_criticism`, `other_interpretation`) and a short paraphrased contribution in `external_research[]`. Deduplicate overlapping viewpoints. Do not invent sources or citations.
 
-Keep 1–3 substantial claims per field. Each is a claim object:
-- `statement_en`, `statement_zh` (equivalent concise statements);
-- `basis` (screenplay_explicit / narrative_inference / insufficient_source_information / evidence_boundary);
-- `evidence_refs[]`: actual 1-based screenplay PDF page numbers and/or Stage04 scene IDs / Stage02 shot IDs;
-- `confidence` (high/medium/low), `status="model_proposal"`.
-- Optional `external_source_refs[]`: IDs of external sources informing an **interpretation**, not replacing primary evidence.
-- For evolving desires: optional `narrative_scope` with start/end scene IDs.
-- For later revelations: `first_explicitly_revealed_in_stage04_scene`.
+Creator commentary can illuminate creative intent but does not establish the sole valid reading. Film criticism is **secondary interpretation**, never proof of dialogue, a gesture, objective, gaze target or exact shot timing. Where major readings conflict, attribute each and preserve the disagreement. If browsing is unavailable, set `external_research=[]` and note this limitation.
 
-## Essential distinctions
-- **Source fact vs character claim vs analyst inference vs critical interpretation**: do not collapse into one truth. Record chronology and whose perspective each assertion represents. Film-level profiles can include late revelations, but later knowledge must not leak into earlier-scene interpretation.
-- A draft shooting script is not the edited movie. Stage04 scenes and Stage02 film times govern film alignment; screenplay PDF pages are separate text evidence.
-- **Never conflate nested or related experiments / institutions / aims.** For Bugonia specifically distinguish:
-  (A) Auxolith's **opioid-withdrawal drug clinical trial** involving Sandy, reported complications, corporate response and compensation (shooting-script PDF pp. 53–54, 64);
-  (B) the **Andromedan programme to alter humanity's inherited traits** to protect humanity/Earth, Sandy's claimed status as a test subject, and a late report of near-total programme failure (PDF pp. 88–89, 100–101).
-  They may be connected in story logic; **do not assert they are completely independent or precisely identical without direct support**. Keep distinct goals, responsible institutions, outcomes and evidential status. A corporate trial's failure is NOT the same claim as failure of the species-level programme.
-- The final-act extraterrestrial reveal must not retroactively make early dialogue a verified expression of secret knowledge.
-- Oscar award category is eligibility context, not a hierarchy of acting quality. For supplied Bugonia CSV: Emma Stone / Michelle is target_actor; Teddy and Don are context_character.
+## Five dimensions (per character)
+1. `identity_context`: identity, relevant personal history and social position.
+2. `beliefs_disposition`: repeatedly supported beliefs and tendencies, not transient moods or diagnoses.
+3. `dramatic_desire`: long-term desires and needs; allow multiple goals and changes across narrative phases.
+4. `relationships`: meaningful interpersonal ties, dependence, power and opposition.
+5. `dramatic_conflict`: major internal/external contradictions and obstacles.
 
-## Deliverable
-One UTF-8 `Stage04_1_<movie_id>.json`, **without changing Stage04**. Root: movie_id, stage="04.1", stage_name, stage_version, source_materials, eligibility_policy, claims_policy, profiles[], limitations[], optional external_research[].
-Each profile: character_name, profile_scope, analysis_role, actor_nominee (or null), five fields.
+Prefer a few meaningful, supported claims per dimension, but **do not impose a fixed claim count** when the narrative has distinct phases. Use empty arrays for unsupported dimensions; never fill fields for symmetry.
 
-Before saving check actual scene IDs, PDF pages and award matching, bilingual consistency, chronology, distinct experiments and honest uncertainty. Do not add hash/release bureaucracy or modify upstream stages.
+Each claim includes `statement_en`, `statement_zh`, `basis`, `evidence_refs[]`, `confidence` (`high`/`medium`/`low`) and `status="model_proposal"`. Use `basis` values `screenplay_explicit`, `stage02_dialogue`, `stage04_context` or `narrative_inference` as appropriate. Optional `external_source_refs[]` may inform **interpretation**, never replace primary evidence. For evolving goals, include optional `narrative_scope` with original Stage04 start/end scene IDs; for a revelation, include optional `first_explicitly_revealed_in_stage04_scene`.
+
+## Evidence and interpretation rules
+- **Distinguish** source-established events, a character's claims, the character's beliefs, analyst inference and attributed third-party interpretation. Avoid treating a claim within the story as independent fact.
+- Link primary claims to existing Stage02 shot/dialogue IDs, Stage04 scene IDs, and/or **actually checked** screenplay PDF pages (1-based PDF page number, not printed script page). Only use `screenplay_explicit` after reading the original script.
+- A screenplay draft may differ from the edited film. Use Stage04 IDs and Stage02 movie timestamps for the film; do not infer them from screenplay scene numbers or pages.
+- **Protect narrative chronology:** film-level profiles may include a later revelation, but must mark when it becomes established. Never retroactively assume an earlier scene's participants or audience knew it. If a character's private knowledge is uncertain, state that uncertainty.
+- **Disambiguate overlapping organisations, projects, experiments and causal chains**. Where two activities are related, record their distinct stated aims, agents, methods, outcomes and evidence before interpreting their relationship. Do not collapse them into one event or assert independence without support.
+- No clinical diagnosis, intelligence judgment or stable movement/gaze habit inferred from dialogue or scene summaries.
+- Determine `analysis_role` from exact nominee/film/character mapping when available: `target_actor` for award-eligible performance; `context_character` for other relevant characters; `unknown` when unresolved. Story prominence and award category are not acting-quality scores.
+
+## Output
+Write **one separate file** `Stage04_1_<movie_id>.json`; never overwrite Stage04.
+
+Root: `movie_id`, `stage="04.1"`, `stage_name`, `stage_version`, `source_materials`, `eligibility_policy`, `claims_policy`, `profiles[]`, `external_research[]`, `limitations[]`.
+
+Each profile: `character_name`, `profile_scope`, `analysis_role`, `actor_nominee` (object or null), and the five dimensions above.
+
+Check the actual source IDs, PDF pages, character/nominee mappings, bilingual consistency, narrative chronology and competing interpretations. Keep all inferred results provisional. Do not modify prior stages or build a separate release/hash bureaucracy.
