@@ -18,7 +18,7 @@ from .inputs import EYES
 from .temporal import BINOCULAR_LIMIT_DEG, valid_blocks
 
 
-def plot(rows, events, output, *, eye_states=None):
+def plot(rows, events, output, *, eye_states=None, eye_label="Iris fit"):
     times = np.array([r["movie_timestamp_sec"] for r in rows])
     end = rows[-1]["source_next_timestamp_sec"]
     fig, axes = plt.subplots(6 + (eye_states is not None), 1, figsize=(13, 15 if eye_states is not None else 13), sharex=True, layout="constrained")
@@ -55,7 +55,7 @@ def plot(rows, events, output, *, eye_states=None):
         for block in valid_blocks(rows, [any(r[f"{side}_eye_x"] is None for side in ("left","right")) for r in rows]):
             ax.axvspan(times[block[0]], rows[block[-1]]["source_next_timestamp_sec"],
                        color="#858585", alpha=.14, zorder=0)
-        ax.set_title("Iris fit / local eye-corner width  |  green: stable candidate",loc="left")
+        ax.set_title(f"{eye_label} / local eye-corner width  |  green: stable candidate",loc="left")
         if ax.get_legend_handles_labels()[0]:
             ax.legend(loc="upper right",ncol=4,fontsize=8)
     qc = axes[-1]

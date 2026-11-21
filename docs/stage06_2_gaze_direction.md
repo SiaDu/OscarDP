@@ -77,3 +77,38 @@ OpenFace 的每眼局部 0–7 点属于虹膜拟合轮廓（见源码
 变化下的眼位候选可能被降为 unknown。附加头眼运动分类保留在
 `motion_events.json` 中供对照。代表帧是未来复核或估计器调用清单，
 没有执行新模型或测速。Pilot 保留原约 24 FPS。
+
+## MediaPipe Iris 同帧对照
+
+使用已安装的 `stage06-iris` 环境和本地 `models/mediapipe/face_landmarker.task`。
+复用上面命令中的六组 Stage04/05 路径，入口换成
+`uv --no-cache run --no-sync python -m oscardp.stage06_2.iris_comparison`，
+传入 `--model models/mediapipe/face_landmarker.task` 和
+`--output-dir reports/stage06_2/tt12300742/seq_006/mediapipe_comparison_001`。
+不需要 Stage06.2 的 `--eye-position`、`--track-id` 或 `--review-frames`。
+入口锁定 Bugonia 217 的三个时间窗，校验源视频 PTS 后在完整 RGB 图像上使用
+Face Landmarker IMAGE 模式。叠图的琥珀色为 MediaPipe，青色为 OpenFace。
+输出 `review.md` 的数值表自动生成，实际原片判读需另行记录。
+
+## v1.3 · MediaPipe 眼位时间线
+
+使用 `oscardp.stage06_2.mediapipe_pilot`，沿用上面同帧对照的模型和六组
+Stage04/05 输入参数。另加 `--shot-id shot_000217`，并把输出根改为
+`reports/stage06_2/tt12300742/seq_006/mediapipe_pilot_001`。每个镜头写入
+独立子目录，已存在的子目录会被拒绝。检查 217 后可用相同命令和模型依次
+运行 `shot_000211` 和 `shot_000214`。不要给旧版 Stage06.2 主入口传参。
+
+MediaPipe 使用已纠偏 Stage05.2 观测框，四边各扩展 25%，裁剪到真实图像。
+每帧以 Stage05.4 的全局时间和原片 PTS 匹配。模型在 RGB 裁切图上独立运行，
+坐标按裁切框的宽、高和原点映射回原帧，再用眼角连线归一化。输出
+`left/right` 表示画面左／右，分别对应 MediaPipe 的人物右／左；
+x 向画面右，y 向下，两轴均以各自眼角距离为单位。OpenFace 数值仍提供
+头姿、AU、相机坐标的 Gaze 和分解后的头相对 Gaze。眼位代理不是三维方向。
+
+QC 检查跟踪关联、眼顺序、眼裂开度、虹膜中心是否落在眼睑内、源闭眼候选及
+较大头部偏航（绝对值超过 0.5 rad）。相邻帧移动 ≥0.08 眼宽标跳变，
+另一眼没有 ≥0.04 眼宽的同步变化时屏蔽该步的眼位，但保留原拟合点。
+这些阈值用来发现明显错误，无法校准遮挡、透视压缩或真实虹膜误差。
+事件沿用 v1.2 的 0.05 s 局部中值及 0.03 眼宽稳定容差；新增单眼支持标记
+与双眼水平同向检查。缺失或眼支持改变切断比较，单眼候选不能视作双眼确认。
+代表帧可定期复核长稳定段，计时包括解码、推理和制图，没有运行替代 Gaze 模型。

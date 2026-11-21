@@ -40,8 +40,22 @@ def direction_distance(a,b):
     return max(angular_change(v,w) for v,w in zip(a,b,strict=True))
 
 
-def analyze(rows, source_events, adjunct):
-    mask = [all(r[k] is not None for k in POSITION_FIELDS) for r in rows]
+def eye_blocks(rows, support):
+    for block in valid_blocks(rows, [bool(s) for s in support]):
+        start = 0
+        for j in range(1,len(block)):
+            if support[block[j]] != support[block[start]]:
+                yield block[start:j], support[block[start]]
+                start = j
+        yield block[start:], support[block[start]]
+
+
+def analyze(rows, source_events, adjunct, *, allow_monocular=False):
+    support = [tuple(side for side in ("left","right")
+                     if all(r[f"{side}_eye_{a}"] is not None for a in "xy")) for r in rows]
+    if not allow_monocular:
+        support = [s if len(s)==2 else () for s in support]
+    mask = [bool(s) for s in support]
     states, motion, picks, accounted = [], [], {}, set()
 
     def select(index, reason):
@@ -51,20 +65,34 @@ def analyze(rows, source_events, adjunct):
     def state(kind, span, **fields):
         record = {"type":kind, **interval(rows,span), **fields}
         states.append(record)
-        for j in range(len(span)//2 if len(span)<48 else 12, len(span), 24 if len(span)>=48 else len(span)):
-            select(span[j], kind)
+        if allow_monocular:
+            select(span[len(span)//2], kind)
+            last = rows[span[0]]["movie_timestamp_sec"]
+            for i in span:
+                t = rows[i]["movie_timestamp_sec"]
+                if t-last >= 1.:
+                    select(i, kind+"_periodic")
+                    last = t
+        else:
+            for j in range(len(span)//2 if len(span)<48 else 12, len(span), 24 if len(span)>=48 else len(span)):
+                select(span[j], kind)
         return record
 
-    for block in valid_blocks(rows, mask):
-        values = np.array([[rows[i][key] for key in POSITION_FIELDS] for i in block])
+    for block, sides in eye_blocks(rows, support):
+        keys = [f"{side}_eye_{a}" for side in sides for a in "xy"]
+        values = np.array([[rows[i][key] for key in keys] for i in block])
+        def pos_distance(a,b):
+            return float(np.linalg.norm((a-b).reshape(-1,2),axis=1).max())
         times = np.array([rows[i]["movie_timestamp_sec"] for i in block])
         smooth = median_filter(times, values, .05)
         pos_states, gaze_states = [], []
-        for span, points in stable_runs(rows, block, smooth, POSITION_LIMIT, position_distance):
+        for span, points in stable_runs(rows, block, smooth, POSITION_LIMIT, pos_distance):
             accounted.update(span)
             centre = np.median(points,axis=0)
             pos_states.append((span, centre))
-            state("eye_position_stable", span, left_xy=centre[:2].tolist(), right_xy=centre[2:].tolist())
+            xy = dict(zip(sides,centre.reshape(-1,2).tolist(),strict=True))
+            state("eye_position_stable", span, left_xy=xy.get("left"), right_xy=xy.get("right"),
+                  **({"eye_support":list(sides)} if allow_monocular else {}))
             allowed = [r["eye_relative_usable"] and r["head_usable"] and i in span for i,r in enumerate(rows)]
             for sub in valid_blocks(rows, allowed):
                 rays = np.array([[rows[i]["gaze_direction"], *[unit([rows[i][k] for k in eye])
@@ -83,24 +111,28 @@ def analyze(rows, source_events, adjunct):
             i,j = before[-1], after[0]
             if rows[j]["movie_timestamp_sec"]-rows[i]["source_next_timestamp_sec"] > MAX_TRANSITION_S:
                 continue
-            legs = (b-a).reshape(2,2)
+            legs = (b-a).reshape(-1,2)
             lengths = np.linalg.norm(legs,axis=1)
-            peak = max(position_distance(v,a) for v in smooth[block.index(i):block.index(j)+1])
+            peak = max(pos_distance(v,a) for v in smooth[block.index(i):block.index(j)+1])
             if peak < POSITION_LIMIT and max(lengths)<POSITION_LIMIT:
                 continue
-            if min(lengths)>=POSITION_LIMIT and np.dot(*legs)>0 and np.linalg.norm(legs[0]-legs[1]) <= .05:
+            if (min(lengths)>=POSITION_LIMIT
+                    and (len(sides)==1 or (np.dot(*legs)>0 and np.linalg.norm(legs[0]-legs[1]) <= .05
+                         and (not allow_monocular or legs[0,0]*legs[1,0]>=0)))):
                 label = "eye_shift_candidate"
             elif max(lengths)<POSITION_LIMIT:
                 label = "eye_adjustment_candidate"
             else:
                 label = "unknown"
             # Large concurrent yaw/pitch can move the 2D projection within the fitted aperture.
-            head = head_change([rows[i][k] for k in POSE],[rows[j][k] for k in POSE])
-            if head > 6 and label == "eye_shift_candidate":
+            head = (head_change([rows[i][k] for k in POSE],[rows[j][k] for k in POSE])
+                    if rows[i]["head_usable"] and rows[j]["head_usable"] else None)
+            if (head is None or head > 6) and label == "eye_shift_candidate":
                 label = "unknown"
             motion.append({"type":label, **interval(rows,[i,j]), "eye_position_displacement":lengths.tolist(),
                            "head_change_deg":head,
-                           "reason":"possible_pose_projection_or_weak_binocular_support" if label=="unknown" else "iris_fit_proxy"})
+                           "reason":"possible_pose_projection_or_weak_binocular_support" if label=="unknown" else "iris_fit_proxy",
+                           **({"eye_support":list(sides)} if allow_monocular else {})})
             accounted.update(range(i,j+1))
             select(i,"before_eye_motion")
             select(j,"after_eye_motion")
