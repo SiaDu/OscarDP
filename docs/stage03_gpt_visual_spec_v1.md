@@ -49,7 +49,7 @@ Shot Scale is human-relative: use `not_applicable` when human scale cannot be ju
 
 Validate strict JSON schema, Stage01 inventory/order, unique Shot IDs/roles, image correspondence, valid person/object refs and evidence roles. If a programmatic validator is not run, say so. The GPT output may be a pilot and should be labelled as such.
 
-Stage04 combines Stage02 narrative and Stage03 visuals to construct actual movie scenes and *unverified* character candidates. Stage05 owns continuous-video identity verification, face tracking, AU and gaze; Stage06 owns explainable acting decisions.
+Stage04 combines Stage02 narrative and Stage03 visuals to construct actual movie scenes and *unverified* character candidates. Stage05 owns continuous-video identity verification, face tracking, AU and gaze; Stage07 owns explainable acting decisions; Stage06 cross-shot gaze targets remain Planned / Not Implemented.
 
 ## Batch processing and throughput policy (v1.0 clarification)
 

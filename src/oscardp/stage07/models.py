@@ -14,7 +14,7 @@ def audio_affect(inp, output, model_name, model_dir):
     model_dir = Path(model_dir)
     vad_path = model_dir / "silero_vad.jit"
     if not vad_path.exists():
-        raise RuntimeError(f"Silero VAD checkpoint missing: {vad_path}; see Stage06 documentation")
+        raise RuntimeError(f"Silero VAD checkpoint missing: {vad_path}; see Stage07 documentation")
     vad = torch.jit.load(str(vad_path), map_location="cpu").eval()
     vad.reset_states()
     waveform = load_audio(output / "scene_audio.wav")

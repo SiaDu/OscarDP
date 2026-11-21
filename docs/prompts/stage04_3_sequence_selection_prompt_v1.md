@@ -14,7 +14,7 @@ Required:
 
 Recommended:
 - Film title/year, production screenplay PDF (version/date; textual context only).
-- Optional prior Stage05 / legacy Stage06 acting-pilot selections (conceptually Stage07 in the new pipeline) and their exact film-global time boundaries; they are **not human-approved** merely because they exist.
+- Optional prior Stage05 / legacy Stage06 acting-pilot selections (now migrated to Stage07; historical data/field names unchanged) and their exact film-global time boundaries; they are **not human-approved** merely because they exist.
 - Optional runtime review budget (maximum candidate count, preferred durations, priority first-batch count).
 
 If a required source is absent, report the limitation rather than invent the contents. Stage02/04 film timing—not screenplay page numbers or web clips—is the authority for local sequence boundaries.

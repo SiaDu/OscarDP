@@ -65,7 +65,7 @@ def frame_sheets(output, duration, fps=2.):
 
 def annotated_review(output):
     """Place proposals in a side panel so the actor's face remains unobscured."""
-    data=json.loads((output/"stage06_prototype.json").read_text())
+    data=json.loads((output/"stage07_prototype.json").read_text())
     video=next(s for s in probe(output/"review_video.mp4")["streams"] if s["codec_type"]=="video")
     w,h=video["width"],video["height"]
     panel=480

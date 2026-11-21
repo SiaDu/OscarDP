@@ -1,6 +1,8 @@
 # OscarDP development rules
 
-OscarDP is a modular movie analysis pipeline. Stage01 processing and Stage02 preflight/validation are implemented; Stage02 annotations for 18 films were made through manual GPT. Stages03/04 have design contracts only; Stages05/06 remain planned. Do not implement new stages without an explicit request. Each stage owns an independent, versioned JSON output. Later stages reference stable IDs and never edit completed earlier-stage outputs. Keep source references and hashes traceable.
+OscarDP is a modular movie analysis pipeline. Stage01 processing and Stage02 preflight/validation are implemented; Stage02 annotations for 18 films were made through manual GPT. Stages03/04 have contracts and limited prototypes; Stage05 has selected-shot measurement/event pilots. Stage06 is reserved for Cross-shot Gaze Target Estimation (Planned / Not Implemented). The hierarchical affect/acting Legacy Prototype now belongs to Stage07 (`oscardp.stage07`). Do not implement new stages without an explicit request. Each stage owns an independent, versioned JSON output. Later stages reference stable IDs and never edit completed earlier-stage outputs. Keep source references and hashes traceable.
+
+Legacy Compatibility: preserve historical `reports/stage06/`, `models/stage06/` and Stage05.5/05.6 `stage06_event_preview.json` / `stage06_input_pilot.json` names and schemas. New acting runs use Stage07 names and `reports/stage07/`; never use the Stage06 namespace as an acting alias or write into historical Stage06 runs.
 
 Inspect existing code before changing it. Reuse working components where appropriate, keep modules small, avoid unnecessary abstractions, and keep CLI paths portable. Update relevant tests when interfaces change. Preserve zero-based frame indices, inclusive starts, exclusive ends, and accurate CFR/VFR timestamps.
 

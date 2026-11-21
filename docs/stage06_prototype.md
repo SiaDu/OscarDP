@@ -1,4 +1,4 @@
-> **Roadmap note (2026-11-11):** This document describes the original Stage06 *hierarchical affect/acting* prototype. Under the updated OscarDP research roadmap, this component is **conceptually Stage07**. The existing module `oscardp.stage06`, `models/stage06/`, `reports/stage06/`, tests and CLI examples below **have not been renamed** and remain the reproducible legacy implementation. **New Stage06** is reserved for proposed cross-shot Gaze Target Estimation; no such implementation is claimed. The future Stage07 affect hierarchy may be substantially redesigned.
+> **Legacy Prototype / archived Stage06 description (2026-11-11):** The hierarchical affect/acting module has migrated to **Stage07** (`oscardp.stage07`). The original commands below describe the pre-migration version and are not current entry points. See [current Stage07 instructions](stage07_prototype.md). Historical `reports/stage06/`, `models/stage06/` and Stage05 packet filenames are unchanged. New **Stage06 = Cross-shot Gaze Target Estimation, Planned / Not Implemented**. No algorithm redesign is part of this migration.
 
 # Stage06 Bugonia hierarchical acting research prototype
 

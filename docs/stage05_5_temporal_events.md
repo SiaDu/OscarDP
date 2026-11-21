@@ -182,7 +182,7 @@ may be only a censored portion of a larger action.
 - `known_interval_review.json`: the requested 35132–35160 inclusive numerical
   audit, generated **after** detection; no expected event count influences rules.
 - `stage06_event_preview.json`: structured Track/Identity/Event references only;
-  annotation generation false. It does not implement Stage06.
+  annotation generation false. **Legacy Compatibility:** this filename is retained for Stage07 acting consumers. It implements neither acting inference nor the new Stage06 cross-shot gaze stage (Planned / Not Implemented).
 - `event_qc_report.json`, `run_config.json`, `thresholds.json`, SHA256 manifest
   and four raw/filtered/event/mask/review timeline PNGs complete provenance.
 

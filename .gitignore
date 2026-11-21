@@ -15,6 +15,7 @@ __pycache__/
 # Local pretrained models
 /models/insightface/
 /models/stage06/
+/models/stage07/
 
 # Logs and temporary files
 *.log

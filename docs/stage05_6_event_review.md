@@ -1,4 +1,4 @@
-# Stage05.6 Event Review, Scene Integration & Stage06 Interface v1
+# Stage05.6 Event Review, Scene Integration & Stage07 Interface (Legacy Stage06 filenames) v1
 
 This module prepares local evidence and an immutable candidate packet. It does
 not detect events, call an LLM, infer emotion/intent or verify acting evidence.
@@ -54,7 +54,7 @@ The packet hierarchy is Movie → Scene → Shot → Face Track → Identity Clu
 summary, phases, censoring, QC, content hash and source evidence lookup.
 Source measurement masks and complete row references remain in Stage05.5;
 the viewer keeps an exact copy of the 25,012 processed trace rows, not in the
-Stage06 LLM input. No overlapping AUs are semantically merged. Pose and gaze
+Stage07 acting input (legacy Stage06 naming). No overlapping AUs are semantically merged. Pose and gaze
 are camera-relative within a Shot. No cross-shot interpolation is allowed.
 Unprocessed ranges and per-feature invalid source frames are explicit.
 
@@ -164,3 +164,7 @@ when the optional local research artifacts are absent. The standalone `verify`
 command rehashes inputs, checks source/event/scene/identity/time/mask/queue
 integrity, deterministic sampling and all encoded video frame counts. These
 checks establish software and provenance integrity, not human event accuracy.
+
+## Legacy Compatibility after Stage07 migration
+
+The acting consumer is now `oscardp.stage07`. `stage06_input_pilot.json`, its `stage06.candidate_input.v1` schema and existing packets are retained unchanged as legacy Stage05.6 contracts. They do not implement the new Stage06 cross-shot gaze stage, which remains Planned / Not Implemented. Historical run commands and outputs above are not rewritten.

@@ -2,7 +2,7 @@
 import copy
 from pathlib import Path
 
-from .inputs import MOVIE, load_sources, read, selection, write
+from .inputs import MOVIE, load_sources, read, read_prepared_input, selection, write
 from .media import annotated_review, extract, frame_sheets
 from .models import audio_affect
 from .temporal import (apply_relations, check_annotations, check_proposals, check_states,
@@ -10,6 +10,8 @@ from .temporal import (apply_relations, check_annotations, check_proposals, chec
 
 
 METHOD = {
+    "stage": "Stage07",
+    "legacy_prototype": "Stage06 hierarchical affect/acting (Legacy Compatibility)",
     "authoring": "current_interactive_assistant",
     "external_inference_api_calls": 0,
     "gemini_used": False,
@@ -22,6 +24,13 @@ METHOD = {
         "Saved proposals can be replayed, but a CLI cannot automatically rerun this interactive assistant's cognition.",
     ],
 }
+
+
+def check_output_directory(output):
+    """Keep historical Stage06 runs read-only even when explicitly passed to Stage07."""
+    historical = Path(__file__).resolve().parents[3] / "reports" / "stage06"
+    if Path(output).resolve().is_relative_to(historical):
+        raise ValueError("Legacy Compatibility: reports/stage06 is read-only; use a fresh reports/stage07 directory")
 
 
 def mapped_branches(branches, identity):
@@ -71,25 +80,26 @@ def review_subtitles(output, inp, states, events, target="review_video.srt"):
 
 def local_prepare(args):
     output=Path(args.output_dir)
+    check_output_directory(output)
     if output.exists():
         raise FileExistsError(f"Output exists; choose a fresh directory: {output}")
     data=load_sources(args.pilot_input)
     inp=selection(data,args.start,args.end)
     inp["video_fps"]=args.video_fps
     output.mkdir(parents=True,exist_ok=False)
-    print("Stage06 continuous media extraction",flush=True)
+    print("Stage07 continuous media extraction",flush=True)
     media=extract(inp,output)
     frame_sheets(output,inp["duration"],args.video_fps)
     write(output/"media_info.json",media)
     inp["audio_video_coverage"].update(audio=media["audio"],video=media["video"],actual_review_duration=media["review_duration"])
-    write(output/"stage06_input.json",inp)
-    print("Stage06 real local VAD/SER inference",flush=True)
+    write(output/"stage07_input.json",inp)
+    print("Stage07 real local VAD/SER inference",flush=True)
     try:
         audio=check_proposals(audio_affect(inp,output,args.ser_model,args.model_dir),"audio",(inp["start"],inp["end"]))
     except Exception as exc:
         audio=dict(status="failed",model=args.ser_model,proposals=[],error=f"{type(exc).__name__}: {exc}")
     write(output/"audio_affect.json",audio)
-    write(output/"local_preparation.json",dict(status="local_preparation",audio_status=audio["status"],external_api_calls=0,
+    write(output/"local_preparation.json",dict(stage="Stage07",status="local_preparation",audio_status=audio["status"],external_api_calls=0,
           next_step="Interactive assistant inspects masked frame sequence and source text, then saves actual annotation JSONs for assembly."))
     review_subtitles(output,inp,[],inp["stage05_event_references"])
     print(f"Local preparation saved: {output}; {len(audio['proposals'])} audio proposals",flush=True)
@@ -97,7 +107,7 @@ def local_prepare(args):
 
 
 def load_analysis(output, analysis):
-    inp=read(output/"stage06_input.json")
+    inp=read_prepared_input(output)
     bounds=inp["start"],inp["end"]
     branches={"audio":read(output/"audio_affect.json"), "video":read(analysis/"visual_affect.json"),
               "narrative":read(analysis/"narrative_affect.json")}
@@ -127,11 +137,11 @@ def group_document(analysis, group, branches, inp):
     return doc
 
 
-def report(output,inp,branches,groups,links,annotations,comparison):
+def report(output,inp,branches,groups,links,annotations,comparison,analysis):
     states=groups["C"]["states"]
     events=inp["stage05_event_references"]
     linked={l["event_id"] for l in links}
-    text="# Bugonia Stage06 A/B/C exploratory comparison\n\n"
+    text="# Bugonia Stage07 A/B/C exploratory comparison\n\n"
     text+="This is a modality-restricted comparison authored by the current assistant in one conversation, **not a blinded independent-model experiment**. A/B results were saved before C. The same model had earlier context and SER-label exposure, and a first preview exposed burned-in captions. Final visual evidence was re-inspected with captions masked. These limitations prevent a clean causal ablation claim. No external inference API was used.\n\n"
     text+="| Group | Inputs | States | Transition intervals | Annotations |\n|---|---|---:|---:|---:|\n"
     for g in ("A","B","C"):
@@ -147,7 +157,7 @@ def report(output,inp,branches,groups,links,annotations,comparison):
                 t=s["transition"]
                 text+=f"  Transition interval: {t['start']:.3f}–{t['end']:.3f}s; {t['description']}\n"
     (output/"comparison_abc.md").write_text(text,encoding="utf-8")
-    review=f"""# Stage06 Bugonia research prototype — model proposals
+    review=f"""# Stage07 Bugonia research prototype — model proposals
 
 Continuous excerpt: **{inp['start']:.6f}–{inp['end']:.6f} global seconds**, {inp['duration']:.6f}s, {inp['scene_id']}.
 Interruption, attempt to regain conversational control, and a complete negotiation offer.
@@ -163,21 +173,34 @@ Interruption, attempt to regain conversational control, and a complete negotiati
     for m,d in branches.items():
         review+=f"- {m}: {d['status']}, {len(d['proposals'])} proposals.\n"
     review+=f"\n## Results\n\n{len(states)} C affect states; {sum(s['transition'] is not None for s in states)} uncertain transition intervals; {len(linked)} distinct linked Stage05 events; {len(links)} overlap links; {len(annotations)} acting annotations. All annotations are model_proposal. All {len(events)} event references remain algorithm_candidate and human_verified=false. No source measurement values or earlier outputs were modified.\n\n"
-    review+="## Artifact fields\n\n- stage06_input.json: movie/scene ID, global start/end, candidate comparison, source paths and actual Stage02/04 context, original subtitle timing/speaker candidates, compact event references, actual media coverage.\n- audio_affect.json: actual four-class labels, all softmax scores, VAD speech intervals, descriptive RMS and uncertainty. No valence/arousal; no verified diarization or pitch/tremor measurements.\n- visual_affect.json: anonymous subjects, global intervals, observable_behaviour distinct from inferred_affect, visible_intervals and exact inspected-sheet references.\n- narrative_affect.json: text-only interpretations, proposed triggers and Shot/subtitle references. Screenplay cues are not visual observations.\n- visual_identity_map.json: subsequent appearance associations to Stage04 candidates; unverified.\n- affect_states.json: character states, affect/style separately, transitions, evidence IDs, conflicts and observation_coverage (audio/video/narrative_support/no_av_evidence). Coverage is proposal support, not continuous verified observation.\n- state_event_links.json: Python overlap and candidate checks, original Event IDs and proposed relations/rationales. No causal or identity verification and no full numeric arrays.\n- acting_annotations.json: observation/interpretation/evidence/alternative_interpretation/uncertainty, state/event IDs and global times.\n- stage06_prototype.json: integrated states, compact event references, links, annotations and method limitations.\n- ablation_A.json / ablation_B.json and comparison_abc.md: evidence-restricted A/B results and actual comparisons; no superiority assumption.\n- review_video.mp4: continuous source excerpt with original soundtrack. review_video_states.srt: optional final state/event overlay; review_video.srt is the initial event-only overlay. Subtitle playback times are necessarily clip-relative, while their labels and all annotation JSON use movie-global seconds. Movie time = player time + selected start.\n- observed_frames_*.jpg and observed_tail.jpg: actual inspected visual evidence; nominal 2 FPS samples and approximate boundaries. Initial frames_*.jpg are unmasked previews and not cited as final visual evidence.\n- media_info.json: source stream time bases, actual encoded duration and extraction commands.\n\n"
+    review+="## Artifact fields\n\n- stage07_input.json: movie/scene ID, global start/end, candidate comparison, source paths and actual Stage02/04 context, original subtitle timing/speaker candidates, compact event references, actual media coverage.\n- audio_affect.json: actual four-class labels, all softmax scores, VAD speech intervals, descriptive RMS and uncertainty. No valence/arousal; no verified diarization or pitch/tremor measurements.\n- visual_affect.json: anonymous subjects, global intervals, observable_behaviour distinct from inferred_affect, visible_intervals and exact inspected-sheet references.\n- narrative_affect.json: text-only interpretations, proposed triggers and Shot/subtitle references. Screenplay cues are not visual observations.\n- visual_identity_map.json: subsequent appearance associations to Stage04 candidates; unverified.\n- affect_states.json: character states, affect/style separately, transitions, evidence IDs, conflicts and observation_coverage (audio/video/narrative_support/no_av_evidence). Coverage is proposal support, not continuous verified observation.\n- state_event_links.json: Python overlap and candidate checks, original Event IDs and proposed relations/rationales. No causal or identity verification and no full numeric arrays.\n- acting_annotations.json: observation/interpretation/evidence/alternative_interpretation/uncertainty, state/event IDs and global times.\n- stage07_prototype.json: integrated states, compact event references, links, annotations and method limitations.\n- ablation_A.json / ablation_B.json and comparison_abc.md: evidence-restricted A/B results and actual comparisons; no superiority assumption.\n- review_video.mp4: continuous source excerpt with original soundtrack. review_video_states.srt: optional final state/event overlay; review_video.srt is the initial event-only overlay. Subtitle playback times are necessarily clip-relative, while their labels and all annotation JSON use movie-global seconds. Movie time = player time + selected start.\n- observed_frames_*.jpg and observed_tail.jpg: actual inspected visual evidence; nominal 2 FPS samples and approximate boundaries. Initial frames_*.jpg are unmasked previews and not cited as final visual evidence.\n- media_info.json: source stream time bases, actual encoded duration and extraction commands.\n\n"
     review+="## Required human review and research limits\n\n1. Watch the entire original-audio clip. Confirm whether the proposed Michelle transition is an observable change, a rhetorical turn, or both. Estimated transition intervals are not precise emotion-onset timestamps.\n2. Listen critically to all 44 SER proposals, especially the 26 Happiness labels. These are actual uncalibrated classifier outputs; no tuning/relabeling was done to match the plot. A four-class model cannot test fear/surprise or establish emotional neutrality.\n3. Check facial tension versus sustained anger, and brief mouth-corner changes versus happiness. Reverse shots and the wide-shot resolution change do not prove emotional transitions.\n4. Independently review all Stage05 event presence, QC flags, tentative character mapping and experimental corrected cuts. AU25/AU26 are speech-sensitive; no speech residual was computed. Head/gaze remain camera-relative; no head–body disentanglement or gaze target is claimed.\n5. Only three Shots have Stage05 measurements in this excerpt. Unprocessed intervals are missing coverage, not negative events; no cross-Shot interpolation was performed.\n6. Narrative continuity does not prove visible acting continuity. All inner motives, emotions, strategies and interpretations remain proposals, with alternatives. No human review or ground-truth evaluation was created.\n7. This single-session analysis cannot establish the requested strict blind independence. See method.json and comparison_abc.md for prior-context and subtitle-exposure limitations.\n\n"
-    review+="## Reproduce local preparation and replay saved assistant analysis\n\n```sh\nuv --no-cache run --no-sync python -m oscardp.stage06 run \\\n  --analysis-dir reports/stage06/tt12300742/pilot_001/assistant_analysis \\\n  --output-dir reports/stage06/tt12300742/pilot_002\n```\n\nThis reruns real local media/VAD/SER and replays the already authored interactive proposals. It does **not** rerun an LLM/VLM API or automatically reproduce this conversation's cognitive analysis. For new model interpretations, inspect the new evidence interactively and supply a new analysis folder. Existing completed outputs are refused. No API key is needed.\n\n"
-    review+="Validation: new Stage06 time/ID/coverage/isolation/refusal tests passed. The initial full repository run passed 394 tests and failed one pre-existing HTTP test because sandbox sockets were prohibited; that exact test passed when loopback access was allowed. Later Stage06 changes were tested separately.\n"
+    review+=f"""## Reproduce local preparation and replay saved assistant analysis
+
+```sh
+uv --no-cache run --no-sync python -m oscardp.stage07 run \
+  --analysis-dir {analysis} \
+  --output-dir {output.parent / 'new_run'} \
+  --model-dir models/stage06
+```
+
+Legacy Compatibility: models/stage06 may supply unchanged weights; the analysis directory may be a historical reports/stage06 run. Source files remain read-only. This reruns local media/VAD/SER and replays saved interactive judgments; it does not rerun this conversation's LLM/VLM cognition. No API key is needed.
+
+Migration validation is separate from research-model accuracy. See tests/test_stage07.py; no runtime report claims that a new model inference or blind experiment has been performed merely by renumbering.
+"""
     (output/"REVIEW.md").write_text(review,encoding="utf-8")
 
 
 def assemble(output,analysis):
     output,analysis=Path(output),Path(analysis)
+    check_output_directory(output)
     names=["visual_affect.json","narrative_affect.json","visual_identity_map.json","ablation_A.json","ablation_B.json",
            "affect_states.json","state_event_links.json","acting_annotations.json","comparison_abc.json","comparison_abc.md",
-           "stage06_prototype.json","method.json","modality_quality.json","review_video_states.srt",
-           "review_video_annotated.mp4","review_overlay.ass"]
+           "stage07_prototype.json","method.json","modality_quality.json","review_video_states.srt",
+           "review_video_annotated.mp4","review_overlay.ass",
+           "stage06_prototype.json"]  # Legacy Compatibility: never append to a completed old acting run.
     if any((output/n).exists() for n in names):
-        raise FileExistsError("Stage06 results already exist; use a fresh run directory")
+        raise FileExistsError("Stage07 results already exist; use a fresh run directory")
     inp,raw,identity,branches=load_analysis(output,analysis)
     groups={g:group_document(analysis,g,branches,inp) for g in ("A","B","C")}
     events=inp["stage05_event_references"]
@@ -195,13 +218,15 @@ def assemble(output,analysis):
     if set(comparison["comparison"]) != required or not all(isinstance(v,str) and v for v in comparison["comparison"].values()):
         raise ValueError("Incomplete A/B/C comparison")
     # Only write final results after all basic structural/time/reference checks pass.
+    if not (output/"stage07_input.json").exists():
+        write(output/"stage07_input.json",inp)  # Legacy Compatibility: new copy, never edit the old input.
     for name,doc in [("visual_affect.json",raw["video"]),("narrative_affect.json",raw["narrative"]),
                      ("visual_identity_map.json",identity),("ablation_A.json",groups["A"]),("ablation_B.json",groups["B"]),
                      ("affect_states.json",groups["C"]),("state_event_links.json",dict(status="model_proposal",links=links)),
                      ("acting_annotations.json",ann),("comparison_abc.json",comparison),("method.json",METHOD)]:
         write(output/name,doc)
     groups["C"]["annotations"]=ann["annotations"]
-    write(output/"stage06_prototype.json",dict(schema_version="stage06.research_prototype.v1",status="model_proposal",movie_id=MOVIE,
+    write(output/"stage07_prototype.json",dict(schema_version="stage07.research_prototype.v1",status="model_proposal",movie_id=MOVIE,
           scene_id=inp["scene_id"],character_candidate=inp["character_candidate"],time_range=dict(start=inp["start"],end=inp["end"],unit="movie_global_seconds"),
           affect_states=groups["C"]["states"],events=events,state_event_links=links,acting_annotations=ann["annotations"],human_verified=False,method=METHOD))
     write(output/"modality_quality.json",dict(status={m:d["status"] for m,d in raw.items()},proposal_counts={m:len(d["proposals"]) for m,d in raw.items()},missing_modalities=[],method_limits=METHOD["limitations"]))
@@ -209,7 +234,7 @@ def assemble(output,analysis):
         if (output/"LOCAL_REVIEW.md").exists():
             raise FileExistsError("Existing LOCAL_REVIEW.md; refusing overwrite")
         (output/"REVIEW.md").rename(output/"LOCAL_REVIEW.md")
-    report(output,inp,raw,groups,links,ann["annotations"],comparison)
+    report(output,inp,raw,groups,links,ann["annotations"],comparison,analysis)
     review_subtitles(output,inp,groups["C"]["states"],events,"review_video_states.srt")
     annotated_review(output)
     print(f"Assembled {len(groups['C']['states'])} states, {len({l['event_id'] for l in links})} events, {len(ann['annotations'])} annotations: {output}",flush=True)
@@ -218,6 +243,7 @@ def assemble(output,analysis):
 
 def run(args):
     output=Path(args.output_dir)
+    check_output_directory(output)
     if output.exists() and not getattr(args,"prepared",False):
         raise FileExistsError(f"Output exists; choose a fresh directory: {output}")
     if not getattr(args,"prepared",False):

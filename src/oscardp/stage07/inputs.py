@@ -18,6 +18,24 @@ def write(path, value):
         stream.write("\n")
 
 
+def read_prepared_input(directory):
+    """Read Stage07 input or Legacy Compatibility: the old acting pilot input.
+
+    Only the in-memory stage identifier changes; source files, IDs and times stay intact.
+    """
+    directory = Path(directory)
+    current = directory / "stage07_input.json"
+    path = current if current.exists() else directory / "stage06_input.json"
+    document = read(path)
+    if path.name == "stage06_input.json":
+        document["schema_version"] = "stage07.research_input.v1"
+        document["legacy_compatibility"] = {
+            "input_file": str(path),
+            "note": "Legacy Stage06 acting prototype, now owned by Stage07; read-only compatibility.",
+        }
+    return document
+
+
 def interval(start, end, bounds=None):
     if (isinstance(start, bool) or isinstance(end, bool)
             or not isinstance(start, (int, float)) or not isinstance(end, (int, float))
@@ -33,6 +51,7 @@ def overlap(a, b):
 
 def load_sources(pilot):
     pilot = Path(pilot).resolve()
+    # Legacy Compatibility: immutable Stage05.6 packet filename/schema, not the new gaze stage.
     snapshot = read(pilot / "stage06_input_pilot.json")
     config = read(pilot / "run_config.json")
     packet = snapshot["packet"]
@@ -130,7 +149,7 @@ def selection(data, start=None, end=None):
         ("Interruption through complete negotiation offer", default_start, default_end,
          "Selected: interruption, attempt to regain control and completed offer; 60–120 second continuous excerpt.")]
     names = sorted({c["character_name"] for s in char_context for c in s["character_candidates"] if c.get("character_name")})
-    return dict(schema_version="stage06.research_input.v1", movie_id=MOVIE, scene_id=context["scene_id"],
+    return dict(schema_version="stage07.research_input.v1", movie_id=MOVIE, scene_id=context["scene_id"],
                 status="research_prototype", time_basis="movie_global_seconds_start_inclusive_end_exclusive",
                 start=start, end=end, duration=end-start, character_candidate=names,
                 character_mapping_status="unverified", sources=data["paths"],
