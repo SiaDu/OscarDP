@@ -45,12 +45,8 @@ def prepare_frames(rows, source_events):
             flags.append("gaze_unusable")
         if disagreement:
             flags.append("binocular_disagreement")
-        rejected = {key + "_qc_rejected": values[key].tolist() if disagreement and values[key] is not None else None
-                    for key in ("gaze_direction", "eye_relative_direction")}
-        if disagreement:
-            values["gaze_direction"] = values["eye_relative_direction"] = None
         result.append({
-            **row, **rejected, **{k: v.tolist() if v is not None else None for k, v in values.items()},
+            **row, **{k: v.tolist() if v is not None else None for k, v in values.items()},
             "head_usable": values["head_direction"] is not None,
             "camera_gaze_usable": values["gaze_direction"] is not None,
             "eye_relative_usable": values["eye_relative_direction"] is not None,
@@ -131,7 +127,7 @@ def detect(rows, source_events):
                 residuals = {key: float(np.median(value[a:b])) for key, value in residual.items()}
                 if max(residuals.values()) > JITTER_MEDIAN_LIMIT_DEG:
                     flags.append("high_median_filter_residual")
-                eye_deltas = None
+                eye_deltas = mismatch = None
                 if "eye" in filtered:
                     endpoints = []
                     for side in ("left", "right"):
@@ -147,7 +143,9 @@ def detect(rows, source_events):
                             flags.append("binocular_motion_disagreement")
                     else:
                         flags.append("binocular_motion_unusable")
-                unreliable = bool(flags) or not {"head", "eye"} <= changes.keys()
+                # Absolute binocular separation is diagnostic. Only conflicting
+                # changes, unusable data or instability can block a motion label.
+                unreliable = bool(set(flags) - {"binocular_disagreement"}) or not {"head", "eye"} <= changes.keys()
                 start, end = before["movie_timestamp_sec"], after["source_next_timestamp_sec"]
                 events.append({
                     "shot_id": before["shot_id"], "track_id": before["track_id"], "person": before["person"],
@@ -158,7 +156,8 @@ def detect(rows, source_events):
                     "eye_relative_change_deg": changes.get("eye"),
                     "valid_frame_ratio": sum(r["eye_relative_usable"] for r in frames[a:b]) / (b-a),
                     "status": "model_candidate", "trigger_signals": sorted(triggers), "qc_flags": flags,
-                    "left_right_eye_change_deg": eye_deltas, "median_filter_residual_deg": residuals,
+                    "left_right_eye_change_deg": eye_deltas, "binocular_motion_mismatch_deg": mismatch,
+                    "median_filter_residual_deg": residuals,
                     "left_censored": a == 0, "right_censored": b == len(segment),
                     "stage05_event_ids": [e["event_id"] for e in source_events
                                           if e["start_sec"] < end and e["end_sec"] > start],

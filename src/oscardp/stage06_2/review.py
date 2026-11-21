@@ -21,22 +21,20 @@ from .temporal import BINOCULAR_LIMIT_DEG, valid_blocks
 def plot(rows, events, output):
     times = np.array([r["movie_timestamp_sec"] for r in rows])
     end = rows[-1]["source_next_timestamp_sec"]
-    fig, axes = plt.subplots(4, 1, figsize=(13, 9), sharex=True, layout="constrained")
+    fig, axes = plt.subplots(6, 1, figsize=(13, 13), sharex=True, layout="constrained")
     specs = [
         ("head_direction", "Head forward (camera axes)", "#1c6599"),
         ("gaze_direction", "Mean gaze (camera axes)", "#176e4d"),
+        ("left_eye_relative_direction", "Left eye / OpenFace 0 (head-local axes)", "#a25c20"),
+        ("right_eye_relative_direction", "Right eye / OpenFace 1 (head-local axes)", "#177484"),
         ("eye_relative_direction", "Mean gaze (head-local axes)", "#844b90"),
     ]
-    for ax, (field, title, color) in zip(axes[:3], specs, strict=True):
-        for key, suffix, alpha in [(field, "", 1.), (field+"_qc_rejected", " · QC rejected", .48)]:
-            mask = [r.get(key) is not None for r in rows]
-            if not any(mask):
-                continue
-            for i, indices in enumerate(valid_blocks(rows, mask)):
-                angles = np.array([direction_angles(rows[j][key]) for j in indices])
-                for axis, name, style in [(0, "Yaw", "-"), (1, "Pitch", "--")]:
-                    ax.plot(times[indices], angles[:, axis], style, color=color, alpha=alpha,
-                            label=name+suffix if i == 0 else None)
+    for ax, (field, title, color) in zip(axes[:-1], specs, strict=True):
+        mask = [r[field] is not None for r in rows]
+        for i, indices in enumerate(valid_blocks(rows, mask)):
+            angles = np.array([direction_angles(rows[j][field]) for j in indices])
+            for axis, name, style in [(0, "Yaw", "-"), (1, "Pitch", "--")]:
+                ax.plot(times[indices], angles[:, axis], style, color=color, label=name if i == 0 else None)
         ax.set_title(title, loc="left")
         ax.set_ylabel("deg")
         ax.grid(alpha=.18)
@@ -47,7 +45,7 @@ def plot(rows, events, output):
     values = np.array([r["binocular_disagreement_deg"] for r in rows], dtype=float)
     for i, block in enumerate(valid_blocks(rows, np.isfinite(values))):
         qc.plot(times[block], values[block], color="#91452c", label="Left/right ray angle" if i == 0 else None)
-    qc.axhline(BINOCULAR_LIMIT_DEG, color="#91452c", linestyle=":", label="Agreement gate")
+    qc.axhline(BINOCULAR_LIMIT_DEG, color="#91452c", linestyle=":", label="Diagnostic flag (not a gate)")
     qc.set_title("Binocular QC", loc="left")
     qc.set_ylabel("deg")
     qc.set_xlabel("Movie global time (s)  |  gray: unusable eyes  ·  red: closure candidate  ·  blue: movement")
@@ -156,6 +154,34 @@ def qc_summary(rows):
             np.percentile(angles, [0, 50, 95, 100]).tolist() if angles else None),
         "per_eye_adjacent_steps_deg_median_p95_max": [
             np.percentile(v, [50, 95, 100]).tolist() if v else None for v in per_eye_steps],
+        **direction_diagnostics(rows),
+    }
+
+
+def direction_diagnostics(rows):
+    csv_error, fusion_error, jumps = [], [], []
+    for row in rows:
+        fused = row["gaze_direction"]
+        csv = [row["gaze_angle_x"], row["gaze_angle_y"]]
+        if fused is None or not np.isfinite(np.asarray(csv, dtype=float)).all():
+            continue
+        # OpenFace takes atan2 of the average of its original gaze vectors.
+        raw_mean = np.mean([[row[k] for k in eye] for eye in EYES], axis=0)
+        raw_angles = direction_angles(raw_mean)
+        csv_error.append(float(np.max(np.abs((raw_angles-np.degrees(csv)+180) % 360-180))))
+        fusion_error.append(float(np.max(np.abs((direction_angles(fused)-raw_angles+180) % 360-180))))
+    for block in valid_blocks(rows, [row["eye_relative_usable"] for row in rows]):
+        for a, b in zip(block, block[1:]):
+            steps = [angular_change(rows[a][key], rows[b][key]) for key in (
+                "left_eye_relative_direction", "right_eye_relative_direction", "eye_relative_direction")]
+            if max(steps) >= 8:
+                jumps.append({"from_s": rows[a]["movie_timestamp_sec"], "to_s": rows[b]["movie_timestamp_sec"],
+                              "left_right_mean_step_deg": steps})
+    return {
+        "openface_csv_vs_raw_average_max_angle_error_deg": max(csv_error, default=None),
+        "normalized_fusion_vs_raw_average_max_angle_error_deg": max(fusion_error, default=None),
+        "adjacent_eye_relative_jump_diagnostic_deg": 8,
+        "adjacent_eye_relative_jumps": jumps,
     }
 
 
@@ -163,7 +189,7 @@ def markdown(rows, measurement, coverage, events, qc, files, pairs, video_error=
     r = rows[0]
     n = qc["frames"]
     lines = [
-        f"# Stage06.2 v1.0 · {r['shot_id']}", "",
+        f"# Stage06.2 v1.1 · {r['shot_id']}", "",
         f"- Track：`{r['track_id']}`，`{r['identity_cluster_id']}`。人物候选 {r['person'] or '未知'}；"
         "仅由同镜头单一 Track 与 Stage04 视觉候选对应，未人工核验。",
         f"- Stage05.4 主模式：{r['extraction_mode']}，{n} 帧；"
@@ -172,7 +198,7 @@ def markdown(rows, measurement, coverage, events, qc, files, pairs, video_error=
         f"- Stage06.2 可用：头部 {qc['head_usable']}/{n}（{qc['head_usable']/n:.1%}），"
         f"综合相机 Gaze {qc['camera_gaze_usable']}/{n}（{qc['camera_gaze_usable']/n:.1%}），"
         f"综合 Eye-relative {qc['eye_relative_usable']}/{n}（{qc['eye_relative_usable']/n:.1%}）。",
-        f"- 拒用原因：{qc['qc_counts']}。Stage05.5 partial closure 是几何候选，"
+        f"- QC 计数：{qc['qc_counts']}。双眼绝对夹角是诊断标记，不影响综合方向可用性。Stage05.5 partial closure 是几何候选，"
         "本轮保守地屏蔽其整个区间，不能解读为逐帧已证实闭眼。",
         f"- 分析区间：{r['movie_timestamp_sec']:.6f}–{rows[-1]['source_next_timestamp_sec']:.6f} s，"
         "电影全局时间、末端不含。沿用纠偏版 Stage05 边界，仍待人工复核。",
@@ -180,27 +206,40 @@ def markdown(rows, measurement, coverage, events, qc, files, pairs, video_error=
         "使用原 C++ 的 Rx·Ry·Rz（不反号），head-local = Rᵀg；目视图的 yaw/pitch 为 "
         "atan2(x, −z)/atan2(y, −z) 的度数，分别在相机或头部坐标中定义。",
         "- Head change 为完整旋转的 SO(3) 角，包含 roll；Gaze 和 Eye-relative 为两个单位向量的夹角。"
-        "图中 QC rejected 曲线用于检查测量，未用于分类。",
+        "双眼运动增量矛盾时，事件保留为 uncertain。",
         "- OpenFace 使用启发式内参，头部姿态和眼球估计误差会同时进入分解。静帧和候选检测均不能验证细微独立眼动。",
         "", "## 连续性与双眼 QC", "",
     ]
     if qc["binocular_disagreement_deg_min_median_p95_max"]:
         stats = ", ".join(f"{v:.2f}°" for v in qc["binocular_disagreement_deg_min_median_p95_max"])
-        lines += [f"- 双眼夹角最小／中位／P95／最大：{stats}。一致性阈值 {BINOCULAR_LIMIT_DEG:g}°。"]
+        lines += [f"- 双眼夹角最小／中位／P95／最大：{stats}。诊断标记阈值 {BINOCULAR_LIMIT_DEG:g}°。"]
+    if qc["openface_csv_vs_raw_average_max_angle_error_deg"] is not None:
+        lines.append(f"- OpenFace 用原始双眼向量均值计算两项 atan2。这里先将每眼归一化再融合，用向量检测事件。"
+                     f"原始均值角与 CSV 最大差 {qc['openface_csv_vs_raw_average_max_angle_error_deg']:.4f}°，"
+                     f"归一化融合与原始均值角最大差 {qc['normalized_fusion_vs_raw_average_max_angle_error_deg']:.4f}°。")
     for side, v in zip(("左眼 OpenFace 0", "右眼 OpenFace 1"),
                        qc["per_eye_adjacent_steps_deg_median_p95_max"], strict=True):
         if v:
             lines.append(f"- {side} 相邻帧角变化中位／P95／最大：{', '.join(f'{x:.2f}°' for x in v)}。"
                          "包含真实运动与测量波动，快速跳变需对照画面检查。")
+    jumps = qc["adjacent_eye_relative_jumps"]
+    if jumps:
+        lines += ["", "以下相邻帧的头部相对角变化达到 8°（仅供复核）：", "",
+                  "| 电影秒 | 左眼／右眼／综合单步变化 (°) |", "| --- | --- |"]
+        for j in jumps:
+            values = "／".join(f"{x:.2f}" for x in j["left_right_mean_step_deg"])
+            lines.append(f"| {j['from_s']:.6f}–{j['to_s']:.6f} | {values} |")
     lines += ["", "## 候选事件", "",
-              "| ID | 电影时间 (s) | 类型 | Head / Gaze / Eye-relative (°) | 有效比例 | QC / Stage05 重叠 |",
-              "| --- | --- | --- | --- | --- | --- |"]
+              "| ID | 电影时间 (s) | 类型 | Head / Gaze / Eye-relative (°) | 左／右／运动差 (°) | 有效比例 | QC / Stage05 重叠 |",
+              "| --- | --- | --- | --- | --- | --- | --- |"]
     for e in events:
         changes = [e[k+"_change_deg"] for k in ("head", "gaze", "eye_relative")]
         change = " / ".join(f"{v:.2f}" if v is not None else "—" for v in changes)
         notes = ", ".join(e["qc_flags"]+e["stage05_event_ids"])
+        eyes = e["left_right_eye_change_deg"]
+        eye_change = "／".join(f"{x:.2f}" for x in [*eyes, e["binocular_motion_mismatch_deg"]]) if eyes else "—"
         lines.append(f"| {e['event_id']} | {e['start_s']:.6f}–{e['end_s']:.6f} | {e['movement_type']} | "
-                     f"{change} | {e['valid_frame_ratio']:.1%} | {notes or '—'} |")
+                     f"{change} | {eye_change} | {e['valid_frame_ratio']:.1%} | {notes or '—'} |")
     if not events:
         lines += ["", "没有通过最小持续时间和净角位移门槛的候选。"]
     if not any(e["movement_type"] == "eye_dominant" for e in events):

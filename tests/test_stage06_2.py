@@ -5,7 +5,7 @@ import pytest
 
 from oscardp.stage06_2.geometry import angular_change, decompose, head_rotation
 from oscardp.stage06_2.inputs import EYES, POSE
-from oscardp.stage06_2.temporal import detect, movement_type, prepare_frames
+from oscardp.stage06_2.temporal import detect, movement_type, prepare_frames, valid_blocks
 
 F = np.array([0., 0., -1.])
 
@@ -97,12 +97,58 @@ def test_closure_breaks_intervals_and_retains_head_pose():
     assert movement_type(1., 8., unreliable=True) == "uncertain"
 
 
-def test_binocular_disagreement_retains_individual_rays():
+def test_binocular_disagreement_keeps_all_rays_usable():
     rows, _ = rows_for_motion(0., 0.)
     row = {**rows[0], "gaze_0_x": .5, "gaze_0_z": -.8660254}
-    rejected = prepare_frames([row], [])[0]
-    assert rejected["binocular_disagreement_deg"] == pytest.approx(30.)
-    assert "binocular_disagreement" in rejected["qc_flags"]
-    assert rejected["left_eye_relative_direction"] is not None
-    assert rejected["eye_relative_direction"] is None and not rejected["eye_relative_usable"]
-    assert rejected["eye_relative_direction_qc_rejected"] is not None
+    frame = prepare_frames([row], [])[0]
+    assert frame["binocular_disagreement_deg"] == pytest.approx(30.)
+    assert "binocular_disagreement" in frame["qc_flags"]
+    assert frame["left_eye_relative_direction"] is not None
+    assert frame["camera_gaze_usable"] and frame["eye_relative_usable"]
+    np.testing.assert_allclose(frame["gaze_direction"], frame["eye_relative_direction"])
+
+
+@pytest.mark.parametrize("bad_gaze", [{"gaze_valid": False}, {"tracking_usable": False},
+                                     {"gaze_0_x": float("nan")}, {"gaze_0_z": 0.}])
+def test_invalid_gaze_still_blocks_the_mean(bad_gaze):
+    rows, _ = rows_for_motion(0., 0.)
+    frame = prepare_frames([{**rows[0], **bad_gaze}], [])[0]
+    assert frame["gaze_direction"] is frame["eye_relative_direction"] is None
+    assert not frame["camera_gaze_usable"] and not frame["eye_relative_usable"]
+
+
+def test_missing_pose_blocks_eye_relative_but_preserves_camera_gaze():
+    rows, _ = rows_for_motion(0., 0.)
+    frame = prepare_frames([{**rows[0], "head_pose_valid": False}], [])[0]
+    assert frame["camera_gaze_usable"]
+    assert not frame["head_usable"] and not frame["eye_relative_usable"]
+    assert all(frame[key] is None for key in (
+        "eye_relative_direction", "left_eye_relative_direction", "right_eye_relative_direction"))
+
+
+def test_pts_break_splits_otherwise_usable_eye_frames():
+    rows, _ = rows_for_motion(0., .25)
+    for row in rows[10:]:
+        row["movie_timestamp_sec"] += .1
+        row["source_next_timestamp_sec"] += .1
+    assert [len(block) for block in valid_blocks(rows, [row["eye_relative_usable"] for row in rows])] == [10, 22]
+    assert all(e["end_frame"] <= 10 or e["start_frame"] >= 10 for e in detect(rows, []))
+
+
+@pytest.mark.parametrize(("increments", "expected"), [
+    ((.25, .25), "eye_dominant"),
+    ((.75, -.10), "uncertain"),
+])
+def test_motion_classification_ignores_absolute_offset_but_not_conflicting_change(increments, expected):
+    rows, _ = rows_for_motion(0., 0.)
+    for i, frame in enumerate(rows):
+        ramp = np.clip((i-6)/12, 0, 1)
+        for eye, base, change in zip(EYES, (.2, -.2), increments, strict=True):
+            angle = base + ramp * change
+            frame.update(zip(eye, (np.sin(angle), 0., -np.cos(angle)), strict=True))
+    result = detect(prepare_frames(rows, []), [])
+    assert [event["movement_type"] for event in result] == [expected]
+    event = result[0]
+    assert event["eye_relative_change_deg"] >= 6
+    assert "binocular_disagreement" in event["qc_flags"]
+    assert ("binocular_motion_disagreement" in event["qc_flags"]) == (expected == "uncertain")

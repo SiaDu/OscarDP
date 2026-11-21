@@ -13,14 +13,13 @@ from .review import extract_review_frames, markdown, plot, qc_summary
 from .temporal import (BINOCULAR_CHANGE_LIMIT_DEG, BINOCULAR_LIMIT_DEG, JITTER_MEDIAN_LIMIT_DEG,
                        MAX_GAP, MEDIAN_RADIUS, SMALL_DEG, THRESHOLDS, detect, prepare_frames)
 
-VERSION = "stage06.2.gaze_direction.v1"
+VERSION = "stage06.2.gaze_direction.v1.1"
 
 
 def frame_table(rows):
     table = pa.Table.from_pylist(rows)
     for key in ("head_direction", "gaze_direction", "left_eye_relative_direction",
-                "right_eye_relative_direction", "eye_relative_direction",
-                "gaze_direction_qc_rejected", "eye_relative_direction_qc_rejected"):
+                "right_eye_relative_direction", "eye_relative_direction"):
         table = table.set_column(table.schema.get_field_index(key), key,
                                  pa.array([r[key] for r in rows], type=pa.list_(pa.float64())))
     return table.replace_schema_metadata({
@@ -62,7 +61,7 @@ def run(args):
                                 "source_cmake_version": model["source_build"]["cmake_declared_version"],
                                 "binary_sha256": model["binary_sha256"]},
         "settings": {"motion_thresholds_deg": THRESHOLDS, "median_radius_s": MEDIAN_RADIUS, "max_gap_s": MAX_GAP,
-                     "small_change_deg": SMALL_DEG, "binocular_limit_deg": BINOCULAR_LIMIT_DEG,
+                     "small_change_deg": SMALL_DEG, "binocular_disagreement_flag_deg": BINOCULAR_LIMIT_DEG,
                      "binocular_change_mismatch_limit_deg": BINOCULAR_CHANGE_LIMIT_DEG,
                      "residual_limit_deg": JITTER_MEDIAN_LIMIT_DEG, "min_frames": 3, "min_duration_s": .12},
         "qc": qc,

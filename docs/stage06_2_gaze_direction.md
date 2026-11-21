@@ -1,4 +1,4 @@
-# Stage06.2 镜头内头眼方向分析 v1.0
+# Stage06.2 镜头内头眼方向分析 v1.1
 
 Pilot 读取 Stage05.4 主模式 Parquet、帧状态、Track 汇总及同源 Stage05.5 事件。
 Stage04.3 提供选段镜头列表，Stage04 的单一人物候选可与同镜头单一 corrected
@@ -12,7 +12,7 @@ uv --no-cache run --no-sync python -m oscardp.stage06_2 \
   --stage04 "$movie_dir/Stage04_$m.json" --sequences "$movie_dir/Stage04_3_$m.json" \
   --tracking-run "reports/stage05_2_corrected/$m" --identity-run "reports/stage05_3/$m/pilot_001" \
   --measurement-run "reports/stage05_4/$m/pilot_001" --event-run "reports/stage05_5/$m/pilot_001" \
-  --output-dir "reports/stage06_2/$m/seq_006/shot_000217/pilot_001" --review-frames
+  --output-dir "reports/stage06_2/$m/seq_006/shot_000217/pilot_002" --review-frames
 ```
 
 默认运行 `seq_006` 的 `shot_000217`。加 `--review-frames` 时用 FFmpeg/FFprobe
@@ -32,10 +32,15 @@ uv --no-cache run --no-sync python -m oscardp.stage06_2 \
 定义。事件头部量是完整 SO(3) 净转角（含 roll），Gaze 量是单位向量净夹角。
 
 保留原始向量、角度、源门槛、眼睑几何代理量和原始时间。Stage05.5 眼闭合候选
-的整段被保守屏蔽，候选覆盖区间可能包含仍睁眼的帧。双眼夹角超过 12° 时
-保留逐眼数值与 `*_qc_rejected` 诊断均值，综合可信列为 null。无效帧、
-不连续帧号、源时间不连续或超过 0.25 秒的间隔不做插值。眼信号不足时，
-单独可检测的头转候选归为 `uncertain`。
+的整段被保守屏蔽，候选覆盖区间可能包含仍睁眼的帧。v1.1 把双眼绝对夹角
+超过 12° 从硬拒绝改成 `binocular_disagreement` 诊断标记。这是本项目的
+启发式提示，其他源门槛与向量有效性检查仍适用。双眼运动增量明显矛盾时，
+事件仍归为 `uncertain`。无效帧、不连续帧号、源时间不连续或超过 0.25 秒
+的间隔不做插值。眼信号不足时，单独可检测的头转候选归为 `uncertain`。
+
+OpenFace 的 CSV 角度由原始双眼向量均值计算。本模块先归一化每眼向量再融合，
+随后以向量计算方向变化。Review 分别报告 CSV 舍入差和融合定义的数值差。
+v1.1 图中独立绘制左右眼和综合头部相对轨迹，并标出闭合区间、诊断线与候选事件。
 
 沿用 Stage05.5 时间中值（半径 0.06 s）和滞后阈值。Head、整体 Gaze、
 Eye-relative 的高／低种子门槛分别为 15/6、26/10、30/12 °/s。各信号净变化
