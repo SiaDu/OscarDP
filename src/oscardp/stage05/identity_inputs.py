@@ -10,7 +10,7 @@ def file_hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def load_corrected(root, movie_id, shot_ids):
+def load_corrected(root, movie_id, shot_ids, *, allow_stage01=False):
     if not shot_ids or len(set(shot_ids)) != len(shot_ids):
         raise ValueError("Explicit unique pilot shot IDs required")
     required = ["face_tracks.json", "face_detections.jsonl", "run_config.json", "qc_report.json"]
@@ -18,22 +18,30 @@ def load_corrected(root, movie_id, shot_ids):
     config = load_json(root/"run_config.json")
     tracks_file = load_json(root/"face_tracks.json")
     qc = load_json(root/"qc_report.json")
-    boundary = config.get("boundary_sidecar", {})
-    if (config["movie_id"] != movie_id or tracks_file["movie_id"] != movie_id
-            or boundary.get("mode") != "experimental_model_reviewed_pending_human"
-            or boundary.get("human_verified") is not False):
-        raise ValueError("Stage05.3 pilot requires the experimental corrected Stage05.2 provenance, not the original run")
-    if tracks_file.get("boundary_sidecar") != boundary or qc.get("boundary_sidecar") != boundary:
-        raise ValueError("Corrected provenance differs between config, tracks and QC")
     from pathlib import Path
-    sidecar = Path(boundary["path"])
-    if file_hash(sidecar) != boundary["sha256"]:
-        raise ValueError("Boundary sidecar changed since Stage05.2")
-    for review in boundary["reviews"].values():
-        if review["human_verified"] or review["approved_for_processing"] or review["status"] != "model_reviewed_pending_human":
-            raise ValueError("Boundary review status differs from the expected experimental draft")
-    if not set(shot_ids) <= set(boundary["applied_shot_ids"]):
-        raise ValueError("Selected shot does not have an explicitly applied correction")
+    boundary = config.get("boundary_sidecar")
+    original = boundary is None and allow_stage01
+    if config["movie_id"] != movie_id or tracks_file["movie_id"] != movie_id:
+        raise ValueError("Stage05.2 movie mismatch")
+    if original:
+        if any(doc.get("boundary_sidecar") is not None for doc in (tracks_file,qc)):
+            raise ValueError("Conflicting Stage01 tracking provenance")
+        boundary = {"mode":"stage01_original","human_verified":False}
+        config["boundary_sidecar"] = boundary
+        for shot in config["shots"]:
+            shot.update(original_temporal=shot["temporal"],effective_processing_temporal=shot["temporal"])
+    else:
+        if not boundary or boundary.get("mode")!="experimental_model_reviewed_pending_human" or boundary.get("human_verified") is not False:
+            raise ValueError("Stage05.3 requires corrected Stage05.2 provenance or explicit --stage01-boundaries")
+        if tracks_file.get("boundary_sidecar") != boundary or qc.get("boundary_sidecar") != boundary:
+            raise ValueError("Corrected provenance differs between config, tracks and QC")
+        if file_hash(Path(boundary["path"])) != boundary["sha256"]:
+            raise ValueError("Boundary sidecar changed since Stage05.2")
+        for review in boundary["reviews"].values():
+            if review["human_verified"] or review["approved_for_processing"] or review["status"] != "model_reviewed_pending_human":
+                raise ValueError("Unexpected experimental review status")
+        if not set(shot_ids) <= set(boundary["applied_shot_ids"]):
+            raise ValueError("Selected shot does not have an explicitly applied correction")
     source = Path(config["stage01"]["path"])
     if file_hash(source) != config["stage01_sha256"]:
         raise ValueError("Stage01 source SHA256 mismatch")
@@ -42,6 +50,11 @@ def load_corrected(root, movie_id, shot_ids):
         raise ValueError("Source video identity changed")
     shots = {s["shot_id"]: s for s in config["shots"]}
     ranges = {s["shot_id"]: s for s in tracks_file.get("shot_ranges", [])}
+    if original:
+        ranges = shots
+        stage01 = {row["shot_id"]:row["temporal"] for row in load_json(source)["shots"]}
+        if any(sid not in shots or shots[sid]["temporal"]!=stage01.get(sid) for sid in shot_ids):
+            raise ValueError("Tracking range differs from original Stage01")
     selected = set(shot_ids)
     tracks = {t["track_id"]: t for t in tracks_file["tracks"] if t["shot_id"] in selected}
     if len(tracks) != sum(t["shot_id"] in selected for t in tracks_file["tracks"]):
@@ -51,8 +64,10 @@ def load_corrected(root, movie_id, shot_ids):
         if sid not in shots or sid not in ranges or qc_shots[sid]["status"] != "complete":
             raise ValueError(f"Missing/incomplete corrected shot: {sid}")
         shot = shots[sid]
-        if shot["temporal"] != shot["effective_processing_temporal"] or shot["original_temporal"] == shot["effective_processing_temporal"]:
+        if not original and (shot["temporal"] != shot["effective_processing_temporal"] or shot["original_temporal"] == shot["effective_processing_temporal"]):
             raise ValueError(f"Original range accidentally supplied instead of corrected range: {sid}")
+        if original:
+            continue
         for key in ["original_temporal","effective_processing_temporal"]:
             if ranges[sid][key] != shot[key] or qc_shots[sid][key] != shot[key]:
                 raise ValueError(f"Shot provenance mismatch: {sid}")
@@ -67,6 +82,9 @@ def load_corrected(root, movie_id, shot_ids):
             if tid not in tracks or r["shot_id"] != tracks[tid]["shot_id"] or r["detection_status"] != "observed":
                 raise ValueError("Detection not an observed corrected Track")
             shot = shots[r["shot_id"]]
+            if original:
+                for item in (r,tracks[tid]):
+                    item.update(original_temporal=shot["temporal"],effective_processing_temporal=shot["temporal"])
             for key in ["original_temporal","effective_processing_temporal"]:
                 if r[key] != shot[key] or tracks[tid][key] != shot[key]:
                     raise ValueError("Detection/Track corrected range mismatch")

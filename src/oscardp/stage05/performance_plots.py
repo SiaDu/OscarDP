@@ -64,10 +64,10 @@ def comparisons(root, rows, groups, main_mode="static"):
     return results,ranked
 
 
-def association_sheet(root, paths, rows, modes):
+def association_sheet(root, paths, rows, modes, *, by_track=False):
     panels = []
     for sid,path in sorted(paths.items()):
-        data = [r for r in rows if r["shot_id"]==sid and r["extraction_mode"]==modes[0]]
+        data = [r for r in rows if r["track_id" if by_track else "shot_id"]==sid and r["extraction_mode"]==modes[0]]
         selected = {1,len(data)//2+1,len(data)}
         # Sequential scratch decode only; global frame identity was independently verified.
         cap = cv2.VideoCapture(str(path))

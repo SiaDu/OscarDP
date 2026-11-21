@@ -10,7 +10,7 @@ from .identity_inputs import file_hash
 from .output import atomic_json, identity
 from .performance_inputs import load_inputs
 from .performance_openface import preflight, extract
-from .performance_prepare import prepare
+from .performance_prepare import prepare, prepare_tracks, track_span
 from .performance_csv import parse_csv, columns_by_modality
 from .performance_qc import summarize
 from .performance_output import align_rows, save_frames
@@ -28,7 +28,17 @@ def run(args):
         raise ValueError("Invalid OpenFace tracking confidence gate")
     if args.au_mode not in {"static","dynamic","both"}:
         raise ValueError("Explicit AU mode required")
-    source,tracks,observations,identities,provenance = load_inputs(args.tracking_run,args.identity_run,args.movie_id,args.shot_ids)
+    multi = getattr(args,"multi_track",False)
+    original = getattr(args,"stage01_boundaries",False)
+    source,tracks,observations,identities,provenance = load_inputs(
+        args.tracking_run,args.identity_run,args.movie_id,args.shot_ids,allow_stage01=original,multi=multi)
+    unmeasured = {}
+    if multi:
+        unmeasured={tid:"insufficient_confirmed_track" for tid,t in tracks.items()
+                    if not t["tracking_status"].startswith("confirmed")}
+        tracks={tid:t for tid,t in tracks.items() if tid not in unmeasured}
+        if not tracks:
+            raise ValueError("No confirmed Track to measure")
     model = preflight(args.openface_binary)
     video = Path(source["video"]["path"])
     metadata,_ = probe_video(video,video.name)
@@ -56,6 +66,9 @@ def run(args):
                                "jump_thresholds_per_adjacent_frame":{"AU_intensity":2.,"pose_rad":.35,"gaze_angle_rad":.5},
                                "status":"uncalibrated research usability gates; not ground-truth accuracy"},
               "scope":"frame-level measurements only; no interpolation, emotion, onset/apex/offset, performance events or verified names"}
+    if multi:
+        config["unmeasured_tracks"] = unmeasured
+        config["multi_track_transport"] = "native full-frame coordinates; other pixels masked; blocked frames unavailable"
     if args.dry_run:
         print(json_dumps({**config,"preflight":{"model_file_count":len(model["model_manifest"]),
                           "source_build":model["source_build"].get("cmake_declared_version"),
@@ -71,38 +84,51 @@ def run(args):
     try:
         with tempfile.TemporaryDirectory(prefix="oscardp-stage054-",dir=args.scratch_root) as temporary:
             scratch = Path(temporary)
-            mappings,paths,timing = prepare(video,source["shots"],tracks,metadata,source["timestamp_rule"]=="frame_index_cfr",scratch,root/"frame_maps")
+            if multi:
+                selected_shots = [shot for shot in source["shots"] if shot["shot_id"] in args.shot_ids]
+                mappings,paths,timing=prepare_tracks(video,selected_shots,tracks,observations,metadata,
+                    source["timestamp_rule"]=="frame_index_cfr",scratch,root/"frame_maps")
+            else:
+                mappings,paths,timing=prepare(video,source["shots"],tracks,metadata,
+                    source["timestamp_rule"]=="frame_index_cfr",scratch,root/"frame_maps")
             groups = None
             for mode in modes:
-                for sid,path in paths.items():
-                    tid = next(tid for tid,t in tracks.items() if t["shot_id"]==sid)
-                    output = root/"raw_openface"/mode/sid
-                    print(f"OpenFace {mode} {sid}: starting {len(mappings[sid])} frames",flush=True)
+                for key,path in paths.items():
+                    tid=key if multi else next(tid for tid,t in tracks.items() if t["shot_id"]==key)
+                    sid=tracks[tid]["shot_id"]
+                    output = root/"raw_openface"/mode/key
+                    print(f"OpenFace {mode} {tid}: starting {len(mappings[key])} frames",flush=True)
                     csv_path,execution = extract(args.openface_binary,path,output,mode,camera)
                     execution.update(shot_id=sid,track_id=tid,raw_csv=str(csv_path.relative_to(root)),raw_csv_sha256=file_hash(csv_path))
                     commands.append(execution)
                     # Persist each real command immediately, even if later parsing/QC fails.
                     atomic_json(root/"openface_executions.json",commands)
-                    header,parsed = parse_csv(csv_path,len(mappings[sid]),metadata.fps)
+                    header,parsed = parse_csv(csv_path,len(mappings[key]),metadata.fps)
                     current_groups = columns_by_modality(header)
                     if any(not current_groups[key] for key in ["au_intensity","au_occurrence","pose","gaze","landmarks_2d"]):
                         raise ValueError("OpenFace did not emit required measurement columns")
                     if groups is not None and current_groups != groups:
                         raise ValueError("OpenFace modality schema changed between tracks/modes")
                     groups = current_groups
-                    rows = align_rows(args.movie_id,mappings[sid],header,parsed,observations[tid],identities[tid],mode,groups,args.min_confidence)
+                    blocked = {r["global_frame_index"] for r in mappings[key]
+                               if r.get("isolation_status") in {"target_unobserved","conflicting_face_overlap"}}
+                    rows = align_rows(args.movie_id,mappings[key],header,parsed,
+                                      [r for r in observations[tid] if r["frame_index"] not in blocked],
+                                      identities[tid],mode,groups,args.min_confidence)
                     summary = summarize(rows,groups)
                     summary.update(shot_id=sid,track_id=tid,**identities[tid],extraction_mode=mode,
                                    original_temporal=tracks[tid]["original_temporal"],
                                    effective_processing_temporal=tracks[tid]["effective_processing_temporal"],
                                    raw_csv=str(csv_path.relative_to(root)),execution=execution)
+                    if multi:
+                        summary["track_processing_temporal"]=track_span(tracks[tid])
                     all_rows.extend(rows)
                     headers.append(header)
                     summaries.append(summary)
                     print(f"OpenFace {mode} {sid}: {summary['valid_counts']} in {execution['elapsed_sec']:.2f}s",flush=True)
             files = save_frames(root,all_rows,headers,provenance,config["main_au_mode"])
             comparison,ranked = comparisons(root,all_rows,groups,config["main_au_mode"])
-            association_sheet(root,paths,all_rows,modes)
+            association_sheet(root,paths,all_rows,modes,by_track=multi)
         timing["openface_total_sec"] = sum(c["elapsed_sec"] for c in commands)
         timing["total_sec"] = time.perf_counter()-started
         protected = provenance["protected_source_sha256"]

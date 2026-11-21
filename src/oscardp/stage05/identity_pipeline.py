@@ -26,7 +26,7 @@ def run(args):
         raise FileExistsError(f"Identity pilot output already exists; select a new --output-dir: {args.output_dir}")
     if args.output_dir.resolve().is_relative_to(args.source_run.resolve()):
         raise ValueError("Identity output must be independent of the corrected Stage05.2 run")
-    source, tracks, records, inputs = load_corrected(args.source_run,args.movie_id,args.shot_ids)
+    source, tracks, records, inputs = load_corrected(args.source_run,args.movie_id,args.shot_ids,allow_stage01=getattr(args,"stage01_boundaries",False))
     config = AssociationConfig(same_cosine=args.same_cosine,different_cosine=args.different_cosine,margin=args.margin,
                                same_sample_q10=args.same_sample_q10, consistency_median=args.consistency_median,
                                consistency_q10=args.consistency_q10,min_samples=args.min_samples)
@@ -50,7 +50,8 @@ def run(args):
     source_dir = Path(source["stage01"]["path"]).parent
     for path in sorted(source_dir.glob(f"Stage0[1-4]_{args.movie_id}.json")):
         snapshots[str(path)] = file_hash(path)
-    snapshots[source["boundary_sidecar"]["path"]] = file_hash(Path(source["boundary_sidecar"]["path"]))
+    if "path" in source["boundary_sidecar"]:
+        snapshots[source["boundary_sidecar"]["path"]] = file_hash(Path(source["boundary_sidecar"]["path"]))
     run_config = {"schema_version":"stage05.3.identity.v1", "movie_id":args.movie_id,
                   "source_corrected_run":str(args.source_run.resolve()), "source_files":inputs,
                   "boundary_sidecar":source["boundary_sidecar"], "video":source["video"],

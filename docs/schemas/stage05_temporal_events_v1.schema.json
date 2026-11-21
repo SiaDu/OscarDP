@@ -35,7 +35,7 @@
         "qc_flags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "review_status": {"const": "algorithm_candidate"},
         "human_verified": {"const": false},
-        "boundary_status": {"const": "experimental_model_reviewed_pending_human"},
+        "boundary_status": {"enum": ["experimental_model_reviewed_pending_human", "stage01_original"]},
         "thresholds_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "rule_support": {"type": "object", "properties": {"is_probability": {"const": false}}, "required": ["is_probability"]}
       }

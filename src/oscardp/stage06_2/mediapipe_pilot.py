@@ -56,6 +56,13 @@ def track_rows(args, rows):
         match=index.get(row["global_frame_index"])
         if match and abs(match["timestamp_sec"]-row["movie_timestamp_sec"])>1e-6:
             raise ValueError("Track PTS mismatch")
+    frame_map=args.measurement_run/"frame_maps"/f"{args.track_id}.json"
+    if frame_map.is_file():
+        for row in read(frame_map)["frames"]:
+            n=row["global_frame_index"]
+            if n in index and row.get("isolation_status")=="conflicting_face_overlap":
+                index[n]["eye_position_block"]="conflicting_face_overlap"
+        return index,{str(path.resolve()):digest,str(frame_map.resolve()):sha256_file(frame_map)}
     return index,{str(path.resolve()):digest}
 
 
@@ -72,7 +79,9 @@ def infer(rows,pictures,tracks,model):
             points=None
             failure="track_unavailable"
             crop_box=None
-            if track and track["detection_status"]=="observed":
+            if track and track.get("eye_position_block"):
+                failure=track["eye_position_block"]
+            elif track and track["detection_status"]=="observed":
                 crop_box=roi(track["bbox_xywh"],frame.size)
                 x,y,a,b=crop_box
                 if a-x>=32 and b-y>=32:
@@ -195,16 +204,18 @@ def write(path,data):
         f.write("\n")
 
 
-def run(args):
+def run(args, *, pictures=None):
     start=perf_counter()
-    args.movie_id,args.sequence_id,args.track_id="tt12300742","seq_006",args.shot_id+"_track_001"
-    output=args.output_dir/args.shot_id
+    args.movie_id,args.sequence_id="tt12300742","seq_006"
+    args.track_id=getattr(args,"track_id",None) or args.shot_id+"_track_001"
+    output=getattr(args,"track_output",None) or args.output_dir/args.shot_id
     if output.exists():
         raise ValueError(f"Output exists: {output}")
     rows,_,source,_,hashes,video=load(args,[*LANDMARKS,*args.au_columns])
     rows=prepare_frames(rows,source)
     tracks,track_hash=track_rows(args,rows)
-    pictures=decode_review_frames(Path(video["path"]),video,rows)
+    if pictures is None:
+        pictures=decode_review_frames(Path(video["path"]),video,rows)
     inference=perf_counter()
     records=infer(rows,pictures,tracks,args.model)
     elapsed_inference=perf_counter()-inference

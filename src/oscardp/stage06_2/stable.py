@@ -50,7 +50,7 @@ def eye_blocks(rows, support):
         yield block[start:], support[block[start]]
 
 
-def analyze(rows, source_events, adjunct, *, allow_monocular=False):
+def analyze(rows, source_events, adjunct, *, allow_monocular=False, independent_gaze=False):
     support = [tuple(side for side in ("left","right")
                      if all(r[f"{side}_eye_{a}"] is not None for a in "xy")) for r in rows]
     if not allow_monocular:
@@ -78,6 +78,37 @@ def analyze(rows, source_events, adjunct, *, allow_monocular=False):
                 select(span[j], kind)
         return record
 
+    def gaze_runs(sub):
+        rays = np.array([[rows[i]["gaze_direction"], *[unit([rows[i][k] for k in eye])
+                         for eye in EYES]] for i in sub])
+        for span, directions in stable_runs(rows, sub, rays, DIRECTION_LIMIT, direction_distance):
+            r = rows[span[len(span)//2]]
+            summary = unit(np.mean(directions[:,0],axis=0))
+            record = state("stable_gaze_candidate", span, camera_direction=summary.tolist(),
+                           representative_frame=r["global_frame_index"], head_direction=r["head_direction"],
+                           eye_relative_direction=r["eye_relative_direction"],
+                           binocular_absolute_flag=any("binocular_disagreement" in rows[i]["qc_flags"] for i in span),
+                           **({"evidence_source":"openface_camera_gaze"} if independent_gaze else {}))
+            yield span, record, np.mean(directions[:,1:], axis=0)
+
+    def compare_gaze(gaze_states):
+        for (before,a,eyes_a),(after,b,eyes_b) in zip(gaze_states,gaze_states[1:]):
+            i,j = before[-1],after[0]
+            if (b["start_s"]-a["end_s"] > MAX_TRANSITION_S
+                    or not all(rows[k]["camera_gaze_usable" if independent_gaze else "eye_relative_usable"] for k in range(i,j+1))):
+                continue
+            mean = angular_change(a["camera_direction"],b["camera_direction"])
+            delta = eyes_b-eyes_a
+            if (mean >= 6 and min(angular_change(unit(v),unit(w)) for v,w in zip(eyes_a,eyes_b)) >= 4
+                    and np.sum(delta[0]*delta[1]) > 0
+                    and np.linalg.norm(delta[0]-delta[1]) <= 2*np.sin(np.radians(3))):
+                motion.append({"type":"gaze_direction_shift_candidate", **interval(rows,[i,j]),
+                               "gaze_change_deg":mean,
+                               "before_stable_frames":[a["start_frame"],a["end_frame"]],
+                               "after_stable_frames":[b["start_frame"],b["end_frame"]]})
+                select(i,"before_gaze_shift")
+                select(j,"after_gaze_shift")
+
     for block, sides in eye_blocks(rows, support):
         keys = [f"{side}_eye_{a}" for side in sides for a in "xy"]
         values = np.array([[rows[i][key] for key in keys] for i in block])
@@ -93,19 +124,10 @@ def analyze(rows, source_events, adjunct, *, allow_monocular=False):
             xy = dict(zip(sides,centre.reshape(-1,2).tolist(),strict=True))
             state("eye_position_stable", span, left_xy=xy.get("left"), right_xy=xy.get("right"),
                   **({"eye_support":list(sides)} if allow_monocular else {}))
-            allowed = [r["eye_relative_usable"] and r["head_usable"] and i in span for i,r in enumerate(rows)]
-            for sub in valid_blocks(rows, allowed):
-                rays = np.array([[rows[i]["gaze_direction"], *[unit([rows[i][k] for k in eye])
-                                 for eye in EYES]] for i in sub])
-                for support, directions in stable_runs(rows, sub, rays, DIRECTION_LIMIT, direction_distance):
-                    rep = support[len(support)//2]
-                    r = rows[rep]
-                    summary = unit(np.mean(directions[:,0],axis=0))
-                    record = state("stable_gaze_candidate", support, camera_direction=summary.tolist(),
-                                   representative_frame=r["global_frame_index"], head_direction=r["head_direction"],
-                                   eye_relative_direction=r["eye_relative_direction"],
-                                   binocular_absolute_flag=any("binocular_disagreement" in rows[i]["qc_flags"] for i in support))
-                    gaze_states.append((support, record, np.mean(directions[:,1:], axis=0)))
+            if not independent_gaze:
+                allowed = [r["eye_relative_usable"] and r["head_usable"] and i in span for i,r in enumerate(rows)]
+                for sub in valid_blocks(rows, allowed):
+                    gaze_states.extend(gaze_runs(sub))
 
         for (before,a), (after,b) in zip(pos_states,pos_states[1:]):
             i,j = before[-1], after[0]
@@ -137,22 +159,11 @@ def analyze(rows, source_events, adjunct, *, allow_monocular=False):
             select(i,"before_eye_motion")
             select(j,"after_eye_motion")
 
-        for (before,a,eyes_a),(after,b,eyes_b) in zip(gaze_states,gaze_states[1:]):
-            i,j = before[-1],after[0]
-            if (b["start_s"]-a["end_s"] > MAX_TRANSITION_S
-                    or not all(rows[k]["eye_relative_usable"] for k in range(i,j+1))):
-                continue
-            mean = angular_change(a["camera_direction"],b["camera_direction"])
-            delta = eyes_b-eyes_a
-            if (mean >= 6 and min(angular_change(unit(v),unit(w)) for v,w in zip(eyes_a,eyes_b)) >= 4
-                    and np.sum(delta[0]*delta[1]) > 0
-                    and np.linalg.norm(delta[0]-delta[1]) <= 2*np.sin(np.radians(3))):
-                motion.append({"type":"gaze_direction_shift_candidate", **interval(rows,[i,j]),
-                               "gaze_change_deg":mean,
-                               "before_stable_frames":[a["start_frame"],a["end_frame"]],
-                               "after_stable_frames":[b["start_frame"],b["end_frame"]]})
-                select(i,"before_gaze_shift")
-                select(j,"after_gaze_shift")
+        compare_gaze(gaze_states)
+
+    if independent_gaze:
+        for sub in valid_blocks(rows, [r["camera_gaze_usable"] for r in rows]):
+            compare_gaze(list(gaze_runs(sub)))
 
     for e in source_events:
         if e["event_type"] == "eye_closure_candidate":

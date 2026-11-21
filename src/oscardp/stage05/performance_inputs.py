@@ -11,8 +11,9 @@ def snapshot(paths):
     return {str(p.resolve()): file_hash(p) for p in paths if p.is_file()}
 
 
-def load_inputs(tracking_run, identity_run, movie_id, shot_ids):
-    source, tracks, observations, tracking_files = load_corrected(tracking_run, movie_id, shot_ids)
+def load_inputs(tracking_run, identity_run, movie_id, shot_ids, *, allow_stage01=False, multi=False):
+    options = {"allow_stage01":True} if allow_stage01 else {}
+    source, tracks, observations, tracking_files = load_corrected(tracking_run, movie_id, shot_ids, **options)
     config = load_json(identity_run/"run_config.json")
     result = load_json(identity_run/"identity_clusters.json")
     qc = load_json(identity_run/"qc_report.json")
@@ -50,16 +51,23 @@ def load_inputs(tracking_run, identity_run, movie_id, shot_ids):
     if result["model"] != config["model"]:
         raise ValueError("Identity model provenance mismatch")
     with np.load(identity_run/"track_embeddings.npz", allow_pickle=False) as data:
-        if str(data["model_sha256"]) != config["model"]["sha256"] or set(data["track_ids"]) != set(tracks):
+        from collections import Counter
+        expected = {tid: info["sample_count"] for tid,info in result["track_representations"].items()
+                    if info["sample_count"] > 0}
+        if (str(data["model_sha256"]) != config["model"]["sha256"]
+                or set(data["track_ids"].tolist()) != set(expected)
+                or Counter(data["sample_track_ids"].tolist()) != expected):
             raise ValueError("Identity NPZ model/Track mismatch")
         if not np.isfinite(data["track_embeddings"]).all():
             raise ValueError("Invalid source identity embeddings")
     for sid in shot_ids:
-        if sum(t["shot_id"] == sid for t in tracks.values()) != 1:
+        if not multi and sum(t["shot_id"] == sid for t in tracks.values()) != 1:
             raise ValueError("Single-person pilot requires exactly one source Track per Shot")
     earlier = Path(source["stage01"]["path"]).parent.glob(f"Stage0[1-4]_{movie_id}.json")
     paths = [p for root in [tracking_run, identity_run] for p in root.rglob("*") if p.is_file()]
-    paths += list(earlier)+[Path(source["boundary_sidecar"]["path"]), Path(source["boundary_sidecar"]["audit"]["path"])]
+    paths += list(earlier)
+    if "path" in source["boundary_sidecar"]:
+        paths += [Path(source["boundary_sidecar"]["path"]), Path(source["boundary_sidecar"]["audit"]["path"])]
     protected = snapshot(paths)
     provenance = {"tracking_run": str(tracking_run.resolve()), "tracking_files": tracking_files,
                   "identity_run": str(identity_run.resolve()),

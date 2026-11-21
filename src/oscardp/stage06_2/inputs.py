@@ -65,9 +65,21 @@ def load(args, extra_columns=()):
         check(hashes[str(p.resolve())] == events["source_provenance"]["measurement_files_sha256"][p.name],
               f"Stage05.5 source mismatch: {p}")
     upstream_track = next(t for t in tracks["tracks"] if t["shot_id"] == sid and t["track_id"] == tid)
-    bounds = measurement["effective_processing_temporal"]
-    check(all(measurement[k] == upstream_track[k] for k in ("original_temporal", "effective_processing_temporal")),
-          "Track and measurement frame bounds differ")
+    bounds = measurement.get("track_processing_temporal",measurement["effective_processing_temporal"])
+    if summary["boundary_sidecar"].get("mode")=="stage01_original":
+        stage01=args.stage04.parent/f"Stage01_{mid}.json"
+        digest=sha256_file(stage01)
+        check(upstream["protected_source_sha256"].get(str(stage01.resolve()))==digest,
+              "Stage01 shot-boundary source mismatch")
+        hashes[str(stage01.resolve())]=digest
+        original=next(s["temporal"] for s in read(stage01)["shots"] if s["shot_id"]==sid)
+        check(measurement["original_temporal"]==measurement["effective_processing_temporal"]==original
+              and (bounds["start_frame"],bounds["end_frame"])==(upstream_track["start_frame"],upstream_track["end_frame"])
+              and original["start_frame"]<=bounds["start_frame"]<bounds["end_frame"]<=original["end_frame"],
+              "Stage01 and Track measurement frame bounds differ")
+    else:
+        check(all(measurement[k] == upstream_track[k] for k in ("original_temporal", "effective_processing_temporal")),
+              "Track and measurement frame bounds differ")
     identity = clusters[tid]
     check(identity["cluster_id"] == measurement["identity_cluster_id"], "Identity cluster mismatch")
     # Assign a candidate character name only if there is a single tracked face
@@ -99,7 +111,8 @@ def load(args, extra_columns=()):
                    face_bbox_xywh=qc["association"].get("openface_landmark_bbox_xywh"), person=person)
     for key in ("head_pose_valid", "gaze_valid", "tracking_usable"):
         check(sum(r[key] for r in rows) == measurement["valid_counts"][key], "Track QC counts disagree")
-    check(any(r["head_pose_valid"] and r["gaze_valid"] for r in rows), "No jointly usable source pose and gaze")
+    if not getattr(args,"allow_partial",False):
+        check(any(r["head_pose_valid"] and r["gaze_valid"] for r in rows), "No jointly usable source pose and gaze")
 
     coverage = []
     for shot in selection["shot_ids"]:

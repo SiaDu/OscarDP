@@ -112,3 +112,95 @@ QC 检查跟踪关联、眼顺序、眼裂开度、虹膜中心是否落在眼�
 事件沿用 v1.2 的 0.05 s 局部中值及 0.03 眼宽稳定容差；新增单眼支持标记
 与双眼水平同向检查。缺失或眼支持改变切断比较，单眼候选不能视作双眼确认。
 代表帧可定期复核长稳定段，计时包括解码、推理和制图，没有运行替代 Gaze 模型。
+
+## v1.4 · 独立证据、弱眼动与定期代表帧
+
+只从 v1.3 的三个 Parquet 和对应 JSON 重放。无需安装或启动模型，也不解码原片。
+
+```sh
+root=reports/stage06_2/tt12300742/seq_006
+uv --no-cache run --no-sync python -m oscardp.stage06_2.evidence_replay \
+  --source "$root/mediapipe_pilot_001" --output-dir "$root/mediapipe_pilot_002"
+```
+
+- 紧凑的 `evidence_frames.parquet` 用真实电影 PTS、原始帧号和上游行号连接旧数值；
+  分别记录左右眼位、相机 Gaze、头姿的可用性与拒绝原因。相机 Gaze 按原
+  Stage05 门槛重算，并以双眼及综合方向在有效连续段内各自满足 3° 和至少
+  0.25 秒为稳定条件。MediaPipe 眼位和头相对分解不是这个条件的前提。
+- 严格 Eye Shift 和原 Adjustment 门槛保留。弱眼动检查同眼前后三帧的持续
+  水平位移，阈值 0.020 眼宽，首尾时间跨度至少 0.16 秒、至多 0.55 秒。
+  已知明显跳变、闭合、跟踪失败或该眼缺失会中断。对侧存在至少 0.010
+  眼宽的反向持续位移时拒绝。候选标明支持眼和对侧限制，仍可能受透视及拟合偏差
+  影响；不改变独立的方向变化判定。
+- 保留状态／事件选帧，并按正片 PTS 增加 0.5 秒检查窗。窗口内优先复用已选帧，
+  否则优先用多模态帧。保存可用和不可用模态，明显闭合和跟踪失败不作代表；
+  无合格帧的窗口记为 missing。所有文件写入新目录。
+
+## Bugonia seq_006 全段补齐
+
+十三镜头以 Stage04.3 列表为准。211、214、217 的 v1.4 原件和 v1.3 逐帧表
+直接复用；保留实验性纠偏待审状态。新增镜头用原 Stage01 边界。本批先以原分辨率
+YuNet 跟踪，再只对 213、218、219、220、221 用已有 640 配置补测覆盖不足的部分。
+Stage05.3 的匿名聚类按批次命名，不能用相同编号跨批次合并。无足够 ArcFace 样本
+的 Track 仍可保留数值，未确认的碎片不送进 OpenFace。
+
+Stage05.2 跟踪命令（使用 Bash）：
+
+```sh
+m=tt12300742
+analysis=/media/sdu/SiyaoDu/datasets/oscar_movie_analysis
+video=/media/sdu/SiyaoDu/datasets/oscar_movie/${m}_Bugonia/$m.mp4
+uv --no-cache run --no-sync python -m oscardp.stage05 detect-track \
+  --movie-id "$m" --analysis-root "$analysis" --video "$video" \
+  --model models/yunet/face_detection_yunet_2023mar.onnx \
+  --shot-ids shot_000{212,213,215,216,218,219,220,221,222,223} \
+  --output-root reports/stage05_2_seq006_001
+uv --no-cache run --no-sync python -m oscardp.stage05 detect-track \
+  --movie-id "$m" --analysis-root "$analysis" --video "$video" \
+  --model models/yunet/face_detection_yunet_2023mar.onnx --inference-max-size 640 \
+  --shot-ids shot_000{213,218,219,220,221} \
+  --output-root reports/stage05_2_seq006_fallback_001
+```
+
+以下是本批 Stage05.3–05.5 的调用方式（每次运行选择新输出目录）。两组分别为：
+
+- native: 212、215、216、222、223（跟踪目录 `reports/stage05_2_seq006_001/tt12300742`）。
+- fallback: 213、218、219、220、221（跟踪目录 `reports/stage05_2_seq006_fallback_001/tt12300742`）。
+
+```sh
+# 先设置 tracking、ids、measurement、events 为相应的新目录，
+# 将 shell 位置参数设置为一组 shot_000NNN。
+m=tt12300742
+uv --no-cache run --no-sync python -m oscardp.stage05 associate-identities \
+  --movie-id "$m" --stage01-boundaries --source-run "$tracking" --shot-ids "$@" \
+  --model models/insightface/models/buffalo_l/w600k_r50.onnx --output-dir "$ids"
+uv --no-cache run --no-sync python -m oscardp.stage05 extract-performance \
+  --movie-id "$m" --stage01-boundaries --multi-track --tracking-run "$tracking" \
+  --identity-run "$ids" --shot-ids "$@" --openface-binary models/OpenFace/build/bin/FeatureExtraction \
+  --output-dir "$measurement"
+uv --no-cache run --no-sync python -m oscardp.stage05 detect-events \
+  --movie-id "$m" --measurement-run "$measurement" --shot-ids "$@" --output-dir "$events"
+```
+
+多人 Track 使用同尺寸原坐标的隔离帧，既不平移也不缩放。竞争人脸与目标检测框
+重叠时屏蔽该帧；未观测帧不测量。每 Track 的 FFV1 传输帧散列与原帧散列分开，
+核对传输往返以及 OpenFace 五点与该 Track 的观测一致性。新 Stage05.4 只测量各
+Track 自身时间跨度，Stage05.5 按 Track 独立检测；参数沿用既有默认值。
+
+```sh
+m=tt12300742
+d=/media/sdu/SiyaoDu/datasets/oscar_movie_analysis/$m
+root=reports/stage06_2/$m/seq_006
+uv --no-cache run --no-sync python -m oscardp.stage06_2.full_sequence \
+  --stage04 "$d/Stage04_$m.json" --sequences "$d/Stage04_3_$m.json" \
+  --corrected "reports/stage05_2_corrected/$m" --reuse "$root/mediapipe_pilot_002" \
+  --reuse-positions "$root/mediapipe_pilot_001" --model models/mediapipe/face_landmarker.task \
+  --batch "reports/stage05_2_seq006_001/$m" "reports/stage05_3/$m/seq006_native_001" \
+    "reports/stage05_4/$m/seq006_native_001" "reports/stage05_5/$m/seq006_native_001" \
+  --batch "reports/stage05_2_seq006_fallback_001/$m" "reports/stage05_3/$m/seq006_fallback_001" \
+    "reports/stage05_4/$m/seq006_fallback_001" "reports/stage05_5/$m/seq006_fallback_001" \
+  --output-dir "$root/full_sequence_001"
+```
+
+汇总按正片 PTS 排列，保留旧纠偏与原 Stage01 边界之间可能的单帧重叠，
+不跨剪辑或 Track 合并角速度、事件或身份。同框 Track 数不等于人数。

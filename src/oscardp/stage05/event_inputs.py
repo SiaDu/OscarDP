@@ -38,11 +38,19 @@ def validate_rows(rows,status,config,measurements,qc,tracks,identities,root,obse
         require(key not in seen,"Duplicate measurement frame")
         seen.add(key)
         by.setdefault((tid,mode),[]).append(row)
-    maps = {sid:load_json(root/f"frame_maps/{sid}.json") for sid in config["selected_shot_ids"]}
+    multi = bool(config.get("multi_track_transport"))
+    map_ids = tracks if multi else config["selected_shot_ids"]
+    maps = {key:load_json(root/f"frame_maps/{key}.json") for key in map_ids}
     summaries = {(r["track_id"],r["extraction_mode"]):r for r in measurements["tracks"]}
     for tid,track in tracks.items():
         sid = track["shot_id"]
         t = track["effective_processing_temporal"]
+        mapping = maps[tid if multi else sid]
+        require(mapping["track_id"]==tid,"Frame map Track mismatch")
+        if multi:
+            from .performance_prepare import track_span
+            t=track_span(track)
+            require(mapping["track_processing_temporal"]==t,"Track span mismatch")
         observation_lookup = {r["frame_index"]:r for r in observations[tid]}
         for mode in config["au_modes"]:
             data = by.get((tid,mode),[])
@@ -53,20 +61,25 @@ def validate_rows(rows,status,config,measurements,qc,tracks,identities,root,obse
             require(all(abs(a["source_next_timestamp_sec"]-b["movie_timestamp_sec"])<1e-6 for a,b in zip(data,data[1:])),"Source timestamp boundary mismatch")
             summary = summaries[tid,mode]
             for key in ["original_temporal","effective_processing_temporal"]:
-                require(summary[key]==track[key]==maps[sid][key],"Measurement range/provenance mismatch")
+                require(summary[key]==track[key]==mapping[key],"Measurement range/provenance mismatch")
+            if multi:
+                require(summary["track_processing_temporal"]==t,"Measurement Track span mismatch")
             path = root/summary["raw_csv"]
             require(file_hash(path)==summary["execution"]["raw_csv_sha256"],"Raw OpenFace CSV SHA256 mismatch")
             header,parsed = parse_csv(path,len(data),config["camera_fps_for_validation"])
             groups = columns_by_modality(header)
             for local,row in enumerate(data,1):
-                mapped = maps[sid]["frames"][local-1]
+                mapped = mapping["frames"][local-1]
                 require(row["openface_local_frame"]==local and row["shot_id"]==sid,"Local/source Shot frame mismatch")
                 require(row["global_frame_index"]==mapped["global_frame_index"] and row["movie_timestamp_sec"]==mapped["movie_timestamp_sec"],"Source frame-map mismatch")
                 raw = parsed.get(local)
                 for name in header:
                     if name in {"frame","face_id","timestamp","confidence","success"}: continue
                     require(row[name]==(raw[name] if raw else None),f"Parquet/raw CSV value mismatch: {name}")
-                flags = assess(raw,groups,observation_lookup.get(row["global_frame_index"]),config["qc_parameters"]["tracking_confidence"])
+                obs = observation_lookup.get(row["global_frame_index"])
+                if mapped.get("isolation_status") in {"target_unobserved","conflicting_face_overlap"}:
+                    obs = None
+                flags = assess(raw,groups,obs,config["qc_parameters"]["tracking_confidence"])
                 require(all(row[k]==flags[k] for k in MASKS),"QC mask does not match original measurement rule/evidence")
             for flag,count in summary["valid_counts"].items():
                 require(sum(r[flag] for r in data)==count,"Track source QC count mismatch")
@@ -87,10 +100,20 @@ def load_measurements(root,movie_id,shot_ids):
     require(shot_ids and len(set(shot_ids))==len(shot_ids) and set(shot_ids)<=set(config["selected_shot_ids"]),"Explicit valid unique shots required")
     require(config["au_modes"]==["static","dynamic"] and config["main_au_mode"]=="static","Pilot requires separate static primary and dynamic comparison measurements")
     source = config["source_provenance"]
-    original,tracks,observations,identities,provenance = load_inputs(Path(source["tracking_run"]),Path(source["identity_run"]),movie_id,config["selected_shot_ids"])
+    options = {}
+    if config.get("boundary_sidecar",{}).get("mode")=="stage01_original":
+        options["allow_stage01"]=True
+    if config.get("multi_track_transport"):
+        options["multi"]=True
+    original,tracks,observations,identities,provenance = load_inputs(
+        Path(source["tracking_run"]),Path(source["identity_run"]),movie_id,config["selected_shot_ids"],**options)
+    if config.get("multi_track_transport"):
+        omitted={tid for tid,t in tracks.items() if not t["tracking_status"].startswith("confirmed")}
+        require(omitted==set(config.get("unmeasured_tracks",{})),"Unmeasured Track mismatch")
+        tracks={tid:t for tid,t in tracks.items() if tid not in omitted}
     require(source==provenance,"Stage05.2/05.3 provenance mismatch")
     require(config["boundary_sidecar"]==measurements["boundary_sidecar"]==qc["boundary_sidecar"]==original["boundary_sidecar"],"Boundary metadata mismatch")
-    require(config["boundary_sidecar"]["mode"]=="experimental_model_reviewed_pending_human" and not config["boundary_sidecar"]["human_verified"],"Boundary review state changed")
+    require(config["boundary_sidecar"]["mode"] in {"experimental_model_reviewed_pending_human","stage01_original"} and not config["boundary_sidecar"]["human_verified"],"Boundary review state changed")
     require(qc["source_hashes_unchanged"] and qc["status"]=="completed_frame_measurements_with_qc","Unfinished or invalid measurement run")
     table = pq.read_table(root/"frame_features.parquet")
     require(table.schema.metadata[b"schema_version"].decode()==config["schema_version"],"Parquet schema version mismatch")
