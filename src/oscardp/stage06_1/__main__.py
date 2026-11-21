@@ -22,14 +22,20 @@ def main():
     render.add_argument("--candidate", type=Path, required=True)
     render.add_argument("--inspected-sheet", action="append", required=True, metavar="JPG",
                         help="Sheets inspected for the candidate, including earlier visual evidence")
-    render.add_argument("--camera-groups", type=Path, help="New group array to add to a v1.0 candidate")
+    augment = render.add_mutually_exclusive_group()
+    augment.add_argument("--camera-groups", type=Path, help="New group array to add to a v1.0 candidate")
+    augment.add_argument("--camera-clues", type=Path, help="Per-shot visual evidence to add to a v1.1 candidate")
+    render.add_argument("--static-layout", metavar="LAYOUT_ID", help="Explicit opt-in to reuse a layout for this sequence")
     render.add_argument("--rechecked-sheet", action="append", metavar="JPG",
-                        help="Sheets actually reviewed for the new camera groups")
+                        help="Sheets actually reviewed for the new visual inference")
     render.add_argument("--vlm", required=True, help="Actual VLM name and method used")
     render.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
-    if args.command == "render" and bool(args.camera_groups) != bool(args.rechecked_sheet):
-        parser.error("--camera-groups and --rechecked-sheet must be supplied together")
+    if args.command == "render":
+        if bool(args.camera_groups or args.camera_clues) != bool(args.rechecked_sheet):
+            parser.error("incremental inference and --rechecked-sheet must be supplied together")
+        if args.static_layout and not args.camera_clues:
+            parser.error("--static-layout requires --camera-clues")
 
     try:
         if args.command == "prepare":
@@ -41,16 +47,22 @@ def main():
             print(f"{len(packet['shots'])} shots, {count} source JPGs prepared: {args.output_dir}")
         else:
             from .output import make_review, make_svg
-            from .validation import add_camera_groups, validate_candidate
+            from .validation import add_camera_groups, add_camera_regions, validate_candidate
 
             packet = load_json(args.prepared / "inputs.json")
             candidate = load_json(args.candidate)
             images = inspected_images(packet, args.inspected_sheet)
             rechecked = {}
-            if args.camera_groups:
+            if args.rechecked_sheet:
                 validate_candidate(candidate, packet, images)
                 rechecked = inspected_images(packet, args.rechecked_sheet)
-                candidate = add_camera_groups(candidate, load_json(args.camera_groups), rechecked)
+                if args.camera_groups:
+                    candidate = add_camera_groups(candidate, load_json(args.camera_groups), rechecked)
+                else:
+                    if any(s["shot_id"] not in rechecked for s in candidate["shots"]):
+                        raise ValueError("region inference requires rechecked images for every annotated shot")
+                    candidate = add_camera_regions(candidate, load_json(args.camera_clues),
+                                                   static_layout=args.static_layout)
                 images.update(rechecked)
             validate_candidate(candidate, packet, images)
             svg = make_svg(candidate)

@@ -5,7 +5,8 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from oscardp.stage06_1.output import make_svg
-from oscardp.stage06_1.validation import add_camera_groups, validate_candidate
+from oscardp.stage06_1.regions import infer_region
+from oscardp.stage06_1.validation import add_camera_groups, add_camera_regions, validate_candidate
 
 
 @pytest.fixture
@@ -129,3 +130,94 @@ def test_camera_direction_and_unplaced_group(inputs, camera_group):
     assert len(svg.findall('svg:line[@class="camera-direction"]', ns)) == 1
     assert len(svg.findall('svg:rect[@class="camera"]', ns)) == 1
     assert {"camera_001 → MICHELLE", "shot_000002"} <= {e.text for e in svg.findall("svg:text", ns)}
+
+
+@pytest.fixture
+def region_inputs(inputs, camera_group):
+    base, packet, inspected = inputs
+    michelle = base["layouts"][0]["people"][0]
+    michelle.update(position=[0.2, 0.5], position_quality="rough", facing_to="TEDDY")
+    base["layouts"][0]["people"].append(
+        {**michelle, "person": "TEDDY", "position": [0.8, 0.5], "facing_to": "MICHELLE"})
+    base["shots"][1]["layout_id"] = None
+    base = add_camera_groups(base, [camera_group], inspected)
+    clues = dict(view_person="UNKNOWN", view_of_torso="unknown", depth_order=[],
+                 screen_order=[], camera_height="low", note="测试条件。")
+    annotations = {
+        "shot_000001": dict(layout_basis="observed", camera_clues=clues),
+        "shot_000002": dict(layout_basis="assumed_static", camera_clues={
+            **clues, "view_person": "MICHELLE", "view_of_torso": "right_side",
+            "screen_order": [{"left": "MICHELLE", "right": "TEDDY"}],
+        }),
+    }
+    return base, annotations, packet, inspected
+
+
+def test_region_increment_preserves_legacy_state_and_points(region_inputs):
+    base, annotations, packet, inspected = region_inputs
+    validate_candidate(base, packet, inspected)
+    with pytest.raises(ValueError, match="explicit opt-in"):
+        add_camera_regions(base, annotations)
+    result = add_camera_regions(base, annotations, static_layout="layout_001")
+    validate_candidate(result, packet, inspected)
+    assert result["layouts"] == base["layouts"]
+    assert result["camera_groups"] == base["camera_groups"]
+    assert result["review_status"] == base["review_status"]
+    assert result["shots"][0]["camera_region"] is None  # height and group are metadata
+    shot = result["shots"][1]
+    assert base["shots"][1]["layout_id"] is None
+    assert shot["layout_id"] == "layout_001" and shot["layout_status"] == "unknown"
+    assert shot["camera_position"] is None
+    region = shot["camera_region"]
+    assert set(region["used_clues"]) == {"view_of_torso", "screen_order", "axis_side"}
+    assert [0.2, 0.9] in region["cells"]
+    assert all(y > 0.5 for _, y in region["cells"])
+    svg = ET.fromstring(make_svg(result))
+    ns = {"svg": "http://www.w3.org/2000/svg"}
+    assert len(svg.findall('svg:rect[@class="camera"]', ns)) == 1
+    assert len(svg.findall('svg:rect[@class="region-cell"]', ns)) == len(region["cells"])
+
+
+@pytest.mark.parametrize(("invalid", "message"), [
+    ("basis", "layout_basis"),
+    ("pair", "distinct pair"),
+    ("boundary", "coordinates"),
+    ("duplicate", "duplicate grid centre"),
+    ("forged", "does not match"),
+])
+def test_validate_region_payload(region_inputs, invalid, message):
+    base, annotations, packet, inspected = region_inputs
+    result = add_camera_regions(base, annotations, static_layout="layout_001")
+    shot = result["shots"][1]
+    cells = shot["camera_region"]["cells"]
+    if invalid == "basis":
+        shot["layout_basis"] = "verified"
+    elif invalid == "pair":
+        shot["camera_clues"]["depth_order"] = [{"nearer": "DON", "farther": "DON"}]
+    elif invalid == "boundary":
+        cells.append([1.1, 0.1])
+    elif invalid == "duplicate":
+        cells.append(cells[0])
+    elif invalid == "forged":
+        cells.append([0, 0])
+    with pytest.raises(ValueError, match=message):
+        validate_candidate(result, packet, inspected)
+
+
+def test_region_screen_projection_and_depth(region_inputs):
+    base, annotations, _, _ = region_inputs
+    shot = {**base["shots"][1], **annotations["shot_000002"], "layout_id": "layout_001",
+            "axis_side": "unknown"}
+    shot["camera_clues"] = {**shot["camera_clues"], "view_of_torso": "unknown",
+                            "depth_order": [{"nearer": "MICHELLE", "farther": "TEDDY"}]}
+    layout = base["layouts"][0]
+    region, _ = infer_region(shot, layout, {})
+    assert [0.3, 0.8] in region["cells"]
+    assert [0.7, 0.8] not in region["cells"]  # reversed depth relative to the group aim
+    assert [0.3, 0.2] not in region["cells"]  # reversed screen sides
+    shot["camera_clues"]["screen_order"].append({"left": "TEDDY", "right": "MICHELLE"})
+    empty, diagnostics = infer_region(shot, layout, {})
+    assert empty is None and any("图内无共同可行网格" in item for item in diagnostics)
+    # Without an aim, neither depth nor screen order gives a usable projection.
+    empty, diagnostics = infer_region({**shot, "camera_subject": "UNKNOWN"}, layout, {})
+    assert empty is None and any("无可用的投影拍摄朝向" in item for item in diagnostics)

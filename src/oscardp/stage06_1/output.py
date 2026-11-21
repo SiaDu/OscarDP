@@ -5,10 +5,13 @@ from math import hypot
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+from .regions import infer_region
+
 
 def make_svg(candidate):
     layouts = candidate["layouts"]
     shots = candidate["shots"]
+    regions = [shot for shot in shots if shot.get("camera_region") is not None]
     width, panel_height = 720, 440
     sidebar = []
     if "camera_groups" in candidate:
@@ -30,7 +33,8 @@ def make_svg(candidate):
             list_shots(ungrouped)
     if sidebar:
         width += 330
-    height = max(75 + panel_height * max(1, len(layouts)), 188 + 23 * len(sidebar))
+    region_top = max(75 + panel_height * max(1, len(layouts)), 188 + 23 * len(sidebar))
+    height = region_top + (65 + 215 * ((len(regions) + 2) // 3) if regions else 0)
     svg = ET.Element("svg", xmlns="http://www.w3.org/2000/svg", width=str(width),
                      height=str(height), viewBox=f"0 0 {width} {height}")
 
@@ -119,6 +123,36 @@ def make_svg(candidate):
         for i, line in enumerate(sidebar):
             if line:
                 add("text", line, x=733, y=170 + 23 * i)
+    if regions:
+        add("text", "Candidate camera regions", x=28, y=region_top + 22, font_weight="bold")
+        add("text", "Separate views share the main map axes. Shaded cells are feasible samples.",
+            x=28, y=region_top + 44)
+        layouts_by_id = {layout["layout_id"]: layout for layout in layouts}
+        for i, shot in enumerate(regions):
+            x, y = 28 + (i % 3) * 225, region_top + 65 + (i // 3) * 215
+            region = shot["camera_region"]
+            group = shot["camera_group"]
+            sid = shot["shot_id"]
+            title = f"{sid} / {group}" if group else sid
+            add("rect", x=x, y=y, width=207, height=200, rx=10, fill="white", stroke="#bac7d6")
+            add("text", title, x=x + 9, y=y + 22, font_size=12)
+            size = 140
+            px, py = x + 33, y + 33
+            add("rect", x=px, y=py, width=size, height=size, fill="#f8fafc", stroke="#bac7d6")
+            half = region["grid_step"] / 2
+            for cx, cy in region["cells"]:
+                left, top = max(0, cx - half), max(0, cy - half)
+                right, bottom = min(1, cx + half), min(1, cy + half)
+                add("rect", x=round(px + left * size, 3), y=round(py + top * size, 3),
+                    width=round((right - left) * size, 3), height=round((bottom - top) * size, 3),
+                    fill="#458fd3", fill_opacity=0.32, stroke="white", stroke_width=0.5,
+                    data_shot_id=sid, **{"class": "region-cell"})
+            for person in layouts_by_id[shot["layout_id"]]["people"]:
+                if person["position"] is not None:
+                    a, b = person["position"]
+                    add("circle", cx=px + a * size, cy=py + b * size, r=3, fill="#158267")
+                    add("text", person["person"][0], x=px + a * size + 4, y=py + b * size - 4, font_size=10)
+            add("text", f"{len(region['cells'])} cells  /  {shot['layout_basis']}", x=x + 9, y=y + 190)
     ET.indent(svg)
     return ET.tostring(svg, encoding="unicode") + "\n"
 
@@ -128,15 +162,17 @@ def make_review(candidate, packet, images, args, *, rechecked=None):
         return escape(str(text), quote=False).replace("|", "&#124;").replace("\n", " ")
 
     sequence = f"{candidate['movie_id']} / {candidate['sequence_id']} / {candidate['scene_id']}"
-    version = " v1.1" if "camera_groups" in candidate else ""
+    has_regions = any("camera_clues" in shot for shot in candidate["shots"])
+    version = " v1.2" if has_regions else " v1.1" if "camera_groups" in candidate else ""
     image_summary = f"{sum(map(len, images.values()))} 张不同的 Stage01 JPG、{len(images)} 个镜头"
     provenance = [f"- 实际查看：{image_summary}。"]
     if rechecked:
+        base_version = "v1.1" if has_regions else "v1.0"
         provenance = [
-            f"- 累计视觉输入：{image_summary}，包含沿用的 v1.0 证据。",
+            f"- 累计视觉输入：{image_summary}，包含沿用的 {base_version} 证据。",
             f"- 本轮复核：{sum(map(len, rechecked.values()))} 张不同 JPG、{len(rechecked)} 个镜头，"
             f"联系表 {', '.join(dict.fromkeys(args.rechecked_sheet))}。",
-            f"- v1.0 来源：`{args.candidate}`。v1.1 沿用其中的布局、机位坐标和轴侧判断。",
+            f"- {base_version} 来源：`{args.candidate}`。沿用其中的人物布局、机位坐标和轴侧判断。",
         ]
     lines = [
         f"# Stage06.1{version} 人工复核 · {sequence}", "",
@@ -146,8 +182,11 @@ def make_review(candidate, packet, images, args, *, rechecked=None):
         "- 状态：`model_candidate` / `pending`。人物名是外观连续性候选。",
         "- 坐标仅为俯视示意。三张采样帧之间的走位或换轴仍需连续画面复核。",
         "- 参考资料：输入清单 `inputs.json` 中记录 Stage01–04.3 来源、JPG 路径和 SHA-256。",
-        "", "## 布局与人物", "",
     ]
+    if candidate.get("layout_assumption") == "static_for_pilot":
+        lines.append("- 工作假设：`static_for_pilot`。`assumed_static` 镜头借用本段三人相对站位，"
+                     "并未逐帧确认其稳定；`observed` 表示有直接的镜头或参照画面支持。")
+    lines += ["", "## 布局与人物", ""]
     if not candidate["layouts"]:
         lines += ["没有足够证据建立布局。", ""]
     for layout in candidate["layouts"]:
@@ -190,6 +229,33 @@ def make_review(candidate, packet, images, args, *, rechecked=None):
                 s["camera_subject"], comparison, s["note"])
         lines.append("| " + " | ".join(map(cell, cols)) + " |")
 
+    if has_regions:
+        lines += [
+            "", "## 摄影机候选区域", "",
+            "网格中心间隔 0.1。躯干视角按人物自身左右转换为粗略扇区；前后景和画面顺序用俯视近似投影。"
+            "画面占比、头眼方向、高度标签和 Camera Group 不参与区域筛选。",
+            "",
+            "| Shot | 布局依据 | 可见空间线索 | 网格 / 使用条件 | 局限与人工核对 |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        by_id = {shot["shot_id"]: shot for shot in candidate["shots"]}
+        layout_by_id = {layout["layout_id"]: layout for layout in candidate["layouts"]}
+        for sid, shot in sorted(by_id.items()):
+            clues = shot["camera_clues"]
+            depth = "、".join(f"{p['nearer']} 在 {p['farther']} 前" for p in clues["depth_order"])
+            screen = "、".join(f"{p['left']} 在 {p['right']} 左" for p in clues["screen_order"])
+            visible = "；".join(filter(None, (
+                f"{clues['view_person']} / {clues['view_of_torso']}",
+                depth, screen, f"高度 {clues['camera_height']}" if clues["camera_height"] != "unknown" else "",
+                f"轴侧 {shot['axis_side']}（参照 {shot['axis_reference_shot']}）"
+                if shot["axis_side"] != "unknown" else "",
+            )))
+            region = shot["camera_region"]
+            _, diagnostics = infer_region(shot, layout_by_id.get(shot["layout_id"]), by_id)
+            summary = f"{len(region['cells'])} 格 / {', '.join(region['used_clues'])}" if region else "null"
+            details = " ".join([clues["note"], *diagnostics, region["note"] if region else ""]).strip()
+            lines.append("| " + " | ".join(map(cell, (sid, shot["layout_basis"], visible, summary, details))) + " |")
+
     lines += [
         "", "## 建议优先复核", "",
         "- 用参考镜头的同框、前后景遮挡与房间固定物检查三人的相对位置和身体朝向。",
@@ -202,6 +268,6 @@ def make_review(candidate, packet, images, args, *, rechecked=None):
         sid = shot["shot_id"]
         if sid in images:
             names = ", ".join(f"`{Path(path).name}`" for path in images[sid])
-            prefix = "（v1.1 复核）" if rechecked and sid in rechecked else ""
+            prefix = f"（{version.strip()} 复核）" if rechecked and sid in rechecked else ""
             lines.append(f"- {sid}{prefix}：{names}")
     return "\n".join(lines) + "\n"

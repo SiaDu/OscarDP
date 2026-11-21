@@ -67,3 +67,35 @@ the fresh grouping evidence, listed separately in the review. A full v1.1 JSON
 can also be rendered directly with `--candidate` and its inspected sheets.
 The SVG lists cameras without positions beside the map and draws a shooting
 arrow only when both the camera and its named subject have map positions.
+
+## Infer v1.2 camera regions
+
+Use the [v1.2 prompt](prompts/stage06_1_scene_layout_prompt_v1_2.md) to classify
+visible clues. Save an object keyed by shot ID, with `layout_basis` and
+`camera_clues` for each shot. The file holds visual annotations only. Python
+computes the grid, leaving the previous camera points and groups intact.
+`--static-layout` explicitly allows shots marked `assumed_static` to use the
+named layout in this run. It changes neither layout stability nor review status.
+
+```sh
+root=reports/stage06_1/tt12300742
+uv --no-cache run --no-sync python -m oscardp.stage06_1 render \
+  --prepared "$root/seq_006_inputs" --candidate "$root/seq_006_v1_1/scene_layout.json" \
+  --camera-clues "$root/seq_006_v1_2_inputs/camera_clues.json" --static-layout layout_001 \
+  --inspected-sheet shots_01.jpg --inspected-sheet shots_02.jpg --inspected-sheet shots_03.jpg \
+  --inspected-sheet shots_04.jpg --inspected-sheet shots_05.jpg \
+  --rechecked-sheet shots_01.jpg --rechecked-sheet shots_02.jpg --rechecked-sheet shots_03.jpg \
+  --rechecked-sheet shots_04.jpg --rechecked-sheet shots_05.jpg \
+  --vlm "Codex interactive vision, all 39 Stage01 samples" \
+  --output-dir "$root/seq_006_v1_2"
+```
+
+Grid centres have spacing 0.1 within the existing unit square. Torso views
+use sectors of ±30° around the named view, relative to the person's body
+forward. Depth and image order use the camera's approximate direction toward
+the named subject, or the centre of visible people for a group shot. Positive
+image horizontal coordinates point screen-right. Axis constraints need an axis
+and a positioned reference in the same layout. Camera height and camera groups
+are descriptive. The review records unused constraints, empty intersections
+and cases where an inherited camera point falls outside its candidate grid.
+The SVG renders separate shaded grids so overlapping regions can be compared.
