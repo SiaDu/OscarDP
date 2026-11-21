@@ -152,3 +152,60 @@ def test_motion_classification_ignores_absolute_offset_but_not_conflicting_chang
     assert event["eye_relative_change_deg"] >= 6
     assert "binocular_disagreement" in event["qc_flags"]
     assert ("binocular_motion_disagreement" in event["qc_flags"]) == (expected == "uncertain")
+
+
+def position_sequence(*, gap=False, eyes_stable=False):
+    rows, _ = rows_for_motion(0., 0.)
+    for i, r in enumerate(rows):
+        shift = .08 if i >= 16 else 0
+        direction = [np.sin(3*shift), 0., -np.cos(3*shift)]
+        r.update(left_eye_x=.45+(0 if eyes_stable else shift),
+                 right_eye_x=.55+(0 if eyes_stable else shift), left_eye_y=0., right_eye_y=0.,
+                 gaze_direction=direction)
+        for eye in EYES:
+            r.update(zip(eye, direction, strict=True))
+    if gap:
+        rows[16].update(camera_gaze_usable=False, eye_relative_usable=False)
+    return rows
+
+
+def test_stable_gaze_shift_requires_sustained_and_continuous_support():
+    from oscardp.stage06_2.stable import analyze
+    rows = position_sequence(eyes_stable=True)
+    states, motion, frames = analyze(rows, [], [])
+    assert sum(s["type"]=="stable_gaze_candidate" for s in states) == 2
+    assert sum(s["type"]=="eye_position_stable" for s in states) == 1
+    [shift] = [e for e in motion if e["type"]=="gaze_direction_shift_candidate"]
+    assert shift["start_frame"] <= 16 < shift["end_frame"]
+    assert len(frames) < len(rows)
+    _, motion, _ = analyze(position_sequence(gap=True, eyes_stable=True), [], [])
+    assert all(e["type"]!="gaze_direction_shift_candidate" for e in motion)
+
+
+def test_eye_position_does_not_require_gaze_and_blink_stays_separate():
+    from oscardp.stage06_2.stable import analyze
+    rows = position_sequence()
+    for r in rows:
+        r.update(eye_relative_usable=False, camera_gaze_usable=False)
+    rows[8].update(left_eye_x=None, right_eye_x=None)
+    states, motion, picks = analyze(rows, [{"event_type":"eye_closure_candidate", "event_id":"blink",
+        "start_frame":8, "end_frame":9, "start_sec":100.32,"end_sec":100.36}], [])
+    assert states and {s["type"] for s in states} == {"eye_position_stable"}
+    assert any(e["type"]=="blink_candidate" for e in motion)
+    assert any(e["type"]=="unknown" and e["start_frame"]==8 for e in motion)
+    assert not picks
+
+
+def test_aperture_position_uses_fitted_iris_and_roll_normalization():
+    from oscardp.stage06_2.eye_position import position
+    points=np.zeros((28,2))
+    points[:8]=[5., 1.]
+    points[8:20]=[[0,0],[2,-2],[4,-3],[6,-3],[8,-3],[10,-2],[12,0],
+                  [10,2],[8,3],[6,3],[4,3],[2,2]]
+    reference=position(points)
+    angle=.35
+    R=np.array([[np.cos(angle),-np.sin(angle)],[np.sin(angle),np.cos(angle)]])
+    np.testing.assert_allclose(position(points@R.T+[150,200]), [5/12,1/12])
+    np.testing.assert_allclose(reference,[5/12,1/12])
+    points[:8,1]=8
+    assert position(points) is None

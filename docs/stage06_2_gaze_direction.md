@@ -56,3 +56,24 @@ Gaze 只补充种子。双眼局部运动差与抖动门槛写入 JSON。净变�
 ```sh
 uv --no-cache run --no-sync python -m pytest tests/test_stage06_2.py
 ```
+
+## v1.2 · Eye Position 与稳定方向
+
+复用上面的命令，把输出改为 `pilot_003`，并增加
+`--eye-position --track-id shot_000217_track_001`。保留 `--review-frames`
+可输出从原片 PTS 核对的眼部叠图。此模式仅用于 Bugonia 的这个 Track。
+
+OpenFace 的每眼局部 0–7 点属于虹膜拟合轮廓（见源码
+`GazeEstimation.cpp::GetPupilPosition`），其均值是模型中心代理。
+眼角使用眼模配置映射的 8、14 点，按画面 x 排序；两轴均以眼角连线长度
+归一化。转换补偿平面内旋转与尺度，无法消除斜视角、非刚性眼睑遮挡或
+错误的虹膜拟合。闭合候选、无效 tracking/landmarks/pose、低开度、较大偏航
+或拟合中心落出眼睑时，该眼位置为空。可见度字段是 QC 代理。
+
+位置用有效连续段内的局部中值（0.05 s）。位置跨度不超过眼宽的 3% 且
+持续至少 0.25 s 才产生眼位稳定候选。相机方向稳定还要求两眼和综合
+向量在该段各自变化不超过 3°。相邻稳定段的方向差至少 6°、双眼支持
+一致且间隔不超过 0.55 s 才标方向变化候选。不跨无效段比较；明显姿态
+变化下的眼位候选可能被降为 unknown。附加头眼运动分类保留在
+`motion_events.json` 中供对照。代表帧是未来复核或估计器调用清单，
+没有执行新模型或测速。Pilot 保留原约 24 FPS。

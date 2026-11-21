@@ -18,10 +18,10 @@ from .inputs import EYES
 from .temporal import BINOCULAR_LIMIT_DEG, valid_blocks
 
 
-def plot(rows, events, output):
+def plot(rows, events, output, *, eye_states=None):
     times = np.array([r["movie_timestamp_sec"] for r in rows])
     end = rows[-1]["source_next_timestamp_sec"]
-    fig, axes = plt.subplots(6, 1, figsize=(13, 13), sharex=True, layout="constrained")
+    fig, axes = plt.subplots(6 + (eye_states is not None), 1, figsize=(13, 15 if eye_states is not None else 13), sharex=True, layout="constrained")
     specs = [
         ("head_direction", "Head forward (camera axes)", "#1c6599"),
         ("gaze_direction", "Mean gaze (camera axes)", "#176e4d"),
@@ -29,7 +29,7 @@ def plot(rows, events, output):
         ("right_eye_relative_direction", "Right eye / OpenFace 1 (head-local axes)", "#177484"),
         ("eye_relative_direction", "Mean gaze (head-local axes)", "#844b90"),
     ]
-    for ax, (field, title, color) in zip(axes[:-1], specs, strict=True):
+    for ax, (field, title, color) in zip(axes[:5], specs, strict=True):
         mask = [r[field] is not None for r in rows]
         for i, indices in enumerate(valid_blocks(rows, mask)):
             angles = np.array([direction_angles(rows[j][field]) for j in indices])
@@ -41,6 +41,23 @@ def plot(rows, events, output):
         if ax.get_legend_handles_labels()[0]:
             ax.legend(loc="upper right", ncol=2, fontsize=8)
 
+    if eye_states is not None:
+        ax = axes[5]
+        for side, color in (("left","#a25c20"),("right","#177484")):
+            for axis, style in (("x","-"),("y","--")):
+                key = f"{side}_eye_{axis}"
+                for j, block in enumerate(valid_blocks(rows, [r[key] is not None for r in rows])):
+                    ax.plot(times[block], [rows[i][key] for i in block], style, color=color,
+                            label=f"{side} {axis}" if j == 0 else None)
+        for state in eye_states:
+            for panel in ([ax] if state["type"] == "eye_position_stable" else [axes[1]]):
+                panel.axvspan(state["start_s"],state["end_s"],color="#46936b",alpha=.20,zorder=0)
+        for block in valid_blocks(rows, [any(r[f"{side}_eye_x"] is None for side in ("left","right")) for r in rows]):
+            ax.axvspan(times[block[0]], rows[block[-1]]["source_next_timestamp_sec"],
+                       color="#858585", alpha=.14, zorder=0)
+        ax.set_title("Iris fit / local eye-corner width  |  green: stable candidate",loc="left")
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(loc="upper right",ncol=4,fontsize=8)
     qc = axes[-1]
     values = np.array([r["binocular_disagreement_deg"] for r in rows], dtype=float)
     for i, block in enumerate(valid_blocks(rows, np.isfinite(values))):
@@ -78,18 +95,15 @@ def frame_pairs(rows, events):
     return pairs
 
 
-def extract_review_frames(video, video_record, rows, events, output):
+def decode_review_frames(video, video_record, rows):
     stat = video.stat()
     if (stat.st_size, stat.st_mtime_ns) != (video_record["size"], video_record["mtime_ns"]):
         raise ValueError("Review video does not match Stage05 provenance")
-    pairs = frame_pairs(rows, events)
-    if not pairs:
-        return []
     origin = subprocess.check_output(
         ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=start_time",
          "-of", "json", str(video)], text=True)
     origin = float(json.loads(origin)["streams"][0]["start_time"])
-    targets = {r["global_frame_index"]: r for _, a, b in pairs for r in (a, b)}
+    targets = {r["global_frame_index"]: r for r in rows}
     ordered = sorted(targets.values(), key=lambda r: r["movie_timestamp_sec"])
     times = [r["movie_timestamp_sec"] + origin for r in ordered]
     expression = "+".join(f"lt(abs(t-{t:.9f}),0.002)" for t in times)
@@ -109,6 +123,14 @@ def extract_review_frames(video, video_record, rows, events, output):
             # Decode first, then make a single fixed crop per pair below.
             with Image.open(Path(temp)/f"{i:03d}.png") as frame:
                 pictures[row["global_frame_index"]] = frame.convert("RGB")
+    return pictures
+
+
+def extract_review_frames(video, video_record, rows, events, output):
+    pairs = frame_pairs(rows, events)
+    if not pairs:
+        return []
+    pictures = decode_review_frames(video, video_record, [r for _, a, b in pairs for r in (a,b)])
     sheet = Image.new("RGB", (1000, 285*len(pairs)), "#131b24")
     draw = ImageDraw.Draw(sheet)
     for i, (title, first, last) in enumerate(pairs):

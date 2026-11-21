@@ -26,7 +26,7 @@ def check(ok, message):
         raise ValueError(message)
 
 
-def load(args):
+def load(args, extra_columns=()):
     path = args.measurement_run
     summary = read(path / "track_measurements.json")
     track_path = args.tracking_run / "face_tracks.json"
@@ -75,7 +75,7 @@ def load(args):
     person = named.get(sid) if sum(t["shot_id"] == sid for t in tracks["tracks"]) == 1 else None
     cols = KEYS + MASKS + POSE + sum(EYES, []) + ["gaze_angle_x", "gaze_angle_y",
             "parquet_row", "landmark_bbox_iou", "five_point_normalized_error", "AU45_r", "AU45_c"]
-    rows = pq.read_table(files[0], columns=cols, filters=[("shot_id", "=", sid), ("track_id", "=", tid),
+    rows = pq.read_table(files[0], columns=cols + list(extra_columns), filters=[("shot_id", "=", sid), ("track_id", "=", tid),
                          ("extraction_mode", "=", mode)]).to_pylist()
     states = []
     with files[1].open(encoding="utf-8") as stream:

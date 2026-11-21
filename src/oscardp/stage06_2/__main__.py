@@ -16,14 +16,14 @@ from .temporal import (BINOCULAR_CHANGE_LIMIT_DEG, BINOCULAR_LIMIT_DEG, JITTER_M
 VERSION = "stage06.2.gaze_direction.v1.1"
 
 
-def frame_table(rows):
+def frame_table(rows, version=VERSION):
     table = pa.Table.from_pylist(rows)
     for key in ("head_direction", "gaze_direction", "left_eye_relative_direction",
                 "right_eye_relative_direction", "eye_relative_direction"):
         table = table.set_column(table.schema.get_field_index(key), key,
                                  pa.array([r[key] for r in rows], type=pa.list_(pa.float64())))
     return table.replace_schema_metadata({
-        "schema_version": VERSION, "time_axis": "source movie seconds; inclusive starts and exclusive next PTS",
+        "schema_version": version, "time_axis": "source movie seconds; inclusive starts and exclusive next PTS",
         "camera_axes": "+X right, +Y down, +Z away from camera",
         "head_pose": "OpenFace XYZ radians; model to camera, R = Rx @ Ry @ Rz",
         "eye_axes": "eye 0 = OpenFace left; eye 1 = OpenFace right; local direction = R.T @ camera direction",
@@ -33,9 +33,22 @@ def frame_table(rows):
 def run(args):
     if args.output_dir.exists():
         raise ValueError(f"Output directory already exists: {args.output_dir}")
-    rows, measure, source_events, coverage, files, video_record = load(args)
+    extra = ()
+    if args.eye_position:
+        from .eye_position import LANDMARKS
+        from .position_pilot import publish
+        if (args.movie_id, args.sequence_id, args.shot_id, args.track_id) != (
+                "tt12300742", "seq_006", "shot_000217", "shot_000217_track_001"):
+            raise ValueError("v1.2 is scoped to the Bugonia shot_000217 pilot Track; pass --track-id")
+        extra = LANDMARKS
+    rows, measure, source_events, coverage, files, video_record = load(args, extra)
     rows = prepare_frames(rows, source_events)
     events = detect(rows, source_events)
+    if args.eye_position:
+        args.output_dir.mkdir(parents=True, exist_ok=False)
+        publish(args, rows, source_events, events, video_record, files, frame_table)
+        print(f"Eye-position pilot → {args.output_dir}")
+        return
     qc = qc_summary(rows)
     model = read(args.measurement_run / "model_provenance.json")
     args.output_dir.mkdir(parents=True, exist_ok=False)
@@ -87,6 +100,7 @@ def main():
     parser.add_argument("--track-id")
     for name in ("stage04", "sequences", "tracking-run", "identity-run", "measurement-run", "event-run", "output-dir"):
         parser.add_argument("--"+name, required=True, type=Path)
+    parser.add_argument("--eye-position", action="store_true", help="Run the v1.2 single-Track pilot")
     parser.add_argument("--review-frames", action="store_true")
     parser.add_argument("--video", type=Path, help="Local copy matching Stage05 media metadata")
     args = parser.parse_args()
