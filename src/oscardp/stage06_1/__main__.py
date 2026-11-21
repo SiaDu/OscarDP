@@ -20,10 +20,16 @@ def main():
     render = commands.add_parser("render", help="Validate and render an existing visual candidate")
     render.add_argument("--prepared", type=Path, required=True)
     render.add_argument("--candidate", type=Path, required=True)
-    render.add_argument("--inspected-sheet", action="append", required=True, metavar="JPG")
+    render.add_argument("--inspected-sheet", action="append", required=True, metavar="JPG",
+                        help="Sheets inspected for the candidate, including earlier visual evidence")
+    render.add_argument("--camera-groups", type=Path, help="New group array to add to a v1.0 candidate")
+    render.add_argument("--rechecked-sheet", action="append", metavar="JPG",
+                        help="Sheets actually reviewed for the new camera groups")
     render.add_argument("--vlm", required=True, help="Actual VLM name and method used")
     render.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
+    if args.command == "render" and bool(args.camera_groups) != bool(args.rechecked_sheet):
+        parser.error("--camera-groups and --rechecked-sheet must be supplied together")
 
     try:
         if args.command == "prepare":
@@ -35,14 +41,20 @@ def main():
             print(f"{len(packet['shots'])} shots, {count} source JPGs prepared: {args.output_dir}")
         else:
             from .output import make_review, make_svg
-            from .validation import validate_candidate
+            from .validation import add_camera_groups, validate_candidate
 
             packet = load_json(args.prepared / "inputs.json")
             candidate = load_json(args.candidate)
             images = inspected_images(packet, args.inspected_sheet)
+            rechecked = {}
+            if args.camera_groups:
+                validate_candidate(candidate, packet, images)
+                rechecked = inspected_images(packet, args.rechecked_sheet)
+                candidate = add_camera_groups(candidate, load_json(args.camera_groups), rechecked)
+                images.update(rechecked)
             validate_candidate(candidate, packet, images)
             svg = make_svg(candidate)
-            review = make_review(candidate, packet, images, args)
+            review = make_review(candidate, packet, images, args, rechecked=rechecked)
             args.output_dir.mkdir(parents=True, exist_ok=False)
             write_json(args.output_dir / "scene_layout.json", candidate)
             for name, content in (("scene_layout.svg", svg), ("review.md", review)):

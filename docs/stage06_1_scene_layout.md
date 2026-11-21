@@ -42,3 +42,28 @@ to a new directory. Validation checks the representation, while the review
 checks the actual spatial claims. If inference is unavailable, stop after
 preparation. To repeat a preparation or render, choose a fresh output directory.
 This prototype uses only in-sequence shots as evidence.
+
+## Add v1.1 camera groups to an existing result
+
+Use the [v1.1 prompt](prompts/stage06_1_scene_layout_prompt_v1_1.md) to compare
+actual images for possible repeated viewpoints. Save the resulting group
+objects as a JSON array. Group membership can be added directly to the original
+candidate, keeping the existing layout, positions and axis judgments.
+
+```sh
+root=reports/stage06_1/tt12300742
+uv --no-cache run --no-sync python -m oscardp.stage06_1 render \
+  --prepared "$root/seq_006_inputs" --candidate "$root/seq_006/scene_layout.json" \
+  --camera-groups "$root/seq_006_v1_1_inputs/camera_groups.json" \
+  --inspected-sheet shots_01.jpg --inspected-sheet shots_02.jpg --inspected-sheet shots_03.jpg \
+  --inspected-sheet shots_04.jpg --inspected-sheet shots_05.jpg \
+  --rechecked-sheet shots_02.jpg --rechecked-sheet shots_03.jpg --rechecked-sheet shots_04.jpg \
+  --vlm "Codex interactive vision, compared the three rechecked sheets" \
+  --output-dir "$root/seq_006_v1_1"
+```
+
+The inspected sheets cover the inherited evidence. The rechecked sheets cover
+the fresh grouping evidence, listed separately in the review. A full v1.1 JSON
+can also be rendered directly with `--candidate` and its inspected sheets.
+The SVG lists cameras without positions beside the map and draws a shooting
+arrow only when both the camera and its named subject have map positions.

@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from oscardp.stage06_1.output import make_svg
-from oscardp.stage06_1.validation import validate_candidate
+from oscardp.stage06_1.validation import add_camera_groups, validate_candidate
 
 
 @pytest.fixture
@@ -71,3 +71,61 @@ def test_svg_draws_real_coordinates_only(inputs):
     assert len(svg.findall('svg:rect[@class="camera"]', ns)) == 1
     assert svg.findall("svg:circle", ns) == []
     assert svg.findall("svg:line", ns) == []
+
+
+@pytest.fixture
+def camera_group(inputs):
+    candidate, _, _ = inputs
+    shot_ids = [shot["shot_id"] for shot in candidate["shots"]]
+    return dict(camera_group="camera_001", shot_ids=shot_ids, reference_shot=shot_ids[0],
+                group_quality="rough", evidence_shots=list(shot_ids), note="相似角度候选。")
+
+
+@pytest.mark.parametrize(("field", "value", "error"), [
+    ("camera_group", "group_001", "invalid or duplicate"),
+    ("shot_ids", ["shot_000001"], "at least two"),
+    ("shot_ids", ["shot_000001", "shot_000001"], "duplicate evidence shot"),
+    ("shot_ids", ["shot_000001", "shot_000003"], "shot IDs"),
+    ("reference_shot", "shot_000003", "must belong"),
+    ("group_quality", "certain", "group_quality"),
+    ("evidence_shots", ["shot_000001"], "every member"),
+])
+def test_invalid_camera_group(inputs, camera_group, field, value, error):
+    candidate, _, inspected = inputs
+    camera_group[field] = value
+    with pytest.raises(ValueError, match=error):
+        add_camera_groups(candidate, [camera_group], inspected)
+
+
+def test_camera_group_reference_integrity(inputs, camera_group):
+    candidate, packet, inspected = inputs
+    with pytest.raises(ValueError, match="already belongs"):
+        add_camera_groups(candidate, [camera_group, {**camera_group, "camera_group": "camera_002"}], inspected)
+    with pytest.raises(ValueError, match="inspected images"):
+        add_camera_groups(candidate, [camera_group], {"shot_000001": ["first.jpg"]})
+    grouped = add_camera_groups(candidate, [camera_group], inspected)
+    for link in ("camera_002", None):
+        grouped["shots"][1]["camera_group"] = link
+        with pytest.raises(ValueError, match="disagrees"):
+            validate_candidate(grouped, packet, inspected)
+    del grouped["shots"][1]["camera_group"]
+    with pytest.raises(ValueError, match="expected fields"):
+        validate_candidate(grouped, packet, inspected)
+
+
+def test_camera_direction_and_unplaced_group(inputs, camera_group):
+    candidate, packet, inspected = inputs
+    candidate["layouts"][0]["people"][0].update(position=[0.2, 0.5], position_quality="rough")
+    for shot in candidate["shots"]:
+        shot["camera_subject"] = "MICHELLE"
+    grouped = add_camera_groups(candidate, [camera_group], inspected)
+    validate_candidate(grouped, packet, inspected)
+    assert "camera_groups" not in candidate
+    assert all("camera_group" not in shot for shot in candidate["shots"])
+    assert [s["camera_position"] for s in grouped["shots"]] == [[0.5, 0.8], None]
+
+    svg = ET.fromstring(make_svg(grouped))
+    ns = {"svg": "http://www.w3.org/2000/svg"}
+    assert len(svg.findall('svg:line[@class="camera-direction"]', ns)) == 1
+    assert len(svg.findall('svg:rect[@class="camera"]', ns)) == 1
+    assert {"camera_001 → MICHELLE", "shot_000002"} <= {e.text for e in svg.findall("svg:text", ns)}

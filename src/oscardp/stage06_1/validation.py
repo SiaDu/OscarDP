@@ -46,8 +46,42 @@ def references(value, inspected, location, *, required=False):
     require(not required or bool(value), location, "claim requires inspected shot evidence")
 
 
+def camera_membership(groups, shot_ids, inspected):
+    require(isinstance(groups, list), "camera_groups", "expected an array")
+    membership, seen = {}, set()
+    for i, group in enumerate(groups):
+        loc = f"camera_groups[{i}]"
+        fields(group, "camera_group shot_ids reference_shot group_quality evidence_shots note", loc)
+        gid = group["camera_group"]
+        require(isinstance(gid, str) and bool(re.fullmatch(r"camera_[0-9]{3,}", gid)) and gid not in seen,
+                loc, "invalid or duplicate camera_group")
+        seen.add(gid)
+        members = group["shot_ids"]
+        references(members, shot_ids, loc + ".shot_ids")
+        require(len(members) >= 2, loc, "camera group needs at least two shots")
+        require(group["reference_shot"] in members, loc, "reference_shot must belong to the group")
+        label(group["group_quality"], QUALITY, loc + ".group_quality")
+        references(group["evidence_shots"], inspected, loc + ".evidence_shots", required=True)
+        require(set(members) <= set(group["evidence_shots"]), loc, "every member must be cited as evidence")
+        for sid in members:
+            require(sid not in membership, loc, f"{sid} already belongs to a camera group")
+            membership[sid] = gid
+        note(group["note"], loc)
+    return membership
+
+
+def add_camera_groups(candidate, groups, inspected):
+    """Add visual group annotations to a v1.0 candidate without changing its spatial claims."""
+    require("camera_groups" not in candidate, "candidate", "expected a v1.0 base for incremental grouping")
+    membership = camera_membership(groups, {shot["shot_id"] for shot in candidate["shots"]}, inspected)
+    return {**candidate, "camera_groups": groups,
+            "shots": [{**shot, "camera_group": membership.get(shot["shot_id"])} for shot in candidate["shots"]]}
+
+
 def validate_candidate(candidate, packet, inspected):
-    fields(candidate, "movie_id sequence_id scene_id start_s end_s layouts shots status review_status", "result")
+    grouped = isinstance(candidate, dict) and "camera_groups" in candidate
+    fields(candidate, "movie_id sequence_id scene_id start_s end_s layouts shots status review_status"
+           + (" camera_groups" if grouped else ""), "result")
     for key in IDENTITY_FIELDS:
         require(candidate[key] == packet[key], key, "does not match Stage04.3 preparation")
     label(candidate["status"], {"model_candidate"}, "status")
@@ -56,6 +90,7 @@ def validate_candidate(candidate, packet, inspected):
     require(set(order) <= inspected.keys(), "images", "every selected shot needs at least one inspected image")
     require(isinstance(candidate["layouts"], list), "layouts", "expected an array")
     require(isinstance(candidate["shots"], list), "shots", "expected an array")
+    membership = camera_membership(candidate.get("camera_groups", []), order, inspected)
     ranges = {}
     for i, layout in enumerate(candidate["layouts"]):
         loc = f"layouts[{i}]"
@@ -95,9 +130,10 @@ def validate_candidate(candidate, packet, inspected):
     for i, shot in enumerate(candidate["shots"]):
         loc = f"shots[{i}]"
         fields(shot, "shot_id layout_id camera_position camera_subject axis_pair axis_reference_shot axis_side "
-                    "camera_quality layout_status evidence_shots note", loc)
+                    "camera_quality layout_status evidence_shots note" + (" camera_group" if grouped else ""), loc)
         sid, lid = shot["shot_id"], shot["layout_id"]
         require(isinstance(sid, str) and sid in order and sid not in shots, loc, "unknown or duplicate shot ID")
+        require(shot.get("camera_group") == membership.get(sid), sid, "camera_group disagrees with camera_groups")
         shots[sid] = shot
         if lid is not None:
             require(isinstance(lid, str) and lid in ranges, sid, "unknown layout_id")
