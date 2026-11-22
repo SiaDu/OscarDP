@@ -179,9 +179,15 @@ def run_shot(source,output,shot,track_id=None):
             or any(not np.isfinite([r["movie_timestamp_sec"],r["source_next_timestamp_sec"]]).all()
                    or r["source_next_timestamp_sec"]<=r["movie_timestamp_sec"] for r in rows)):
         raise ValueError(f"Invalid v1.3 source identity or timeline: {shot}")
-    closures=[{"event_type":"eye_closure_candidate","event_id":e["source_event_id"],
-               "start_frame":e["start_frame"],"end_frame":e["end_frame"],"start_sec":e["start_s"],"end_sec":e["end_s"]}
-              for e in old_motion["events"] if e["type"]=="blink_candidate"]
+    # The original measurement mask is independent of the short blink events.
+    source_closure_frames = {}
+    for row in rows:
+        for event_id in row["closure_event_ids"]:
+            source_closure_frames.setdefault(event_id, []).append(row)
+    closures=[{"event_type":"eye_closure_candidate","event_id":key,
+               "start_frame":span[0]["global_frame_index"],"end_frame":span[-1]["global_frame_index"]+1,
+               "start_sec":span[0]["movie_timestamp_sec"],"end_sec":span[-1]["source_next_timestamp_sec"]}
+              for key,span in source_closure_frames.items()]
     rows=assess(rows,closures)
     # This auxiliary stream is unchanged by v1.4. Keep its Stage05 links.
     adjunct=old_motion["direction_motion_features"]

@@ -3,6 +3,7 @@
 import numpy as np
 
 from oscardp.stage05.event_series import median_filter
+from .blink_qc import blink_qc
 from .geometry import angular_change, head_change, unit
 from .inputs import EYES, POSE
 from .temporal import valid_blocks
@@ -165,11 +166,8 @@ def analyze(rows, source_events, adjunct, *, allow_monocular=False, independent_
         for sub in valid_blocks(rows, [r["camera_gaze_usable"] for r in rows]):
             compare_gaze(list(gaze_runs(sub)))
 
-    for e in source_events:
-        if e["event_type"] == "eye_closure_candidate":
-            motion.append({"type":"blink_candidate", "source_event_id":e["event_id"],
-                           "start_frame":e["start_frame"], "end_frame":e["end_frame"],
-                           "start_s":e["start_sec"], "end_s":e["end_sec"]})
+    _, blinks = blink_qc(rows, source_events)
+    motion.extend(blinks)
     for block in valid_blocks(rows, [not v for v in mask]):
         motion.append({"type":"unknown", **interval(rows,block), "reason":"eye_position_unavailable"})
     for block in valid_blocks(rows, [good and i not in accounted for i,good in enumerate(mask)]):

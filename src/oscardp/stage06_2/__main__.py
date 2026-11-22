@@ -35,12 +35,13 @@ def run(args):
         raise ValueError(f"Output directory already exists: {args.output_dir}")
     extra = ()
     if args.eye_position:
+        from .blink_qc import FACE_EYE_COLUMNS
         from .eye_position import LANDMARKS
         from .position_pilot import publish
         if (args.movie_id, args.sequence_id, args.shot_id, args.track_id) != (
                 "tt12300742", "seq_006", "shot_000217", "shot_000217_track_001"):
             raise ValueError("v1.2 is scoped to the Bugonia shot_000217 pilot Track; pass --track-id")
-        extra = LANDMARKS
+        extra = [*LANDMARKS, *FACE_EYE_COLUMNS]
     rows, measure, source_events, coverage, files, video_record = load(args, extra)
     rows = prepare_frames(rows, source_events)
     events = detect(rows, source_events)

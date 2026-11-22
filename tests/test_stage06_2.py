@@ -182,7 +182,7 @@ def test_stable_gaze_shift_requires_sustained_and_continuous_support():
     assert all(e["type"]!="gaze_direction_shift_candidate" for e in motion)
 
 
-def test_eye_position_does_not_require_gaze_and_blink_stays_separate():
+def test_eye_position_does_not_require_gaze_or_promote_stage05_closure():
     from oscardp.stage06_2.stable import analyze
     rows = position_sequence()
     for r in rows:
@@ -191,7 +191,7 @@ def test_eye_position_does_not_require_gaze_and_blink_stays_separate():
     states, motion, picks = analyze(rows, [{"event_type":"eye_closure_candidate", "event_id":"blink",
         "start_frame":8, "end_frame":9, "start_sec":100.32,"end_sec":100.36}], [])
     assert states and {s["type"] for s in states} == {"eye_position_stable"}
-    assert any(e["type"]=="blink_candidate" for e in motion)
+    assert all(e["type"]!="blink_candidate" for e in motion)
     assert any(e["type"]=="unknown" and e["start_frame"]==8 for e in motion)
     assert not picks
 

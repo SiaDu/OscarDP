@@ -204,3 +204,26 @@ uv --no-cache run --no-sync python -m oscardp.stage06_2.full_sequence \
 
 汇总按正片 PTS 排列，保留旧纠偏与原 Stage01 边界之间可能的单帧重叠，
 不跨剪辑或 Track 合并角速度、事件或身份。同框 Track 数不等于人数。
+
+## Eye Observability & Blink QC 修正
+
+从全段已有逐帧结果回放，按 Track、行号和正片 PTS 核对 Stage05 原画面眼角。
+每眼分别记录睁眼、闭眼、不可观测或证据不足。原画面眼角距离至少 10 px；
+侧脸、严重缩短、跟踪或拟合失败会降低可观测性。MediaPipe 路径使用
+已对齐的眼睑轮廓，已尝试却失败的拟合不会由旧闭眼候选补全。
+眨眼要求同一只眼上连续观测到睁眼、闭合和重开。沿用 Stage05.5 的局部中值、
+开度比例及最低帧数，另以 0.50 s 为短眨眼上限。阈值是本次 QC 的启发式，
+仍需原片核对，持续闭眼和缺失区间保留为逐帧状态。
+
+新逐帧表中的相机 Gaze 使用 Stage05.4 原本通过 QC 的方向；头姿和头朝向
+分别保留，眼位使用既有拟合结果。仅发布受影响 Track 的新事件文件，
+原有稳定状态和非 Blink 运动事件直接沿用。
+
+```sh
+root=reports/stage06_2/tt12300742/seq_006
+uv --no-cache run --no-sync python -m oscardp.stage06_2.observability_replay \
+  --source "$root/full_sequence_001" \
+  --output-dir "$root/eye_observability_fix_001" \
+  --focus-track shot_000222_track_002 \
+  --manual-note 'Michelle 眼睛睁开，处于侧脸、中远景，眼部细节难以可靠测量。'
+```
