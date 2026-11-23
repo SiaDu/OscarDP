@@ -88,3 +88,58 @@ uv --no-cache run --no-sync python -m oscardp.stage06_3.look_pilot \
 若需重新逐帧检查，运行同一入口时省略 `--observations`，输出到临时目录以抽取
 PTS 样本，填写逐状态观察后再发布。正式审核入口为
 `review/<shot_id>/<track_id 的短编号>/review.md`。
+
+## v1.3 · Gaze Target Hypothesis Evaluation
+
+Bugonia `tt12300742` 的 `seq_006/pilot_004` 直接读取 `pilot_003/look_states.json` 的
+44 个状态和 PTS 样本。Look State 的划分、方向、QC 和 Eye Motion 均沿用冻结值。
+原片抽样包及每张 JPEG 的散列随运行核对。
+
+- **Visual-only** 读取新的交互视觉观察，记录注视者、候选、可见线索、局限和帧引用。
+  检查输入包含原片、Track 范围内的脸和眼区裁切及上下镜头。检查时使用画面中的人物关系，
+  未提供数值布局、几何匹配或旧排序。212 的预期目标在实验请求中已知。
+- **Geometry-only** 复用 Stage06.1 布局、相对机位约束、Stage06.2 冻结方向及 Track 身份候选。
+  沿用 32° Gaze、46° 头向的空间检查。优先假设至少有一个分支达到 67% 相容，且在
+  每个已建模分支中的相容样本数不低于对手、角差中位数领先至少 15°。
+  这些数值描述示意平面扰动下的相容性。机位、镜头俯仰和演员眼高尚未标定。
+- **Fusion** 在持有方向的画面与稳定测量给出同一优先目标时，提高其支持等级。
+  如果仅有头向且视觉保留多人并列，融合继续保留该并列。来源分歧时保留双方候选，
+  报告首选冲突及候选空间相容性。若稳定 Gaze 的空间证据与纯上下文假设冲突，
+  可以优先排序空间假设。缺少测量时，仍可给出画面方向或纯上下文假设。
+
+`preferred_target` 可以为 `null`。候选和排名由 `MICHELLE / TEDDY / DON / AWAY / OTHER`
+组成，`target_ranking` 用内层数组表示并列。确定程度还体现在 `evidence_level` 和
+`decision_status`。没有足够证据确认时，`selected_target` 为 `UNKNOWN`。视觉确认需至少两张
+状态内帧显示独立落点且无竞争候选。几何确认沿用 v1.2 的 Gaze、唯一相容候选和
+所有分支的检验，并要求稳定方向及支持的身份映射。融合确认还要求两种方法各自
+达到确认条件且命中同一目标。无独立端点依据的 AWAY / OTHER 不进入融合确认。
+
+已保存的交互视觉记录为 `pilot_004/visual_observations.json`。用同一记录生成新的回放目录。
+
+```sh
+base=reports/stage06_3/tt12300742/seq_006
+uv --no-cache run --no-sync python -m oscardp.stage06_3.hypothesis_pilot run \
+  --baseline "$base/pilot_003" \
+  --layout reports/stage06_1/tt12300742/seq_006_v1_2/scene_layout.json \
+  --orientation "$base/pilot_002/camera_orientation_constraints.json" \
+  --observations "$base/pilot_004/visual_observations.json" \
+  --output-dir "$base/pilot_004_replay"
+```
+
+三份 `*_predictions.json` 各保留全部 44 个状态。 `comparison.md` 给出目标覆盖、
+一致与冲突、候选排序变动和全部状态的排序。 `review.md` 链接按 Shot、Track、Look State
+组织的 18 个审核样本。可先从 `review/blind.md` 查看原片并填写
+`review/blind_labels.csv`，或使用含预测列的 `human_review.csv`。
+人工目标可填 `MICHELLE / TEDDY / DON / AWAY / OTHER / UNCLEAR`，确定程度和备注为
+审核记录字段。填写后可执行评测。
+
+```sh
+base=reports/stage06_3/tt12300742/seq_006/pilot_004
+uv --no-cache run --no-sync python -m oscardp.stage06_3.hypothesis_pilot evaluate \
+  --pilot "$base" --labels "$base/review/blind_labels.csv"
+```
+
+评测单独计数空标签和 `UNCLEAR`，两者均不参与指标。Top-1 Accuracy 的分母是
+有效人工标签中有 Preferred 的状态，Prediction Coverage 的分母是全部有效人工标签。
+Candidate Recall 检查完整候选集合。准确率–覆盖率按所有 Preferred、排除纯上下文的
+Preferred、`supported_hypothesis` 和 Selected 分别统计。没有有效人工标签时只输出标签状态。

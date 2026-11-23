@@ -79,6 +79,27 @@ def geometry_for(s, camera, layout, hypos, orientation, baseline):
             "context_priors":dict(prior)}
 
 
+def spatial_inputs(scene, orientation):
+    """Build the same Stage06.1 camera hypotheses used by the v1.2 pilot."""
+    inherited = {row["shot_id"]: row for row in orientation["shots"]}
+    layouts = {row["layout_id"]: row for row in scene["layouts"]}
+    inputs = {}
+    for camera in scene["shots"]:
+        shot_id = camera["shot_id"]
+        layout = layouts[camera["layout_id"]]
+        if shot_id in inherited:
+            old = inherited[shot_id]
+            _, hypotheses, relation = orientations(camera, layout, {**old, "objects": old["visible_nonperson_objects"]})
+        else:
+            positions = {person["person"]: np.asarray(person["position"])
+                         for person in layout["people"] if person["position"] is not None}
+            hypotheses = camera_hypotheses(camera, positions)
+            relation = {"status": "inherited_only" if hypotheses else "relative_only",
+                        "applied_constraint_ids": []}
+        inputs[shot_id] = camera, layout, hypotheses, relation
+    return inputs
+
+
 def fuse(s, spatial, observation):
     geometric=spatial["geometry"] is not None
     visual={a["target"]:a for a in observation["target_observations"]}
@@ -240,20 +261,7 @@ def publish(args, source, mapping, orientation, previous, states, events, qc, pr
         raise ValueError("Layout movie / sequence mismatch")
     if sha256_file(args.layout)!=orientation["layout_sha256"]:
         raise ValueError("Layout changed since v1.1 camera review")
-    inherited={r["shot_id"]:r for r in orientation["shots"]}
-    layouts={l["layout_id"]:l for l in scene["layouts"]}
-    spatial_inputs={}
-    for camera in scene["shots"]:
-        sid=camera["shot_id"]
-        layout=layouts[camera["layout_id"]]
-        if sid in inherited:
-            old=inherited[sid]
-            _,hypos,relation=orientations(camera,layout,{**old,"objects":old["visible_nonperson_objects"]})
-        else:
-            pos={p["person"]:np.asarray(p["position"]) for p in layout["people"] if p["position"] is not None}
-            hypos=camera_hypotheses(camera,pos)
-            relation={"status":"inherited_only" if hypos else "relative_only","applied_constraint_ids":[]}
-        spatial_inputs[sid]=(camera,layout,hypos,relation)
+    camera_inputs=spatial_inputs(scene,orientation)
     prior=defaultdict(list)
     for r in previous["intervals"]:
         prior[r["track_id"]].append(r)
@@ -267,7 +275,7 @@ def publish(args, source, mapping, orientation, previous, states, events, qc, pr
                   "cross_shot_frames":[ref(all_frames[n]) for n in observation["cross_shot_reference_frames"]],
                   "review_status":"reviewed_model_observation"}
         b=[r for r in prior[s["track_id"]] if overlaps(s,r)]
-        candidates.append(fuse(s,geometry_for(s,*spatial_inputs[s["shot_id"]],b),reviewed))
+        candidates.append(fuse(s,geometry_for(s,*camera_inputs[s["shot_id"]],b),reviewed))
     transitions=event_targets(events,candidates)
     cross_transitions=cross_cut_targets(candidates,mapping,previous)
     out=args.output_dir
