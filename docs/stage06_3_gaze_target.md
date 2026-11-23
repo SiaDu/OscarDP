@@ -59,3 +59,32 @@ uv --no-cache run --no-sync python -m oscardp.stage06_3.orientation_pilot \
   --orientation-evidence "$base/pilot_002/review_contact_sheets/orientation/observations.json" \
   --output-dir "$base/pilot_002_replay"
 ```
+
+## v1.2 · Event-driven Look States
+
+每条已测 Track 独立分析。以 Stage06.2 稳定方向建立初态，逐项核对 Eye Shift、
+Weak Eye Motion、Adjustment 和头眼事件的稳定前后态。复用 Stage06.2 的 3°、
+0.25 s 稳定判据和 6° 持续方向差，以及已有头向、连续段和间隔规则。短暂离开后
+返回、校验失败、Blink、缺少稳定前后态都留在事件记录中。只有受支持的持续变化
+才开新方向状态；缺测段标为 Unknown，可用数据恢复时重新建立状态。向量只在
+同一镜头的相机坐标内比较，独立保留头向和实际相机 Gaze。
+
+按 Look State 抽取原片帧。运动前、后帧分别标记，并明确是否在当前状态里。
+逐状态的实际画面观察记录在 `visual_evidence/observations.json`，原片索引记录
+帧号、全局 PTS、Track 框和散列。目标候选分别保存视觉支持、空间相容性和冲突。
+人工表允许 MICHELLE、TEDDY、DON、AWAY、OTHER、UNKNOWN、UNCLEAR；标签留空。
+
+```sh
+seq=reports/stage06_2/tt12300742/seq_006
+base=reports/stage06_3/tt12300742/seq_006
+uv --no-cache run --no-sync python -m oscardp.stage06_3.look_pilot \
+  --full-sequence "$seq/full_sequence_001" --eye-qc "$seq/eye_observability_fix_001" \
+  --baseline-v1 "$base/pilot_001" --baseline-v2 "$base/pilot_002" \
+  --layout reports/stage06_1/tt12300742/seq_006_v1_2/scene_layout.json \
+  --observations "$base/pilot_003/visual_evidence/observations.json" \
+  --output-dir "$base/pilot_003_replay"
+```
+
+若需重新逐帧检查，运行同一入口时省略 `--observations`，输出到临时目录以抽取
+PTS 样本，填写逐状态观察后再发布。正式审核入口为
+`review/<shot_id>/<track_id 的短编号>/review.md`。
