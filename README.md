@@ -1,48 +1,36 @@
 # OscarDP — Oscar Acting Dataset
 
-OscarDP is a research pipeline for studying **how actors express character intentions through facial, head and gaze behaviour** in films. The goal is an evidence-linked dataset that can support explainable and controllable 3D character animation.
+OscarDP is a research pipeline for building an evidence-linked dataset of film acting: how actors
+express a character's intentions through face, head and gaze, to support explainable and
+controllable 3D character animation. Target performances come from Oscar nominations and awards
+(selection criteria still in progress); other characters are kept as interaction context.
 
-The intended research targets are actors/performances selected using Oscar nomination or award records. Other characters matter as **interaction context**, but are not automatically dataset targets. Award-based target selection is still being developed.
+## Status
 
-## Pipeline
-
-| Stage | What it does | Current status |
+| Stage | What it does | Status |
 | --- | --- | --- |
-| **01 · Shots** | Detect shot boundaries, timestamps and sample frames | Working pipeline |
-| **02 · Script & subtitles** | Align dialogue, screenplay context and possible acting cues to shots | 18 films annotated; annotation is assisted/manual |
-| **03 · Visual shots** | Describe framing, visible people and objects from sampled frames | ChatGPT annotation workflow; Bugonia output available locally |
-| **04 · Narrative & sequence selection** | Scene/character context (04), film-level profiles (04.1), scene objectives (04.2), LLM Sequence Candidate Selection (04.3) | Bugonia full-film prototype; 04.3 review decisions are tracked separately from video QC |
-| **05 · Performance measurements** | On selected shots: face tracking, AU, head pose and **camera-relative gaze candidates** | Selected-shot pilot; no verified gaze target |
-| **06 · Cross-shot gaze targets** | Infer film-scene gaze targets through shot/reverse-shot continuity and visual evidence | **Research design only; not implemented** |
-| **07 · Hierarchical explainable acting** | Audio, visual, narrative, affect-state and acting-event interpretations | **Legacy Prototype migrated to `oscardp.stage07`; algorithms unchanged** |
+| 01 Shots | TransNetV2 shot boundaries, timestamps, Early/Middle/Late frames | Implemented; 18 films |
+| 02 Dialogue & script | Align subtitles, screenplay context and acting cues to shots | Preflight and validator implemented; 18 films annotated with GPT and manually reviewed |
+| 03 Visual shots | Framing, visible people and props from sampled frames | GPT annotation workflow; 1 film (Bugonia) |
+| 04 Narrative context | Scene/character context, character profiles (04.1), scene objectives (04.2), sequence candidates (04.3) | Assistant-authored prototypes; Bugonia |
+| 05 Measurements | Face tracking, identity, OpenFace AU / head pose / gaze, temporal events | Pilot on selected Bugonia shots |
+| 06 Gaze targets | Scene layout (06.1), in-shot head/eye direction (06.2), cross-shot gaze target candidates (06.3) | Pilot on one Bugonia sequence (13 shots); awaiting human evaluation |
+| 07 Acting interpretation | Audio, visual and narrative affect states and acting interpretations | Legacy prototype on a 115 s Bugonia excerpt |
 
-**Current refinements:** Stage04.1 profiles, Stage04.2 objectives and Stage04.3 sequence candidates exist as assistant-authored Bugonia JSON prototypes, not validated labels or a scalable CLI. **Next:** review candidate videos, then develop Stage06 cross-shot gaze targets. The old Stage06 acting prototype now runs as Stage07. Stage06 cross-shot gaze targets remain **Planned / Not Implemented**; this migration adds no gaze inference.
-
-See [pipeline overview](docs/pipeline_overview.md), [Stage02 specification](docs/stage02_spec_v1.md), [Stage04 scene design](docs/stage04_scene_context_spec_v1.md), [Stage05 event extraction](docs/stage05_5_temporal_events.md), and [Stage07 acting prototype](docs/stage07_prototype.md) ([archived Stage06 description](docs/stage06_prototype.md)).
-
-## Stage07 acting pilot (Legacy Prototype)
-
-The existing acting pilot (formerly called Stage06, now migrated to Stage07) uses a 115.2-second excerpt from `tt12300742` (movie time **1432.014–1547.212 s**). It combines:
-
-- **Audio:** local Silero VAD and SUPERB Wav2Vec2 speech-emotion predictions.
-- **Visual:** sampled-video observations authored in an interactive assistant session.
-- **Narrative:** dialogue and scene context from Stages 02 and 04.
-- **Events:** existing Stage05 AU, head and gaze candidates linked by time.
-
-It produced six proposed affect states and six acting interpretations, with 81 links to Stage05 events. **This is a research prototype, not validated ground truth.** Character identities and event interpretations remain unreviewed; the current pipeline does **not** infer verified gaze targets. Re-running the Stage07 module can repeat local audio processing and reuse saved assistant annotations, but does not automatically repeat the assistant's visual/narrative reasoning. No external inference API was used for this pilot.
+Assistant-generated annotations (Stages 03–07) are candidates, not validated labels.
+Details: [pipeline overview](docs/pipeline_overview.md) and the stage specs in [docs/](docs/).
 
 ## Getting started
 
-Requires **Python 3.12+**, [uv](https://docs.astral.sh/uv/), **FFmpeg/FFprobe**, and model weights for the stage you want to run.
+Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), FFmpeg/FFprobe, and the model weights for the stage you run.
 
 ```bash
 uv sync --extra test
+uv run python -m pytest
 uv run python -m oscardp.shots --help
-uv run python -m oscardp.stage02 --help
-uv run python -m oscardp.stage07 --help
 ```
 
-Example: process one movie into shot boundaries and sampled images:
+Process one movie into shots and sampled frames:
 
 ```bash
 uv run python -m oscardp.shots process-one \
@@ -53,22 +41,17 @@ uv run python -m oscardp.shots process-one \
   --device cuda
 ```
 
-Example: inspect the **Stage07 Legacy Prototype** (read-only; no inference):
-
-```bash
-uv run python -m oscardp.stage07 inspect
-```
-
-For `prepare` / `run`, see [Stage07 instructions](docs/stage07_prototype.md). New runs default to `reports/stage07/`. Historical `reports/stage06/`, `models/stage06/`, and Stage05.6 `stage06_input_pilot.json` remain unchanged as **Legacy Compatibility**. Use `--model-dir models/stage06` to reuse existing weights; no download is forced. The old `python -m oscardp.stage06` acting entry point and `stage06` dependency extra are replaced by `stage07`, leaving the Stage06 namespace free for future gaze work.
+Optional dependency groups: `stage05`, `stage05-identity`, `stage05-performance`, `stage06-iris`, `stage07`.
 
 ## Repository layout
 
-- `src/oscardp/shots/` — video discovery, shot detection and frame sampling.
-- `src/oscardp/stage02/` — subtitle/script input checks and annotation validation.
-- `src/oscardp/stage05/` and `stage05_review/` — measurements, events and review.
-- `src/oscardp/stage07/` — migrated hierarchical affect/acting Legacy Prototype; no algorithm redesign.
-- Stage06 cross-shot gaze targets — **Planned / Not Implemented**; no executable gaze module.
-- `docs/` — stage specifications and workflow notes.
-- `tests/` — tests.
+- `src/oscardp/shots/` — Stage01 shot detection and frame sampling
+- `src/oscardp/stage02/` — Stage02 preflight and validation
+- `src/oscardp/stage05/`, `stage05_review/` — Stage05 measurements, events and review viewer
+- `src/oscardp/stage06_1/`, `stage06_2/`, `stage06_3/` — Stage06 gaze pilots
+- `src/oscardp/stage07/` — Stage07 acting prototype ([docs](docs/stage07_prototype.md))
+- `tools/` — dataset preflight and reorganisation
+- `docs/` — stage specs and prompts
+- `tests/`
 
-Movie files, screenplay PDFs, local models and pilot reports are not part of this public repository. See the relevant stage documentation for their expected inputs.
+Movies, subtitles, screenplays, model weights, sampled frames and generated reports are not included.
