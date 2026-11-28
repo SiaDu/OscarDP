@@ -143,3 +143,65 @@ uv --no-cache run --no-sync python -m oscardp.stage06_3.hypothesis_pilot evaluat
 有效人工标签中有 Preferred 的状态，Prediction Coverage 的分母是全部有效人工标签。
 Candidate Recall 检查完整候选集合。准确率–覆盖率按所有 Preferred、排除纯上下文的
 Preferred、`supported_hypothesis` 和 Selected 分别统计。没有有效人工标签时只输出标签状态。
+
+## v1.4 · Gaze timeline
+
+v1.3 的审核只看 Look State，短暂转头、瞥视、回避和测不到人脸的段落都没有进入审核表。
+v1.4 只请人标注视行为：每个镜头、每个角色一条时间线，一行表示"从 `start_s` 起看向哪里"，
+持续到下一行开始。`gaze` 取 MICHELLE / TEDDY / DON / OTHER（看向的人或物），
+DOWN / UP / SIDE / AVERT / CLOSED（无明确目标的表演性注视），BLINK（视线延续）或 UNCLEAR。
+`start_s` 是眼睛落到新目标的第一帧。头部运动、转移时长和普通眨眼不标，
+它们由测量和人工切换时刻计算。连续相同的 `gaze` 自动合并。
+
+机器只提供候选切分点，每个单元预填一行：
+
+- **MOVE**：同一 Track 的头眼运动事件，间隔短于 0.25 s（最短 Look State）的合并为一段。
+  排除眨眼、回到原方向的微调（`adjustment_or_same_direction`）和超过 2 s 的单个事件；
+  后者多为漂移或小脸头姿噪声，只在所在状态上注明 `long motion`。
+- MOVE 把 pilot_003 的状态切成 `look_NNN_p1`、`_p2`…，短于 0.25 s 的边角并入相邻 MOVE。
+  状态分为 **HOLD**、**BLINK**（`blink_gap`）和 **UNMEASURED**。整个状态的目标候选只计在含稳定方向锚点的那一段。
+- **GAP**：某角色在镜头里没有可测人脸、且长于 0.25 s 的段，列出其中未测量的 Track 碎片。
+
+评测按时间比对：各方法的首选目标与人工时间线重合的秒数（准确率、覆盖率、候选召回），
+以及人工切换时刻在 ±0.25 s 内是否有机器切分点或 MOVE 起点。
+每个镜头、每个角色输出一个带正片时间、机器单元和注视者框的片段。
+
+```sh
+base=reports/stage06_3/tt12300742/seq_006
+uv --no-cache run --no-sync python -m oscardp.stage06_3.behavior_pilot run \
+  --look-pilot "$base/pilot_003" --hypothesis-pilot "$base/pilot_004" \
+  --full-sequence reports/stage06_2/tt12300742/seq_006/full_sequence_001 \
+  --unit-labels "$base/pilot_006/review/units.csv" --output-dir "$base/pilot_007"
+uv --no-cache run --no-sync python -m oscardp.stage06_3.behavior_pilot evaluate --pilot "$base/pilot_007"
+```
+
+不给 `--unit-labels` 时转写 v1.3 盲审标签。审核说明见 `pilot_007/review/README.md`。
+审核人最终没有填 `pilot_007` 的时间线，而是在 `pilot_006/review/units.csv` 上直接按 MOVE/HOLD 重标，见下节。
+
+## Human gaze labels · labels_001
+
+seq_006 的 gaze 结果用人工标签，供 Stage07 使用。机器单元只做评测。
+
+| 规则 | 说明 |
+| --- | --- |
+| 读法 | 只按时间读审核表，忽略 `unit_id` 列（审核人复用了一些行） |
+| 结构 | MOVE 在眼睛落点结束，后接同目标的 HOLD；BLINK 单列；眨眼也可作为 MOVE/HOLD 上的标记 |
+| 目标 | MICHELLE / TEDDY / DON，或表演性方向 DOWN / UP / LEFT / RIGHT / CLOSED / UNFOCUSED / ROLL（原文保留在 `form_text`，左右按注视者自己的方向） |
+| 修正 | MOVE 与同目标 HOLD 之间的空档由 HOLD 提前开始补齐；相邻同目标 HOLD 合并。每处修正写入 `corrections` |
+| 不可标 | 看不清眼睛的角色记为 `not_annotatable`（218、222 的 DON） |
+| 时间 | 正片秒，左闭右开，约 ±1 帧 |
+
+评测（`evaluation.json`，容差 ±0.25 s）：45 次人工转移中，机器 MOVE 找到 30 次，原始事件找到 37 次。
+48 个机器 MOVE 中 23 个对上转移，22 个落在人工 HOLD 内。含头部信号的 MOVE 中位比人工早 0.37 s 开始、
+晚 0.75 s 结束，因为头在眼睛落点后还在转。HOLD 目标：fused 准确率 1.0、覆盖率 0.23。
+探索性观察（未进评测）：近景里虹膜在眼眶中的横向位置能分开 TEDDY 和 DON，OpenFace 视线角度分不开；
+这是后续自动检测的方向。
+
+```sh
+base=reports/stage06_3/tt12300742/seq_006
+uv --no-cache run --no-sync python -m oscardp.stage06_3.gaze_labels \
+  --sheet "$base/pilot_006/review/units.csv" \
+  --full-sequence reports/stage06_2/tt12300742/seq_006/full_sequence_001 \
+  --units "$base/pilot_007" --output-dir "$base/labels_001" \
+  --approval "reviewer confirmed in conversation, 2026-11-27"
+```

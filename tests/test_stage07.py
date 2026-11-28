@@ -189,8 +189,15 @@ def test_saved_legacy_analysis_replays_identical_core_results(legacy_pilot, tmp_
     assert pipeline.assemble(tmp_path, legacy_pilot/"assistant_analysis") == 0
     actual = read(tmp_path/"stage07_prototype.json")
     expected = read(legacy_pilot/"stage06_prototype.json")
-    for key in ("affect_states", "events", "state_event_links", "acting_annotations", "time_range"):
+    for key in ("affect_states", "events", "state_event_links", "time_range"):
         assert actual[key] == expected[key]
+    # Shot IDs are derived at assembly; everything else in the replayed annotations is unchanged.
+    derived = actual["acting_annotations"]
+    assert all(a["shot_ids"] and all("shot_ids" in o for o in a["observation"]) for a in derived)
+    stripped = [{**{k: v for k, v in a.items() if k != "shot_ids"},
+                 "observation": [{k: v for k, v in o.items() if k != "shot_ids"} for o in a["observation"]]}
+                for a in derived]
+    assert stripped == expected["acting_annotations"]
     assert actual["schema_version"] == "stage07.research_prototype.v1"
     assert actual["method"]["stage"] == "Stage07"
     assert read(tmp_path/"stage07_input.json")["schema_version"] == "stage07.research_input.v1"
@@ -207,3 +214,126 @@ def test_actual_stage05_packet_legacy_filename_is_readable(legacy_pilot):
     assert result["schema_version"] == "stage07.research_input.v1"
     assert result["sources"]["stage05_6"].endswith("stage06_input_pilot.json")
     assert len(result["stage05_event_references"]) == 81
+
+
+def gaze_labels(human_verified=True):
+    segment = dict(start_s=9., end_s=12., kind="MOVE", target="DON", form=None, form_text=None, blink=False,
+                   certainty="HIGH", segment_id="shot_000001_michelle_g002")
+    return dict(schema_version="stage06.3.gaze_labels.v1", movie_id="tt12300742", human_verified=human_verified,
+                tracks=[dict(shot_id="shot_000001", character="MICHELLE", status="annotated", reason=None,
+                             segments=[dict(segment, segment_id="shot_000001_michelle_g001", start_s=5., end_s=9.,
+                                            kind="HOLD", target="TEDDY"), segment],
+                             shifts=[dict(segment_id="shot_000001_michelle_g002", **{"from": "TEDDY"})]),
+                        dict(shot_id="shot_000001", character="DON", status="not_annotatable", reason="blurred",
+                             segments=[], shifts=[])])
+
+
+def test_gaze_labels_are_clipped_and_human_only(tmp_path):
+    import json
+    from oscardp.stage07.inputs import gaze_refs, load_gaze
+    refs, unavailable = gaze_refs(gaze_labels(), 10., 20.)
+    assert [(g["gaze_id"], g["start"], g["end"], g["target"], g["from_gaze"]) for g in refs] == [
+        ("shot_000001_michelle_g002", 10., 12., "DON", "TEDDY")]
+    assert refs[0]["original_start"] == 9. and refs[0]["human_verified"]
+    assert unavailable == [dict(shot_id="shot_000001", character="DON", reason="blurred")]
+    path = tmp_path / "gaze_labels.json"
+    path.write_text(json.dumps(gaze_labels(human_verified=False)))
+    with pytest.raises(ValueError, match="human-verified"):
+        load_gaze(path)
+
+
+def test_gaze_observations_need_the_same_character_and_the_full_pipeline():
+    from oscardp.stage07.inputs import gaze_refs
+    refs, _ = gaze_refs(gaze_labels(), 10., 20.)
+    inp = dict(start=10., end=20., stage02_context_references=[], subtitles=[], stage06_3_gaze_references=refs)
+    s = dict(state_id="s", character_candidate="MICHELLE", start=10., end=20.)
+    p = proposal("v", "video", 10., 20.)
+
+    def annotation(character="MICHELLE", start=10.5, end=11.5):
+        return dict(annotation_id="a", status="model_proposal", character_candidate=character, start=10., end=20.,
+                    state_ids=["s"], event_ids=[], evidence=["shot_000001_michelle_g002"], interpretation="test",
+                    alternative_interpretation=["test"], uncertainty=[],
+                    observation=[dict(source_modality="gaze", start=start, end=end, description="test",
+                                      evidence_ids=["shot_000001_michelle_g002"])])
+    assert check_annotations({"annotations": [annotation()]}, [s], [], [p], inp, full_pipeline=True)
+    with pytest.raises(ValueError, match="modality excluded|Unknown annotation evidence"):
+        check_annotations({"annotations": [annotation()]}, [s], [], [p], inp)  # A/B ablations
+    with pytest.raises(ValueError, match="lacks compatible"):
+        check_annotations({"annotations": [annotation(start=12.5, end=13.)]}, [s], [], [p], inp, full_pipeline=True)
+    teddy = dict(s, character_candidate="TEDDY")
+    with pytest.raises(ValueError, match="lacks compatible"):
+        check_annotations({"annotations": [annotation("TEDDY")]}, [teddy], [], [dict(p, character_candidate="TEDDY")],
+                          inp, full_pipeline=True)
+
+
+def test_face_head_evidence_is_reliable_only_and_full_pipeline_only():
+    from oscardp.stage07.inputs import face_head_refs
+    track = dict(track_id="t1", shot_id="shot_000001", character="MICHELLE", reliability={"reliable": True},
+                 au=[dict(au_id="t1_au_001", au="AU04", region="upper", speech_state="silent", peak_rise=1.,
+                          start=11., end=11.5)],
+                 head=[dict(head_id="t1_head_001", type="shake", axis="yaw", peak_deg=-5., speech_state="speaking",
+                            start=12., end=12.5)])
+    doc = dict(schema_version="stage07.face_head.v1", movie_id="tt12300742",
+               tracks=[track, dict(track, track_id="t2", reliability={"reliable": False})])
+    refs = face_head_refs(doc, 10., 20.)
+    assert [(r["evidence_id"], r["modality"]) for r in refs] == [("t1_au_001", "au"), ("t1_head_001", "head")]
+    inp = dict(start=10., end=20., stage02_context_references=[], subtitles=[], face_head_references=refs)
+    s = dict(state_id="s", character_candidate="MICHELLE", start=10., end=20.)
+    a = dict(annotation_id="a", status="model_proposal", character_candidate="MICHELLE", start=10., end=20.,
+             state_ids=["s"], event_ids=[], evidence=["t1_head_001"], interpretation="test",
+             alternative_interpretation=["test"], uncertainty=[],
+             observation=[dict(source_modality="head", start=12., end=12.5, description="shake",
+                               evidence_ids=["t1_head_001"])])
+    p = proposal("v", "video", 10., 20.)
+    assert check_annotations({"annotations": [a]}, [s], [], [p], inp, full_pipeline=True)
+    with pytest.raises(ValueError, match="modality excluded|Unknown annotation evidence"):
+        check_annotations({"annotations": [a]}, [s], [], [p], inp)
+
+
+def test_review_sheet_lists_shot_ids(tmp_path):
+    import csv
+    import json
+    from oscardp.stage07.review_sheet import write
+    run = tmp_path / "pilot_x"
+    run.mkdir()
+    annotation = dict(annotation_id="C_annotation_001", shot_ids=["shot_000001", "shot_000002"],
+                      character_candidate="MICHELLE", start=10., end=20., interpretation="i",
+                      alternative_interpretation=["a"],
+                      observation=[dict(source_modality="gaze", description="looks at Don", evidence_ids=["g"]),
+                                   dict(source_modality="narrative", description="line", evidence_ids=["srt_000007"]),
+                                   dict(source_modality="head", description="shake", evidence_ids=["h"])])
+    (run / "stage07_prototype.json").write_text(json.dumps(dict(acting_annotations=[annotation],
+                                                                time_range=dict(start=10., end=20.))))
+    (run / "stage07_input.json").write_text(json.dumps(dict(subtitles=[dict(srt_index=7, text="Or you.")])))
+    assert write(run, tmp_path / "review_x") == (1, 0)
+    (row,) = csv.DictReader((tmp_path / "review_x" / "review.csv").open(encoding="utf-8-sig"))
+    assert row["shot_ids"] == "shot_000001 shot_000002" and row["dialogue"] == "Or you."
+    assert row["gaze"] == "looks at Don" and row["face_head"] == "shake" and row["human_agree"] == ""
+    assert "../pilot_x/review_video_annotated.mp4" in (tmp_path / "review_x" / "README.md").read_text()
+
+
+def test_shot_ids_ignore_rounding_overlaps():
+    from oscardp.stage07.pipeline import shot_ids
+    shots = [dict(shot_id="a", start=0., end=10.068624), dict(shot_id="b", start=10.068624, end=20.)]
+    assert shot_ids(shots, 5., 10.069) == ["a"]
+    assert shot_ids(shots, 5., 10.110) == ["a"]  # one-frame corrected cut
+    assert shot_ids(shots, 5., 10.2) == ["a", "b"]
+
+
+def test_interpretation_needs_own_objective_tactic_and_semantic_head_ids():
+    from oscardp.stage07.temporal import check_interpretation
+    packet = dict(objective_refs=[dict(objective_ref="sc:MICHELLE:scene_objective", character="MICHELLE"),
+                                  dict(objective_ref="sc:TEDDY:scene_objective", character="TEDDY")],
+                  head_movements=[dict(evidence_id="h1", semantic_candidate=True),
+                                  dict(evidence_id="h2", semantic_candidate=False)])
+    good = dict(annotation_id="a", character_candidate="MICHELLE", objective_refs=["sc:MICHELLE:scene_objective"],
+                tactic="press for a deal")
+    reading = dict(evidence_id="h1", meaning="negation", alternatives=["emphasis"], uncertainty=[])
+    assert check_interpretation({"annotations": [good], "head_gesture_readings": [reading]}, packet)
+    for bad, message in ((dict(good, objective_refs=["sc:TEDDY:scene_objective"]), "objective_refs"),
+                         (dict(good, tactic=" "), "tactic")):
+        with pytest.raises(ValueError, match=message):
+            check_interpretation({"annotations": [bad]}, packet)
+    with pytest.raises(ValueError, match="semantic"):
+        check_interpretation({"annotations": [good], "head_gesture_readings": [dict(reading, evidence_id="h2")]},
+                             packet)

@@ -153,3 +153,71 @@ uv --no-cache run --no-sync python -m pytest tests/test_stage07.py
 ```
 
 The final review_video_annotated.mp4 adds a right-side state/event panel, including current AV evidence support, without covering the movie frame. It copies the review clip audio stream. The clean review_video.mp4 remains available.
+
+## Gaze-grounded run · pilot_001 (seq_006)
+
+`--gaze-labels` adds human Stage06.3 gaze labels (`gaze_labels.json`) to `stage07_input.json` as
+`stage06_3_gaze_references`, with the file's SHA-256. Acting annotations in C may then cite gaze segments
+as `gaze` observations; each cited segment must be the annotated character's own and overlap the observation.
+A/B ablations cannot use gaze. Without `--gaze-labels` the legacy behaviour is unchanged.
+
+`reports/stage07/tt12300742/analysis_001/` reuses the legacy visual, narrative, state, relation and A/B/C files
+unchanged (hashes in `provenance.json`). Only `acting_annotations.json` is new: 14 annotations, one per beat,
+that align the gaze labels with subtitle timing. They are assistant-authored proposals; the gaze labels are the
+only human-verified input.
+
+```sh
+labels=reports/stage06_3/tt12300742/seq_006/labels_001/gaze_labels.json
+uv --no-cache run --no-sync python -m oscardp.stage07 prepare --output-dir reports/stage07/tt12300742/pilot_001 \
+  --model-dir models/stage06 --gaze-labels "$labels"
+uv --no-cache run --no-sync python -m oscardp.stage07 run --prepared --output-dir reports/stage07/tt12300742/pilot_001 \
+  --analysis-dir reports/stage07/tt12300742/analysis_001 --model-dir models/stage06 --gaze-labels "$labels"
+```
+
+## Face and head evidence · face_head_002
+
+`python -m oscardp.stage07.face_head` turns Stage06.2 per-frame OpenFace output into speech-gated AU episodes and
+non-gaze head movements. Outputs are machine evidence (`human_verified=false`).
+
+| Step | Rule |
+| --- | --- |
+| Speech state per frame | `speaking`: own Stage02 cue and VAD voice; `uncertain`: voice under an `Unknown` cue; else `silent`. ±0.2 s margin |
+| Reliable tracks | face ≥150 px, median \|yaw\| ≤35°, OpenFace success ≥90 %. Others are listed but not used |
+| Head movement | Only inside human gaze HOLDs, excluding each MOVE and 0.75 s after landing. Excursions from a ±1 s rolling median, ≥ max(3°, 3 × the track's silent jitter): nod (pitch, 0.2–1.0 s, returns), shake (≥2 alternating yaw excursions in 1.5 s), tilt (roll ≥0.3 s), beat (<0.4 s), turn, pitch_shift; HOLD-level posture offsets |
+| Eye–head | Per human MOVE: head turn from before the MOVE to 0.75 s after landing; `eyes_only` (<3°), `head_done_at_landing` (≥90 %) or `head_still_moving` |
+| AU episodes | Per track and speech state: median and robust SD. Rise ≥ max(0.5, 3 SD) for ≥0.2 s. Upper face in all states; mouth AUs (10/12/14/15/17/20/23) need ≥0.3 s during own speech; AU25/26 are ignored during own speech; mouth AUs ignored under `uncertain` |
+| Checks | AU–speech-energy correlation (all vs silent frames); jaw check where 68-point landmarks exist: OpenFace pitch vs a nose-below-eye-line proxy and AU26 |
+
+Head components that overlap in time on different axes are one movement (e.g. `nod+tilt`); a fast component inside
+a larger gesture is not counted as a separate beat. `semantic_candidate` marks nod/shake/tilt, the movements that can
+carry meaning; beats are speaking style and are not interpreted.
+
+Seq_006 results (`face_head_002/summary.md`):
+- Michelle's head moves 11.3°/s while speaking vs 4.1°/s silent inside gaze HOLDs (jitter 0.12°).
+- Of 18 gaze shifts with head data, the head turned a median 3.9°: 6 eyes only, 6 head done at landing, 6 still moving.
+- Short head movements during speech are not locked to energy peaks (30 % vs 34 % chance).
+- AU25 follows speech energy only while speaking; AU26 is weak. Teddy's OpenFace pitch follows AU26 in shot 214
+  while rigid points do not, so pitch movements during speech are flagged unless checked.
+- 22 head movements on reliable tracks, 14 semantic candidates.
+
+Stage07 `--face-head` adds these as `au` and `head` observations for C only. Assembly derives `shot_ids` for every
+annotation and observation from Stage02 Shot times (overlaps under 0.05 s are ignored: millisecond rounding and the
+one-frame corrected cuts). The annotated video panel shows the current Shot, active annotation IDs and human gaze.
+## Acting interpretation · analysis_003
+
+Annotations follow [the interpretation prompt](prompts/stage07_acting_interpretation_prompt_v1.md). Each beat names the
+character's own Stage04.2 objective (`objective_refs`) and a `tactic`; semantic head movements get
+`head_gesture_readings`. Assembly checks both when `interpretation_input.json` is present. Current run: `pilot_006`.
+
+```sh
+s=reports/stage07/tt12300742
+uv --no-cache run --no-sync python -m oscardp.stage07.interpretation_input --run $s/pilot_006 \
+  --movie-dir /media/sdu/SiyaoDu/datasets/oscar_movie_analysis/tt12300742 --sequence-id seq_006 \
+  --reuse $s/analysis_002 --output-dir $s/analysis_003
+# the LLM writes $s/analysis_003/acting_annotations.json from the prompt
+uv --no-cache run --no-sync python -m oscardp.stage07 run --prepared --output-dir $s/pilot_006 \
+  --analysis-dir $s/analysis_003 --model-dir models/stage06 \
+  --gaze-labels reports/stage06_3/tt12300742/seq_006/labels_001/gaze_labels.json \
+  --face-head $s/face_head_002/face_head_evidence.json
+uv --no-cache run --no-sync python -m oscardp.stage07.review_sheet --run $s/pilot_006 --output-dir $s/review_006
+```

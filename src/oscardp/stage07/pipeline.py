@@ -2,10 +2,12 @@
 import copy
 from pathlib import Path
 
-from .inputs import MOVIE, load_sources, read, read_prepared_input, selection, write
+from oscardp.shots.transnet import sha256_file
+
+from .inputs import MOVIE, load_sources, overlap, read, read_prepared_input, selection, write
 from .media import annotated_review, extract, frame_sheets
 from .models import audio_affect
-from .temporal import (apply_relations, check_annotations, check_proposals, check_states,
+from .temporal import (apply_relations, check_annotations, check_interpretation, check_proposals, check_states,
                        match_events, unique)
 
 
@@ -24,6 +26,15 @@ METHOD = {
         "Saved proposals can be replayed, but a CLI cannot automatically rerun this interactive assistant's cognition.",
     ],
 }
+
+
+# Under about one frame: millisecond rounding of reviewed times, or the experimental Stage05 cut one frame
+# after the Stage01 boundary. Neither is a real visit to the next Shot.
+MIN_SHOT_OVERLAP_S = 0.05
+
+
+def shot_ids(shots, start, end):
+    return [s["shot_id"] for s in shots if overlap((start,end),(s["start"],s["end"])) >= MIN_SHOT_OVERLAP_S]
 
 
 def check_output_directory(output):
@@ -83,7 +94,7 @@ def local_prepare(args):
     check_output_directory(output)
     if output.exists():
         raise FileExistsError(f"Output exists; choose a fresh directory: {output}")
-    data=load_sources(args.pilot_input)
+    data=load_sources(args.pilot_input,getattr(args,"gaze_labels",None),getattr(args,"face_head",None))
     inp=selection(data,args.start,args.end)
     inp["video_fps"]=args.video_fps
     output.mkdir(parents=True,exist_ok=False)
@@ -174,7 +185,27 @@ Interruption, attempt to regain conversational control, and a complete negotiati
         review+=f"- {m}: {d['status']}, {len(d['proposals'])} proposals.\n"
     review+=f"\n## Results\n\n{len(states)} C affect states; {sum(s['transition'] is not None for s in states)} uncertain transition intervals; {len(linked)} distinct linked Stage05 events; {len(links)} overlap links; {len(annotations)} acting annotations. All annotations are model_proposal. All {len(events)} event references remain algorithm_candidate and human_verified=false. No source measurement values or earlier outputs were modified.\n\n"
     review+="## Artifact fields\n\n- stage07_input.json: movie/scene ID, global start/end, candidate comparison, source paths and actual Stage02/04 context, original subtitle timing/speaker candidates, compact event references, actual media coverage.\n- audio_affect.json: actual four-class labels, all softmax scores, VAD speech intervals, descriptive RMS and uncertainty. No valence/arousal; no verified diarization or pitch/tremor measurements.\n- visual_affect.json: anonymous subjects, global intervals, observable_behaviour distinct from inferred_affect, visible_intervals and exact inspected-sheet references.\n- narrative_affect.json: text-only interpretations, proposed triggers and Shot/subtitle references. Screenplay cues are not visual observations.\n- visual_identity_map.json: subsequent appearance associations to Stage04 candidates; unverified.\n- affect_states.json: character states, affect/style separately, transitions, evidence IDs, conflicts and observation_coverage (audio/video/narrative_support/no_av_evidence). Coverage is proposal support, not continuous verified observation.\n- state_event_links.json: Python overlap and candidate checks, original Event IDs and proposed relations/rationales. No causal or identity verification and no full numeric arrays.\n- acting_annotations.json: observation/interpretation/evidence/alternative_interpretation/uncertainty, state/event IDs and global times.\n- stage07_prototype.json: integrated states, compact event references, links, annotations and method limitations.\n- ablation_A.json / ablation_B.json and comparison_abc.md: evidence-restricted A/B results and actual comparisons; no superiority assumption.\n- review_video.mp4: continuous source excerpt with original soundtrack. review_video_states.srt: optional final state/event overlay; review_video.srt is the initial event-only overlay. Subtitle playback times are necessarily clip-relative, while their labels and all annotation JSON use movie-global seconds. Movie time = player time + selected start.\n- observed_frames_*.jpg and observed_tail.jpg: actual inspected visual evidence; nominal 2 FPS samples and approximate boundaries. Initial frames_*.jpg are unmasked previews and not cited as final visual evidence.\n- media_info.json: source stream time bases, actual encoded duration and extraction commands.\n\n"
-    review+="## Required human review and research limits\n\n1. Watch the entire original-audio clip. Confirm whether the proposed Michelle transition is an observable change, a rhetorical turn, or both. Estimated transition intervals are not precise emotion-onset timestamps.\n2. Listen critically to all 44 SER proposals, especially the 26 Happiness labels. These are actual uncalibrated classifier outputs; no tuning/relabeling was done to match the plot. A four-class model cannot test fear/surprise or establish emotional neutrality.\n3. Check facial tension versus sustained anger, and brief mouth-corner changes versus happiness. Reverse shots and the wide-shot resolution change do not prove emotional transitions.\n4. Independently review all Stage05 event presence, QC flags, tentative character mapping and experimental corrected cuts. AU25/AU26 are speech-sensitive; no speech residual was computed. Head/gaze remain camera-relative; no head–body disentanglement or gaze target is claimed.\n5. Only three Shots have Stage05 measurements in this excerpt. Unprocessed intervals are missing coverage, not negative events; no cross-Shot interpolation was performed.\n6. Narrative continuity does not prove visible acting continuity. All inner motives, emotions, strategies and interpretations remain proposals, with alternatives. No human review or ground-truth evaluation was created.\n7. This single-session analysis cannot establish the requested strict blind independence. See method.json and comparison_abc.md for prior-context and subtitle-exposure limitations.\n\n"
+    gaze=inp.get("stage06_3_gaze_references")
+    if gaze:
+        cited={i for a in annotations for o in a["observation"] if o["source_modality"]=="gaze" for i in o["evidence_ids"]}
+        review+=(f"## Gaze targets\n\nGaze comes from human Stage06.3 labels ({inp['sources']['stage06_3_gaze']}, "
+                 f"sha256 {inp['stage06_3_gaze_sha256'][:12]}…): {len(gaze)} MOVE/HOLD/BLINK segments, "
+                 f"{sum(g['kind']=='MOVE' for g in gaze)} shifts. They are the only human-verified input here; "
+                 f"{len(cited)} segments are cited by acting annotations. Interpretations of them remain proposals. "
+                 "Not annotatable: "+(", ".join(f"{u['character']} in {u['shot_id']}" for u in inp["stage06_3_gaze_unavailable"]) or "none")+".\n\n")
+    face=inp.get("face_head_references")
+    if face:
+        cited={i for a in annotations for o in a["observation"] if o["source_modality"] in ("au","head") for i in o["evidence_ids"]}
+        review+=(f"## Face and head evidence\n\nMachine AU episodes and non-gaze head movements ({inp['sources']['stage07_face_head']}, "
+                 f"sha256 {inp['face_head_sha256'][:12]}…): {sum(r['modality']=='au' for r in face)} AU episodes and "
+                 f"{sum(r['modality']=='head' for r in face)} head movements from reliable close-up tracks; {len(cited)} are cited. "
+                 "AU episodes are speech-gated: jaw opening is ignored during the character's own speech and mouth AUs need a "
+                 "longer, larger rise there. They are unreviewed measurements (human_verified=false).\n\n")
+    limits="## Required human review and research limits\n\n1. Watch the entire original-audio clip. Confirm whether the proposed Michelle transition is an observable change, a rhetorical turn, or both. Estimated transition intervals are not precise emotion-onset timestamps.\n2. Listen critically to all 44 SER proposals, especially the 26 Happiness labels. These are actual uncalibrated classifier outputs; no tuning/relabeling was done to match the plot. A four-class model cannot test fear/surprise or establish emotional neutrality.\n3. Check facial tension versus sustained anger, and brief mouth-corner changes versus happiness. Reverse shots and the wide-shot resolution change do not prove emotional transitions.\n4. Independently review all Stage05 event presence, QC flags, tentative character mapping and experimental corrected cuts. AU25/AU26 are speech-sensitive; no speech residual was computed. Head/gaze remain camera-relative; no head–body disentanglement or gaze target is claimed.\n5. Only three Shots have Stage05 measurements in this excerpt. Unprocessed intervals are missing coverage, not negative events; no cross-Shot interpolation was performed.\n6. Narrative continuity does not prove visible acting continuity. All inner motives, emotions, strategies and interpretations remain proposals, with alternatives. No human review or ground-truth evaluation was created.\n7. This single-session analysis cannot establish the requested strict blind independence. See method.json and comparison_abc.md for prior-context and subtitle-exposure limitations.\n\n"
+    if gaze:
+        limits=limits.replace("Head/gaze remain camera-relative; no head–body disentanglement or gaze target is claimed.",
+                              "Stage05 head/gaze events remain camera-relative; gaze targets come only from the human Stage06.3 labels.")
+    review+=limits
     review+=f"""## Reproduce local preparation and replay saved assistant analysis
 
 ```sh
@@ -212,7 +243,20 @@ def assemble(output,analysis):
                     event_review_status=event["review_status"],event_qc_flags=event["qc_flags"],
                     event_source_reference=event["evidence_reference"],character_mapping_status="unverified")
     ann=read(analysis/"acting_annotations.json")
-    check_annotations(ann,groups["C"]["states"],events,proposals_for(branches,"C"),inp)
+    check_annotations(ann,groups["C"]["states"],events,proposals_for(branches,"C"),inp,full_pipeline=True)
+    packet=read(analysis/"interpretation_input.json") if (analysis/"interpretation_input.json").exists() else None
+    if packet:
+        check_interpretation(ann,packet)
+    shots=[{"shot_id":s["shot_id"],"start":s["temporal"]["start"],"end":s["temporal"]["end"]} for s in inp["stage02_context"]]
+    heads={r["evidence_id"]:r for r in inp.get("face_head_references",[])}
+    for r in ann.get("head_gesture_readings",[]):
+        h=heads[r["evidence_id"]]
+        r.update(character_candidate=h["character_candidate"],start=h["start"],end=h["end"],
+                 movement_type=h["label"],speech_state=h["speech_state"],shot_ids=shot_ids(shots,h["start"],h["end"]))
+    for a in ann["annotations"]:  # derived from Stage02 Shot times, never authored
+        a["shot_ids"]=shot_ids(shots,a["start"],a["end"])
+        for o in a["observation"]:
+            o["shot_ids"]=shot_ids(shots,o["start"],o["end"])
     comparison=read(analysis/"comparison_abc.json")
     required={"affect_types","boundaries_and_transitions","interpretation_differences","evidence_sufficiency","full_pipeline_added_value","conflicts_and_unsupported_claims"}
     if set(comparison["comparison"]) != required or not all(isinstance(v,str) and v for v in comparison["comparison"].values()):
@@ -228,7 +272,10 @@ def assemble(output,analysis):
     groups["C"]["annotations"]=ann["annotations"]
     write(output/"stage07_prototype.json",dict(schema_version="stage07.research_prototype.v1",status="model_proposal",movie_id=MOVIE,
           scene_id=inp["scene_id"],character_candidate=inp["character_candidate"],time_range=dict(start=inp["start"],end=inp["end"],unit="movie_global_seconds"),
-          affect_states=groups["C"]["states"],events=events,state_event_links=links,acting_annotations=ann["annotations"],human_verified=False,method=METHOD))
+          shots=shots,affect_states=groups["C"]["states"],events=events,state_event_links=links,acting_annotations=ann["annotations"],human_verified=False,method=METHOD,
+          **({"gaze_references":inp["stage06_3_gaze_references"],"gaze_human_verified":True} if inp.get("stage06_3_gaze_references") else {}),
+          **({"objective_refs":packet["objective_refs"],"head_gesture_readings":ann.get("head_gesture_readings",[]),
+              "interpretation_input_sha256":sha256_file(analysis/"interpretation_input.json")} if packet else {})))
     write(output/"modality_quality.json",dict(status={m:d["status"] for m,d in raw.items()},proposal_counts={m:len(d["proposals"]) for m,d in raw.items()},missing_modalities=[],method_limits=METHOD["limitations"]))
     if (output/"REVIEW.md").exists():
         if (output/"LOCAL_REVIEW.md").exists():

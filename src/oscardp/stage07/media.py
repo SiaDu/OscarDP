@@ -83,7 +83,20 @@ def annotated_review(output):
     cursor=start
     while cursor < end:
         stop=min(cursor+1,end)
-        lines=[f"MOVIE {cursor:.3f} - {stop:.3f}s","MODEL PROPOSALS / NOT GROUND TRUTH",""]
+        lines=[f"MOVIE {cursor:.3f} - {stop:.3f}s","MODEL PROPOSALS / NOT GROUND TRUTH"]
+        live=lambda rows: [r for r in rows if r["start"]<stop and r["end"]>cursor]
+        if data.get("shots"):
+            lines.append("SHOT "+", ".join(s["shot_id"] for s in live(data["shots"])))
+        notes=live(data.get("acting_annotations",[]))
+        if notes:
+            lines.append("ANNOTATION "+", ".join(f"{a['annotation_id']} {a['character_candidate']}" for a in notes))
+        looks={}
+        for g in live(data.get("gaze_references",[])):
+            if g["kind"]!="BLINK":
+                looks.setdefault(g["character_candidate"],[]).append(g["target"] or g["form"])
+        for who,seen in looks.items():
+            lines.append(f"GAZE {who}: "+" > ".join(dict.fromkeys(seen))+" (human)")
+        lines.append("")
         for state in data["affect_states"]:
             if state["start"] >= stop or state["end"] <= cursor:
                 continue

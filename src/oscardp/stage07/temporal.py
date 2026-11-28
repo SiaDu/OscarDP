@@ -1,4 +1,6 @@
 """Minimal time/ID checks, evidence coverage and deterministic State–Event overlap."""
+from collections import defaultdict
+
 from .inputs import interval, overlap
 
 RELATIONS = {"possible_expressive_cue", "contextual_response", "co_occurring_observation", "conflicting_evidence", "unresolved"}
@@ -136,13 +138,20 @@ def apply_relations(candidates, result):
     return candidates
 
 
-def check_annotations(doc, states, events, proposals, inp):
+def check_annotations(doc, states, events, proposals, inp, full_pipeline=False):
     unique(doc["annotations"],"annotation_id")
     state_map={s["state_id"]:s for s in states}
     event_map={e["event_id"]:e for e in events}
     proposal_map={p["proposal_id"]:p for p in proposals}
-    modalities={p["source_modality"] for p in proposals}
-    allowed = set(state_map)|set(event_map)|{p["proposal_id"] for p in proposals}
+    # Human gaze labels and machine face/head evidence join the full pipeline (C) only, never the A/B ablations.
+    extra=defaultdict(dict)
+    if full_pipeline:
+        for g in inp.get("stage06_3_gaze_references",[]):
+            extra["gaze"][g["gaze_id"]]=g
+        for r in inp.get("face_head_references",[]):
+            extra[r["modality"]][r["evidence_id"]]=r
+    modalities={p["source_modality"] for p in proposals}|set(extra)
+    allowed = set(state_map)|set(event_map)|{i for refs in extra.values() for i in refs}|{p["proposal_id"] for p in proposals}
     allowed |= set(inp["stage02_context_references"])|{f"srt_{s['srt_index']:06d}" for s in inp["subtitles"]}
     allowed |= {"scene_audio.wav","visual_only.mp4","silero_vad_speech_support"}
     for a in doc["annotations"]:
@@ -172,6 +181,8 @@ def check_annotations(doc, states, events, proposals, inp):
             for eid in obs["evidence_ids"]:
                 if modality=="stage05" and eid in event_map:
                     p=event_map[eid]
+                elif eid in extra.get(modality,{}):
+                    p=extra[modality][eid]
                 elif eid in proposal_map and proposal_map[eid]["source_modality"]==modality:
                     p=proposal_map[eid]
                 elif modality=="narrative" and (eid.startswith("shot_") or eid.startswith("srt_")):
@@ -183,4 +194,24 @@ def check_annotations(doc, states, events, proposals, inp):
                     supported=True
             if not supported:
                 raise ValueError("Observation lacks compatible modality/character/time evidence")
+    return doc
+
+
+def check_interpretation(doc, packet):
+    """Annotations written from the interpretation packet must name the character's own objective and a tactic."""
+    owner = {o["objective_ref"]: o["character"] for o in packet["objective_refs"]}
+    for a in doc["annotations"]:
+        refs = a.get("objective_refs")
+        if not refs or any(owner.get(r) != a["character_candidate"] for r in refs):
+            raise ValueError(f"{a['annotation_id']}: objective_refs must name this character's Stage04.2 objectives")
+        if not isinstance(a.get("tactic"), str) or not a["tactic"].strip():
+            raise ValueError(f"{a['annotation_id']}: missing tactic")
+    semantic = {h["evidence_id"]: h for h in packet["head_movements"] if h["semantic_candidate"]}
+    readings = doc.get("head_gesture_readings", [])
+    unique(readings, "evidence_id") if readings else None
+    for r in readings:
+        if r["evidence_id"] not in semantic:
+            raise ValueError(f"{r['evidence_id']}: not a semantic head-movement candidate")
+        if not r.get("meaning") or not r.get("alternatives") or not isinstance(r.get("uncertainty"), list):
+            raise ValueError(f"{r['evidence_id']}: reading needs meaning, alternatives and uncertainty")
     return doc

@@ -12,6 +12,8 @@ def main():
     parser.add_argument("--analysis-dir",help="Real saved interactive-assistant annotation JSONs")
     parser.add_argument("--pilot-input",default="reports/stage05_6/tt12300742/pilot_001")
     parser.add_argument("--output-dir",default="reports/stage07/tt12300742/pilot_001")
+    parser.add_argument("--gaze-labels",help="Human Stage06.3 gaze_labels.json; enables 'gaze' observations")
+    parser.add_argument("--face-head",help="Stage07 face_head_evidence.json; enables 'au' and 'head' observations")
     parser.add_argument("--start",type=float)
     parser.add_argument("--end",type=float)
     parser.add_argument("--ser-model",default="superb/wav2vec2-base-superb-er")
@@ -25,7 +27,7 @@ def main():
     if args.command == "run" and not args.analysis_dir:
         parser.error("run requires --analysis-dir; use prepare for local media/audio only")
     if args.command == "inspect":
-        value=selection(load_sources(args.pilot_input),args.start,args.end)
+        value=selection(load_sources(args.pilot_input,args.gaze_labels,args.face_head),args.start,args.end)
         print(json.dumps({k:value[k] for k in ("movie_id","scene_id","start","end","duration","character_candidate","scene_candidates")},indent=2))
         return 0
     return run(args)

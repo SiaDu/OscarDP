@@ -3,9 +3,11 @@ import json
 import math
 from pathlib import Path
 
+from oscardp.shots.transnet import sha256_file
 from oscardp.stage02.srt import parse_srt
 
 MOVIE = "tt12300742"
+GAZE_SCHEMA = "stage06.3.gaze_labels.v1"
 
 
 def read(path):
@@ -49,7 +51,61 @@ def overlap(a, b):
     return max(0., min(a[1], b[1]) - max(a[0], b[0]))
 
 
-def load_sources(pilot):
+def load_gaze(path):
+    """Human Stage06.3 gaze labels; the only human-verified input of this prototype."""
+    labels = read(path)
+    if labels["schema_version"] != GAZE_SCHEMA or labels["movie_id"] != MOVIE or labels["human_verified"] is not True:
+        raise ValueError("Expected human-verified Stage06.3 gaze labels for this movie")
+    return labels
+
+
+def gaze_refs(labels, start, end):
+    """Gaze segments inside the excerpt, clipped to it; MOVE segments also carry where the gaze came from."""
+    refs, unavailable = [], []
+    for track in labels["tracks"]:
+        if track["status"] != "annotated":
+            unavailable.append({k: track[k] for k in ("shot_id", "character", "reason")})
+            continue
+        origin = {s["segment_id"]: s["from"] for s in track["shifts"]}
+        for s in track["segments"]:
+            if overlap((start, end), (s["start_s"], s["end_s"])):
+                refs.append(dict(gaze_id=s["segment_id"], shot_id=track["shot_id"], character_candidate=track["character"],
+                                 kind=s["kind"], target=s["target"], form=s["form"], form_text=s["form_text"],
+                                 from_gaze=origin.get(s["segment_id"]), blink=s["blink"], certainty=s["certainty"],
+                                 start=max(start, s["start_s"]), end=min(end, s["end_s"]),
+                                 original_start=s["start_s"], original_end=s["end_s"], human_verified=True))
+    return refs, unavailable
+
+
+FACE_HEAD_SCHEMA = "stage07.face_head.v1"
+
+
+def face_head_refs(doc, start, end):
+    """Machine AU episodes and head movements from reliable tracks inside the excerpt."""
+    if doc["schema_version"] != FACE_HEAD_SCHEMA or doc["movie_id"] != MOVIE:
+        raise ValueError("Expected Stage07 face/head evidence for this movie")
+    refs = []
+    for t in doc["tracks"]:
+        if not t["reliability"]["reliable"]:
+            continue
+        common = dict(shot_id=t["shot_id"], track_id=t["track_id"], character_candidate=t["character"],
+                      human_verified=False)
+        for e in t["au"]:
+            if overlap((start, end), (e["start"], e["end"])):
+                refs.append(dict(evidence_id=e["au_id"], modality="au", label=e["au"], region=e["region"],
+                                 speech_state=e["speech_state"], peak_rise=e["peak_rise"],
+                                 start=max(start, e["start"]), end=min(end, e["end"]), **common))
+        for m in t["head"]:
+            if overlap((start, end), (m["start"], m["end"])):
+                refs.append(dict(evidence_id=m["head_id"], modality="head", label=m["type"], axis=m["axis"],
+                                 axes=m.get("axes", [m["axis"]]), semantic_candidate=m.get("semantic_candidate"),
+                                 peak_deg=m["peak_deg"], speech_state=m["speech_state"],
+                                 jaw_check=m.get("jaw_check"), start=max(start, m["start"]), end=min(end, m["end"]),
+                                 **common))
+    return refs
+
+
+def load_sources(pilot, gaze=None, face_head=None):
     pilot = Path(pilot).resolve()
     # Legacy Compatibility: immutable Stage05.6 packet filename/schema, not the new gaze stage.
     snapshot = read(pilot / "stage06_input_pilot.json")
@@ -76,6 +132,14 @@ def load_sources(pilot):
     parsed = parse_srt(sources["srt"].read_text(encoding="utf-8-sig"))
     if parsed.issues:
         raise ValueError(f"Original SRT has parse issues: {parsed.issues[:2]}")
+    if gaze:
+        sources["stage06_3_gaze"] = Path(gaze).resolve()
+        data["gaze"] = load_gaze(sources["stage06_3_gaze"])
+        data["gaze_sha256"] = sha256_file(sources["stage06_3_gaze"])
+    if face_head:
+        sources["stage07_face_head"] = Path(face_head).resolve()
+        data["face_head"] = read(sources["stage07_face_head"])
+        data["face_head_sha256"] = sha256_file(sources["stage07_face_head"])
     data.update(paths={k: str(v) for k, v in sources.items()}, packet=packet, subtitles=parsed.cues)
     event_map = {e["event_id"]: e for e in events["events"]}
     if len(event_map) != len(events["events"]):
@@ -149,6 +213,14 @@ def selection(data, start=None, end=None):
         ("Interruption through complete negotiation offer", default_start, default_end,
          "Selected: interruption, attempt to regain control and completed offer; 60–120 second continuous excerpt.")]
     names = sorted({c["character_name"] for s in char_context for c in s["character_candidates"] if c.get("character_name")})
+    gaze = {}
+    if data.get("gaze"):
+        refs, unavailable = gaze_refs(data["gaze"], start, end)
+        gaze = dict(stage06_3_gaze_sha256=data["gaze_sha256"], stage06_3_gaze_references=refs,
+                    stage06_3_gaze_unavailable=unavailable)
+    if data.get("face_head"):
+        gaze.update(face_head_sha256=data["face_head_sha256"],
+                    face_head_references=face_head_refs(data["face_head"], start, end))
     return dict(schema_version="stage07.research_input.v1", movie_id=MOVIE, scene_id=context["scene_id"],
                 status="research_prototype", time_basis="movie_global_seconds_start_inclusive_end_exclusive",
                 start=start, end=end, duration=end-start, character_candidate=names,
@@ -161,4 +233,4 @@ def selection(data, start=None, end=None):
                 audio_video_coverage={"requested": [start, end], "source": data["paths"]["video"],
                                       "audio": "pending_extraction", "video": "pending_extraction"},
                 boundary_note="Start uses experimental Stage05 corrected Shot211 cut; end uses original Stage01 Shot223 end. Neither is human-verified. This is an excerpt, not the full 444 s Stage04 scene.",
-                subtitles=subtitles, stage02_context=shots, stage04_character_context=char_context)
+                subtitles=subtitles, stage02_context=shots, stage04_character_context=char_context, **gaze)
