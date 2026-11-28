@@ -22,7 +22,7 @@ from oscardp.shots.transnet import sha256_file
 from oscardp.stage06_2.evidence_replay import write_json
 from oscardp.stage06_2.inputs import read
 
-VERSION = "stage07.face_head.v1"
+VERSION = "stage07.face_head.v2"
 SPEECH_MARGIN_S = 0.2  # mouths open shortly before voicing and close after it
 HEAD_FOLLOW_S = 0.75  # the head keeps turning after the eyes land (Stage06.3 evaluation)
 MIN_FACE_PX = 150
@@ -46,6 +46,10 @@ AU_MIN_RISE = 0.5  # OpenFace intensity units (0-5)
 AU_MIN_S = 0.2
 AU_MIN_SPEAKING_S = 0.3
 MERGE_S = 0.1
+EYE_AUS = ("AU05", "AU06", "AU07", "AU09")  # move with blinks and eye shifts in OpenFace (seq_006 review)
+EYE_MASK_MARGIN_S = 0.3  # eyelids settle within a few hundred ms after a blink or gaze shift
+VERTICAL = ("DOWN", "UP")  # the upper lid follows vertical gaze, which OpenFace reads as lid AUs
+MIN_STYLE_FRAMES = 12  # head-speed samples needed to describe one spoken line
 FRAME_GAP_S = 0.065  # a missing frame at 23.976 fps breaks a run
 AXES = ("pitch", "yaw", "roll")
 
@@ -375,19 +379,38 @@ def eye_head_lags(frames, segments, threshold):
     return out
 
 
-def head_speed(frames, segments):
-    """Median head angular speed (deg/s) in gaze HOLDs outside follow windows, by speech state."""
+def speed_samples(frames, segments):
+    """(time, speech state, head angular speed deg/s) in gaze HOLDs outside follow windows."""
     owned, held = gaze_windows(segments), holds(segments)
     use = [f for f in frames if f["ok"] and in_any(f["t"], held) and not in_any(f["t"], owned)]
-    speeds = defaultdict(list)
+    out = []
     for run in runs(use):
         angles = {x: smooth([f[x] for f in run]) for x in AXES}  # 3-frame median removes single-frame jitter
         for k in range(len(run) - 1):
             a, b = run[k], run[k + 1]
             if a["speech"] == b["speech"]:
                 step = math.sqrt(sum((angles[x][k + 1] - angles[x][k]) ** 2 for x in AXES))
-                speeds[a["speech"]].append(step / (b["t"] - a["t"]))
-    return speeds
+                out.append((a["t"], a["speech"], step / (b["t"] - a["t"])))
+    return out
+
+
+def utterance_style(samples, lines, who, head, silent_median):
+    """Per own spoken line: head speed against the track's silent speed, and the movement types inside it."""
+    out = []
+    for start, end, speaker, srt_id in lines:
+        values = [v for t, state, v in samples if speaker == who and state == "speaking" and start <= t < end]
+        if len(values) < MIN_STYLE_FRAMES:
+            continue
+        moves = [m for m in head if m["start"] < end and m["end"] > start]
+        types = defaultdict(int)
+        for m in moves:
+            types[m["type"]] += 1
+        speed = statistics.median(values)
+        out.append({"srt_id": srt_id, "start": start, "end": end, "frames": len(values),
+                    "median_speed_deg_s": round(speed, 2),
+                    "ratio_to_silent": round(speed / silent_median, 1) if silent_median else None,
+                    "movement_types": dict(types), "semantic_ids": [m["head_id"] for m in moves if m["semantic_candidate"]]})
+    return out
 
 
 # ---------- AU ----------
@@ -403,12 +426,22 @@ def au_rules(au, state):
     return (state, AU_MIN_S)
 
 
-def au_episodes(frames):
+def eye_mask(segments):
+    """Labelled gaze shifts, blinks, closed eyes and vertical gaze, widened by EYE_MASK_MARGIN_S."""
+    return [(s["start_s"] - EYE_MASK_MARGIN_S, s["end_s"] + EYE_MASK_MARGIN_S) for s in segments
+            if s["kind"] in ("MOVE", "BLINK") or s.get("blink") or s.get("form") in ("CLOSED", *VERTICAL)]
+
+
+def au_episodes(frames, masked=()):
+    """Speech-gated AU rises. Eye-region AUs (EYE_AUS) skip frames inside `masked`."""
     ok = [f for f in frames if f["ok"]]
+
+    def usable(f, au):
+        return au not in EYE_AUS or not in_any(f["t"], masked)
     base = {}
     for au in AUS:
         for state in ("speaking", "silent"):
-            values = [f["au"][au] for f in ok if f["speech"] == state]
+            values = [f["au"][au] for f in ok if f["speech"] == state and usable(f, au)]
             if len(values) >= 12:
                 base[au, state] = (statistics.median(values), robust_sd(values))
     out = []
@@ -416,7 +449,7 @@ def au_episodes(frames):
         hot = []
         for f in ok:
             rule = au_rules(au, f["speech"])
-            if not rule or (au, rule[0]) not in base:
+            if not rule or (au, rule[0]) not in base or not usable(f, au):
                 continue
             med, sd = base[au, rule[0]]
             if f["au"][au] - med >= max(AU_MIN_RISE, AU_Z * sd):
@@ -603,6 +636,7 @@ def build(args):
     audio = read(args.stage07_run / "audio_affect.json")
     voiced = union([tuple(x) for p in audio["proposals"] for x in p["speech_intervals"]])
     cues = [(s["start"], s["end"], s["speaker_candidate"]) for s in inp["subtitles"]]
+    lines = [(*c, f"srt_{s['srt_index']:06d}") for c, s in zip(cues, inp["subtitles"], strict=True)]
     times, rms = rms_envelope(args.stage07_run / "scene_audio.wav", inp["start"])
     people = {t["track_id"]: t["character"] for t in mapping["tracks"] if t["measured"]}
     segments = {(t["shot_id"], t["character"]): t["segments"] for t in labels["tracks"] if t["status"] == "annotated"}
@@ -625,17 +659,23 @@ def build(args):
             head, noise, thresholds = head_movements(frames, segs, peaks.get(who, []))
             for n, m in enumerate(head, 1):
                 m["head_id"] = f"{track['track_id']}_head_{n:03d}"
-            speeds = head_speed(frames, segs)
+            samples = speed_samples(frames, segs)
+            speeds = defaultdict(list)
+            for _, state, v in samples:
+                speeds[state].append(v)
             record["head_speed_deg_s"] = {k: {"frames": len(v), "median": round(statistics.median(v), 2)}
                                           for k, v in speeds.items() if v}
             record["_speeds"] = speeds
             record.update(head=head, head_noise_deg=noise, head_threshold_deg={a: round(v, 2) for a, v in thresholds.items()},
                           postures=postures(frames, segs, thresholds),
                           eye_head=eye_head_lags(frames, segs, max(MIN_HEAD_DEG, thresholds["yaw"])))
-            episodes, baselines = au_episodes(frames)
+            silent = statistics.median(speeds["silent"]) if speeds["silent"] else None
+            record["utterance_style"] = utterance_style(samples, lines, who, head, silent)
+            mask = eye_mask(segs)
+            episodes, baselines = au_episodes(frames, mask)
             for n, e in enumerate(episodes, 1):
                 e["au_id"] = f"{track['track_id']}_au_{n:03d}"
-            record.update(au=episodes, au_baselines=baselines,
+            record.update(au=episodes, au_baselines=baselines, eye_au_mask=[[round(a, 3), round(b, 3)] for a, b in mask],
                           speech_frames={s: sum(f["speech"] == s for f in frames) for s in ("speaking", "uncertain", "silent")})
             tracks.append(record)
     spans = [s for v in own.values() for s in v]

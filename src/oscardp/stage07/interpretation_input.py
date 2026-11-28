@@ -1,11 +1,13 @@
 """Build the input packet for the Stage07 acting-interpretation prompt and start a new analysis directory.
 
 The packet joins the narrative context (Stage04/04.1/04.2/04.3), dialogue, human gaze labels and machine face/head
-evidence for one prepared Stage07 run. Reused legacy branch files are copied unchanged with their hashes.
-The LLM then writes acting_annotations.json into the same directory (docs/prompts/stage07_acting_interpretation_prompt_v1.md).
+evidence for one prepared Stage07 run. Optional: gaze statistics (mutual gaze, joint attention, following) and the
+reviewer's verdicts on an earlier version. Reused legacy branch files are copied unchanged with their hashes.
+The LLM then writes acting_annotations.json into the same directory (docs/prompts/stage07_acting_interpretation_prompt_v2.md).
 """
 
 import argparse
+import csv
 import json
 import shutil
 from pathlib import Path
@@ -13,7 +15,7 @@ from pathlib import Path
 from oscardp.shots.transnet import sha256_file
 from oscardp.stage06_2.evidence_replay import write_json
 
-VERSION = "stage07.interpretation_input.v1"
+VERSION = "stage07.interpretation_input.v2"
 REUSED = ("visual_affect.json", "narrative_affect.json", "visual_identity_map.json", "ablation_A.json",
           "ablation_B.json", "affect_states.json", "relation_assessments.json", "comparison_abc.json")
 AU_NAMES = {"AU01": "inner brow raiser", "AU02": "outer brow raiser", "AU04": "brow lowerer",
@@ -33,15 +35,45 @@ POLICY = [
      "speech rhythm and belong to speaking style, not to the plan."),
     "Stage04/04.1/04.2/04.3 context and legacy visual notes are earlier LLM/assistant hypotheses, not facts.",
     "Unknown or unavailable evidence is missing coverage, not a negative observation.",
+    ("AU episodes are hints about where the face changes. Do not name emotions from them: OpenFace misses subtle and "
+     "sustained expressions, and the same actor's levels shift between shots."),
+    ("Eye-region AUs (05/06/07/09) are masked during labelled gaze shifts, blinks, closed eyes and vertical gaze, "
+     "widened by 0.3 s; outside the mask they can still be eyelid movement."),
+    ("gaze_relations are computed from human labels. Only shots with two labelled characters can show mutual gaze, "
+     "joint attention or following."),
+    "review_feedback holds a reviewer's verdicts and notes on an earlier version; the notes are human observations.",
 ]
+FEEDBACK_FIELDS = ("annotation_id", "character", "start_s", "end_s", "beat", "tactic", "interpretation",
+                   "human_agree", "human_notes")
+HEAD_FEEDBACK_FIELDS = ("head_id", "character", "start_s", "end_s", "movement", "meaning", "human_agree", "human_notes")
 
 
 def read(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def review_feedback(review_dir):
+    """Rows the reviewer filled in an earlier review sheet."""
+    out = {}
+    for name, fields in (("review.csv", FEEDBACK_FIELDS), ("head_gestures.csv", HEAD_FEEDBACK_FIELDS)):
+        path = review_dir / name
+        if path.exists():
+            with path.open(encoding="utf-8-sig") as stream:
+                out[name.removesuffix(".csv")] = [{k: r[k] for k in fields} for r in csv.DictReader(stream)
+                                                  if r["human_agree"].strip() or r["human_notes"].strip()]
+    return out
+
+
+def gaze_relations(stats, labels):
+    segment = {x["shift_id"]: x["segment_id"] for t in labels["tracks"] for x in t["shifts"]}
+    return {"by_role": stats["characters"], "two_person_shots": stats["two_person_shots"],
+            "mutual_gaze": stats["mutual_gaze"], "joint_attention": stats["joint_attention"],
+            "gaze_following": [{**f, "follower_gaze_id": segment.get(f["follower_shift_id"])}
+                               for f in stats["gaze_following"]]}
+
+
 def build_packet(inp, labels, face_head, stage03, stage04_1, stage04_2, stage04_3, states, visual, identity,
-                 sequence_id):
+                 sequence_id, gaze_stats=None, feedback=None):
     scene_id = inp["scene_id"]
     names = set(inp["character_candidate"])
     scene = next(s for s in stage04_2["scene_objectives"] if s["scene_id"] == scene_id)
@@ -95,12 +127,17 @@ def build_packet(inp, labels, face_head, stage03, stage04_1, stage04_2, stage04_
                                                       "peak_deg", "jaw_check")}, "type": r["label"]}
                            for r in refs if r["modality"] == "head"],
         "head_style": head_style,
+        "utterance_head_style": [{"track_id": t["track_id"], "shot_id": t["shot_id"], "character": t["character"], **u}
+                                 for t in face_head["tracks"] if t["reliability"]["reliable"]
+                                 for u in t.get("utterance_style", [])],
         "face_unreliable_tracks": [{"track_id": t["track_id"], "character": t["character"],
                                     "flags": t["reliability"]["flags"]} for t in face_head["tracks"]
                                    if not t["reliability"]["reliable"]],
         "legacy_visual_notes": [{"proposal_id": p["proposal_id"], "start": p["start"], "end": p["end"],
                                  "character_candidate": mapping.get(p["character_candidate"], "Unknown"),
                                  "observable_behaviour": p["observable_behaviour"]} for p in visual["proposals"]],
+        **({"gaze_relations": gaze_relations(gaze_stats, labels)} if gaze_stats else {}),
+        **({"review_feedback": feedback} if feedback is not None else {}),
     }
 
 
@@ -119,10 +156,15 @@ def run(args):
         if sha256_file(paths[name]) != inp[f"{'stage06_3_gaze' if name == 'gaze_labels' else 'face_head'}_sha256"]:
             raise ValueError(f"{name} changed since the Stage07 run was prepared")
     docs = {name: read(path) for name, path in paths.items()}
+    if args.gaze_stats:
+        paths["gaze_stats"] = args.gaze_stats
+    feedback = review_feedback(args.review) if args.review else None
+    if args.review:
+        paths.update({f"review_{p.stem}": p for p in sorted(args.review.glob("*.csv"))})
     packet = build_packet(inp, docs["gaze_labels"], docs["face_head"], docs["stage03"], docs["stage04_1"],
                           docs["stage04_2"], docs["stage04_3"], read(args.reuse / "affect_states.json"),
                           read(args.reuse / "visual_affect.json"), read(args.reuse / "visual_identity_map.json"),
-                          args.sequence_id)
+                          args.sequence_id, read(args.gaze_stats) if args.gaze_stats else None, feedback)
     packet["sources"] = {name: {"file": str(path), "sha256": sha256_file(path)} for name, path in paths.items()}
     output.mkdir(parents=True)
     for name in REUSED:
@@ -131,7 +173,7 @@ def run(args):
     write_json(output / "provenance.json", {
         "reused_unchanged_from": str(args.reuse), "reused_sha256": {n: sha256_file(output / n) for n in REUSED},
         "interpretation_input_sha256": sha256_file(output / "interpretation_input.json"),
-        "prompt": "docs/prompts/stage07_acting_interpretation_prompt_v1.md",
+        "prompt": "docs/prompts/stage07_acting_interpretation_prompt_v2.md",
         "to_author": "acting_annotations.json"})
     print(f"Packet: {len(packet['dialogue'])} cues, {len(packet['gaze'])} gaze segments, "
           f"{len(packet['au_episodes'])} AU episodes, {len(packet['head_movements'])} head movements → {output}")
@@ -143,6 +185,8 @@ def main():
     parser.add_argument("--movie-dir", required=True, type=Path, help="dataset folder with Stage03/04 JSON")
     parser.add_argument("--sequence-id", required=True)
     parser.add_argument("--reuse", required=True, type=Path, help="analysis directory whose branch files are reused")
+    parser.add_argument("--gaze-stats", type=Path, help="Stage07 gaze_stats.json (optional)")
+    parser.add_argument("--review", type=Path, help="earlier review directory with filled CSVs (optional)")
     parser.add_argument("--output-dir", required=True, type=Path)
     run(parser.parse_args())
 

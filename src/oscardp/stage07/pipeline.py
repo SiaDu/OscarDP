@@ -243,8 +243,9 @@ def assemble(output,analysis):
                     event_review_status=event["review_status"],event_qc_flags=event["qc_flags"],
                     event_source_reference=event["evidence_reference"],character_mapping_status="unverified")
     ann=read(analysis/"acting_annotations.json")
-    check_annotations(ann,groups["C"]["states"],events,proposals_for(branches,"C"),inp,full_pipeline=True)
     packet=read(analysis/"interpretation_input.json") if (analysis/"interpretation_input.json").exists() else None
+    review=(packet or {}).get("review_feedback",{}).get("review",[])
+    check_annotations(ann,groups["C"]["states"],events,proposals_for(branches,"C"),inp,full_pipeline=True,review=review)
     if packet:
         check_interpretation(ann,packet)
     shots=[{"shot_id":s["shot_id"],"start":s["temporal"]["start"],"end":s["temporal"]["end"]} for s in inp["stage02_context"]]

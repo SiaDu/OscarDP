@@ -109,3 +109,23 @@ def test_overlapping_axes_are_one_movement():
     assert [(m["type"], m["axes"]) for m in moves] == [("nod+tilt", ["pitch", "yaw", "roll"]), ("beat", ["roll"])]
     assert moves[0]["semantic_candidate"] and not moves[1]["semantic_candidate"]
     assert {c["type"] for c in moves[0]["components"]} == {"nod", "tilt", "beat"}  # the fast yaw part is folded in
+
+
+def test_eye_aus_are_masked_during_gaze_shifts_and_blinks():
+    frames = [frame(t, au={"AU07": 2.5 if 2. <= t < 2.5 or 6. <= t < 6.5 or 8.2 <= t < 8.7 else 0.2,
+                           "AU01": 2.5 if 2. <= t < 2.5 else 0.2}) for t in times(0, 10)]
+    segments = [{"kind": "HOLD", "start_s": 0., "end_s": 2.}, {"kind": "MOVE", "start_s": 2., "end_s": 2.4},
+                {"kind": "HOLD", "start_s": 2.4, "end_s": 8., "blink": False},
+                {"kind": "HOLD", "start_s": 8., "end_s": 10., "form": "DOWN"}]
+    found = {(e["au"], round(e["start"], 1)) for e in fh.au_episodes(frames, fh.eye_mask(segments))[0]}
+    assert ("AU07", 6.0) in found and ("AU07", 2.0) not in found  # lid tightening during the shift is the eye moving
+    assert not any(au == "AU07" and t >= 8. for au, t in found)  # the lid follows downward gaze
+    assert ("AU01", 2.0) in found  # brows are not masked
+
+
+def test_utterance_style_compares_line_speed_with_silence():
+    samples = [(t / 10, "speaking" if t < 20 else "silent", 9. if t < 20 else 3.) for t in range(40)]
+    head = [{"start": 0.5, "end": 0.9, "type": "nod", "semantic_candidate": True, "head_id": "h1"}]
+    (line,) = fh.utterance_style(samples, [(0., 2., "ANNA", "srt_000001"), (0., 2., "BEN", "srt_000002")],
+                                 "ANNA", head, 3.)
+    assert line["ratio_to_silent"] == 3. and line["movement_types"] == {"nod": 1} and line["semantic_ids"] == ["h1"]

@@ -266,6 +266,25 @@ def test_gaze_observations_need_the_same_character_and_the_full_pipeline():
                           inp, full_pipeline=True)
 
 
+def test_review_observations_cite_the_reviewers_row():
+    inp = dict(start=10., end=20., stage02_context_references=[], subtitles=[])
+    s = dict(state_id="s", character_candidate="MICHELLE", start=10., end=20.)
+    p = proposal("v", "video", 10., 20.)
+    review = [dict(annotation_id="C_annotation_001", character="MICHELLE", start_s="10.000", end_s="15.000")]
+
+    def doc(eid="review:C_annotation_001", character="MICHELLE"):
+        return {"annotations": [dict(annotation_id="a", status="model_proposal", character_candidate=character,
+                                     start=10., end=20., state_ids=["s"], event_ids=[], evidence=[eid],
+                                     interpretation="t", alternative_interpretation=["t"], uncertainty=[],
+                                     observation=[dict(source_modality="review", start=11., end=12.,
+                                                       description="lips pressed", evidence_ids=[eid])])]}
+    assert check_annotations(doc(), [s], [], [p], inp, full_pipeline=True, review=review)
+    with pytest.raises(ValueError, match="modality excluded|Unknown annotation evidence"):
+        check_annotations(doc(), [s], [], [p], inp, full_pipeline=True)  # no review given
+    with pytest.raises(ValueError, match="Unknown annotation evidence"):
+        check_annotations(doc("review:C_annotation_009"), [s], [], [p], inp, full_pipeline=True, review=review)
+
+
 def test_face_head_evidence_is_reliable_only_and_full_pipeline_only():
     from oscardp.stage07.inputs import face_head_refs
     track = dict(track_id="t1", shot_id="shot_000001", character="MICHELLE", reliability={"reliable": True},
@@ -305,8 +324,13 @@ def test_review_sheet_lists_shot_ids(tmp_path):
     (run / "stage07_prototype.json").write_text(json.dumps(dict(acting_annotations=[annotation],
                                                                 time_range=dict(start=10., end=20.))))
     (run / "stage07_input.json").write_text(json.dumps(dict(subtitles=[dict(srt_index=7, text="Line seven.")])))
-    assert write(run, tmp_path / "review_x") == (1, 0)
+    earlier = tmp_path / "review_w"
+    earlier.mkdir()
+    (earlier / "review.csv").write_text("annotation_id,human_agree,human_notes\nC_annotation_001,NO,blink\n",
+                                        encoding="utf-8-sig")
+    assert write(run, tmp_path / "review_x", earlier) == (1, 0)
     (row,) = csv.DictReader((tmp_path / "review_x" / "review.csv").open(encoding="utf-8-sig"))
+    assert row["previous_review"] == "NO: blink"
     assert row["shot_ids"] == "shot_000001 shot_000002" and row["dialogue"] == "Line seven."
     assert row["gaze"] == "looks at Don" and row["face_head"] == "shake" and row["human_agree"] == ""
     assert "../pilot_x/review_video_annotated.mp4" in (tmp_path / "review_x" / "README.md").read_text()

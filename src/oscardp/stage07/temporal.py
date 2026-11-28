@@ -138,7 +138,7 @@ def apply_relations(candidates, result):
     return candidates
 
 
-def check_annotations(doc, states, events, proposals, inp, full_pipeline=False):
+def check_annotations(doc, states, events, proposals, inp, full_pipeline=False, review=()):
     unique(doc["annotations"],"annotation_id")
     state_map={s["state_id"]:s for s in states}
     event_map={e["event_id"]:e for e in events}
@@ -150,6 +150,10 @@ def check_annotations(doc, states, events, proposals, inp, full_pipeline=False):
             extra["gaze"][g["gaze_id"]]=g
         for r in inp.get("face_head_references",[]):
             extra[r["modality"]][r["evidence_id"]]=r
+        # A reviewer's notes on an earlier version are human observations: "review:<earlier annotation_id>".
+        for r in review:
+            extra["review"][f"review:{r['annotation_id']}"]={"character_candidate":r["character"],
+                                                            "start":float(r["start_s"]),"end":float(r["end_s"])}
     modalities={p["source_modality"] for p in proposals}|set(extra)
     allowed = set(state_map)|set(event_map)|{i for refs in extra.values() for i in refs}|{p["proposal_id"] for p in proposals}
     allowed |= set(inp["stage02_context_references"])|{f"srt_{s['srt_index']:06d}" for s in inp["subtitles"]}

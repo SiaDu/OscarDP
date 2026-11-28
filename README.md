@@ -29,8 +29,9 @@ One 115 s sequence (13 shots, 3 characters) runs through every stage. Results so
 | Gaze (06.3) | Human MOVE/HOLD labels per shot and character | 45 gaze shifts; machine MOVEs find 30 within ±0.25 s, 37 with any raw event |
 | Eye–head | Head motion around each labelled shift | Eyes lead; for nearby targets the head barely follows (median turn 3.9°) |
 | Head (07) | OpenFace pose inside gaze holds, split by own speech | Michelle 11.3 °/s speaking vs 4.1 °/s silent; 14 nod/shake/tilt candidates |
-| AU (07) | OpenFace AU with speech gating (jaw ignored, mouth AUs stricter while speaking) | Misses subtle and sustained expressions; blinks read as lid tightening |
-| Interpretation (07) | LLM prompt over Stage04 context, gaze, AU and head evidence | 15 beats reviewed: 4 agree, 9 partly, 2 disagree |
+| AU (07) | OpenFace AU with speech gating; eye-region AUs masked during gaze shifts, blinks and vertical gaze | Misses subtle and sustained expressions; used as hints only |
+| Gaze by role (07) | Human labels split by who is speaking | Teddy looks away 48 % while speaking vs 22 % while listening; in the one two-person shot, 10 s of mutual gaze and joint attention on Don |
+| Interpretation (07) | LLM prompt over Stage04 context, gaze, AU and head evidence | v1: 15 beats reviewed, 4 agree, 9 partly, 2 disagree; v2 (AU as hints, review notes as input) awaits review |
 
 The review shows that gaze-grounded readings hold and AU-grounded readings do not.
 AU levels for the same actor shift by about 2 points between shots (pose, light, framing), so changing the

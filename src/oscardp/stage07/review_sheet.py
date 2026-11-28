@@ -6,12 +6,12 @@ import json
 from pathlib import Path
 
 COLUMNS = ("annotation_id", "shot_ids", "character", "start_s", "end_s", "beat", "objective", "tactic", "gaze",
-           "face_head", "dialogue", "interpretation", "alternatives", "human_agree", "human_notes")
+           "face_head", "dialogue", "interpretation", "alternatives", "previous_review", "human_agree", "human_notes")
 HEAD_COLUMNS = ("head_id", "shot_ids", "character", "start_s", "end_s", "movement", "speech_state", "words", "meaning",
                 "alternatives", "human_agree", "human_notes")
 GUIDE = """# Stage07 表演解读审核
 
-由助手按 `docs/prompts/stage07_acting_interpretation_prompt_v1.md` 写成，是假设，不是标签。
+由助手按 `docs/prompts/` 里的 Stage07 表演解读 prompt 写成（版本见对应 analysis 目录的 `provenance.json`），是假设，不是标签。
 对照 [带标注的片段]({video})：右侧面板显示正片时间、当前镜头（SHOT）、生效的解读编号（ANNOTATION）和人工 gaze。
 正片时间 = 播放时间 + {start:.3f}。
 
@@ -19,6 +19,7 @@ GUIDE = """# Stage07 表演解读审核
 2. [head_gestures.csv](head_gestures.csv)：{heads} 个有语义的头部动作（点头、摇头、歪头）及其含义解读。
 
 每行填 `human_agree`（YES / PARTLY / NO）和 `human_notes`（理由或改法；画面里看不出的 AU、头动也请注明）。其他列不用改。
+`previous_review` 是上一轮的审核意见（如有），方便核对是否已采纳。
 """
 
 
@@ -28,7 +29,15 @@ def load(run):
     return data, inp
 
 
-def rows(data, inp):
+def previous(review_dir):
+    """annotation_id -> 'AGREE: notes' from a filled earlier review.csv."""
+    if not review_dir:
+        return {}
+    with (review_dir / "review.csv").open(encoding="utf-8-sig") as stream:
+        return {r["annotation_id"]: f"{r['human_agree']}: {r['human_notes']}".strip(": ") for r in csv.DictReader(stream)}
+
+
+def rows(data, inp, earlier=None):
     cues = {f"srt_{s['srt_index']:06d}": s["text"].replace("\n", " ") for s in inp["subtitles"]}
     objectives = {o["objective_ref"]: o.get("text_zh") or o["text"] for o in data.get("objective_refs", [])}
 
@@ -42,7 +51,8 @@ def rows(data, inp):
                "beat": a.get("beat", ""), "objective": " | ".join(objectives.get(r, r) for r in a.get("objective_refs", [])),
                "tactic": a.get("tactic", ""), "gaze": pick(a, ("gaze",)), "face_head": pick(a, ("au", "head")),
                "dialogue": " / ".join(lines), "interpretation": a["interpretation"],
-               "alternatives": " | ".join(a["alternative_interpretation"]), "human_agree": "", "human_notes": ""}
+               "alternatives": " | ".join(a["alternative_interpretation"]),
+               "previous_review": (earlier or {}).get(a["annotation_id"], ""), "human_agree": "", "human_notes": ""}
 
 
 def head_rows(data, inp):
@@ -62,9 +72,9 @@ def write_csv(path, columns, records):
         writer.writerows(records)
 
 
-def write(run, output):
+def write(run, output, earlier_review=None):
     data, inp = load(run)
-    sheet, heads = list(rows(data, inp)), list(head_rows(data, inp))
+    sheet, heads = list(rows(data, inp, previous(earlier_review))), list(head_rows(data, inp))
     output.mkdir(parents=True, exist_ok=False)
     write_csv(output / "review.csv", COLUMNS, sheet)
     write_csv(output / "head_gestures.csv", HEAD_COLUMNS, heads)
@@ -78,8 +88,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", required=True, type=Path, help="assembled Stage07 run directory")
     parser.add_argument("--output-dir", required=True, type=Path, help="new directory next to the run")
+    parser.add_argument("--previous-review", type=Path, help="filled review directory of the earlier version")
     args = parser.parse_args()
-    annotations, heads = write(args.run, args.output_dir)
+    annotations, heads = write(args.run, args.output_dir, args.previous_review)
     print(f"{annotations} annotations, {heads} head gestures → {args.output_dir}")
 
 

@@ -207,7 +207,7 @@ one-frame corrected cuts). The annotated video panel shows the current Shot, act
 
 Annotations follow [the interpretation prompt](prompts/stage07_acting_interpretation_prompt_v1.md). Each beat names the
 character's own Stage04.2 objective (`objective_refs`) and a `tactic`; semantic head movements get
-`head_gesture_readings`. Assembly checks both when `interpretation_input.json` is present. Current run: `pilot_006`.
+`head_gesture_readings`. Assembly checks both when `interpretation_input.json` is present. Superseded by v2 below.
 
 ```sh
 s=reports/stage07/tt12300742
@@ -220,4 +220,86 @@ uv --no-cache run --no-sync python -m oscardp.stage07 run --prepared --output-di
   --gaze-labels reports/stage06_3/tt12300742/seq_006/labels_001/gaze_labels.json \
   --face-head $s/face_head_002/face_head_evidence.json
 uv --no-cache run --no-sync python -m oscardp.stage07.review_sheet --run $s/pilot_006 --output-dir $s/review_006
+```
+
+Review of v1 (`review_006`, 15 beats): 4 agree, 9 partly, 2 disagree. Gaze-grounded readings held. The rejected
+parts came from AU episodes (blinks read as lid tightening, mouth AUs during speech read as tension or threat) and
+from analyst knowledge given to a character (that Don is the weakest captor).
+
+## Gaze statistics · gaze_stats_001
+
+`python -m oscardp.stage07.gaze_stats` summarises the human gaze labels by role: `speaking` (own voiced cue),
+`listening` (another character voiced), `silence`, `uncertain`. Two-person events need two labelled characters in
+one shot: mutual gaze, joint attention on a third person, and following (turning to the person another character
+landed on within 2 s). Rates from under 10 s of labels are unstable.
+
+| Result (seq_006) | Value |
+| --- | --- |
+| Michelle speaking (69.8 s) | Teddy 79 %, Don 12 %, away 2 %; 20.6 shifts/min |
+| Teddy speaking (5.6 s) vs listening (24.0 s) | away 48 % vs 22 %; on Michelle 40 % vs 58 % |
+| Don (7.1 s, shot 216 only) | never on a person (unfocused) |
+| Shot 222 (only two-person shot) | mutual gaze 10.1 of 17.9 s; joint attention on Don 2.25 s; Teddy turns to Don first, Michelle follows 0.92 s later |
+
+The reviewer explains Teddy's Don look as shared attention drawn by Michelle. Within 222 the labels give the
+opposite order; the reviewer notes that Michelle's 8 s hold on Teddy may hide Don looks.
+
+## Face and head evidence v2 · face_head_004
+
+| Change | Rule |
+| --- | --- |
+| Eye-region AU mask | AU05/06/07/09 skip frames in labelled MOVEs, BLINKs, closed eyes and DOWN/UP holds, ±0.3 s; the baseline skips them too |
+| Head style per line | For each own spoken cue on a reliable track: median head speed / the track's silent median, and the movement types inside it |
+
+Eye-region AU episodes on reliable tracks fall from 22 to 14; other AUs and all head movements are unchanged.
+`face_head_003` (±0.1 s, no vertical gaze) is superseded: new episodes appeared just after its mask edges.
+The mask comes from the seq_006 review and is not tested on other sequences.
+
+## Acting interpretation v2 · analysis_004
+
+[Prompt v2](prompts/stage07_acting_interpretation_prompt_v2.md): AU episodes are hints and never name emotions;
+characters know only what they can see and hear; listener looks at a third person are checked against gaze relations;
+head movement during speech is described per line as style, and only isolated nods, shakes and tilts get readings.
+
+The packet adds `gaze_relations`, `utterance_head_style` and `review_feedback` (filled rows of an earlier review).
+A reviewer's note is a `review` observation citing `review:<earlier annotation_id>`; assembly checks the character
+and time. v2 keeps v1's beat IDs and times, so the sheets compare row by row; `previous_review` shows the v1 verdict.
+The author had read `review_006`, so v2 is a revision, not an independent test. Result: 15 beats, 8 head readings.
+
+```sh
+s=reports/stage07/tt12300742
+labels=reports/stage06_3/tt12300742/seq_006/labels_001/gaze_labels.json
+uv --no-cache run --no-sync python -m oscardp.stage07.gaze_stats --gaze-labels $labels --stage07-run $s/pilot_001 \
+  --output-dir $s/gaze_stats_001
+uv --no-cache run --no-sync python -m oscardp.stage07.face_head --full-sequence \
+  reports/stage06_2/tt12300742/seq_006/full_sequence_001 \
+  --track-mapping reports/stage06_3/tt12300742/seq_006/pilot_003/character_track_mapping.json \
+  --gaze-labels $labels --stage07-run $s/pilot_001 \
+  --landmarks reports/stage05_4/tt12300742/pilot_001/frame_features.parquet --output-dir $s/face_head_004
+uv --no-cache run --no-sync python -m oscardp.stage07 prepare --output-dir $s/pilot_007 --model-dir models/stage06 \
+  --gaze-labels $labels --face-head $s/face_head_004/face_head_evidence.json
+uv --no-cache run --no-sync python -m oscardp.stage07.interpretation_input --run $s/pilot_007 \
+  --movie-dir /media/sdu/SiyaoDu/datasets/oscar_movie_analysis/tt12300742 --sequence-id seq_006 \
+  --reuse $s/analysis_003 --gaze-stats $s/gaze_stats_001/gaze_stats.json --review $s/review_006 \
+  --output-dir $s/analysis_004
+# the LLM writes $s/analysis_004/acting_annotations.json from prompt v2
+uv --no-cache run --no-sync python -m oscardp.stage07 run --prepared --output-dir $s/pilot_007 \
+  --analysis-dir $s/analysis_004 --model-dir models/stage06 --gaze-labels $labels \
+  --face-head $s/face_head_004/face_head_evidence.json
+uv --no-cache run --no-sync python -m oscardp.stage07.review_sheet --run $s/pilot_007 --output-dir $s/review_007 \
+  --previous-review $s/review_006
+```
+
+## Timeline figures · figures_002
+
+`python -m oscardp.stage07.timeline_figure` draws `timeline.png/pdf` (shots, dialogue, human gaze, machine head and AU
+hints, beats with the earlier review verdict) and three seq_006 close-ups: 215 (eyes land on Don before she names
+him), 221 (raw AU12 for the smile the reviewer saw, under the episode threshold), 222 (gaze following and joint
+attention). Colours follow characters. The close-ups come from `--cases` (a JSON in `reports/`, copied into the
+output), because their labels quote dialogue; figures stay in `reports/` for the same reason. `figures_001` is an
+identical earlier render made before the cases moved out of the code.
+
+```sh
+uv --no-cache run --no-sync python -m oscardp.stage07.timeline_figure --run $s/pilot_007 --gaze-labels $labels \
+  --face-head $s/face_head_004/face_head_evidence.json --gaze-stats $s/gaze_stats_001/gaze_stats.json \
+  --review $s/review_006 --cases $s/figure_cases_seq_006.json --output-dir $s/figures_002
 ```

@@ -77,12 +77,12 @@ def gaze_refs(labels, start, end):
     return refs, unavailable
 
 
-FACE_HEAD_SCHEMA = "stage07.face_head.v1"
+FACE_HEAD_SCHEMAS = ("stage07.face_head.v1", "stage07.face_head.v2")
 
 
 def face_head_refs(doc, start, end):
     """Machine AU episodes and head movements from reliable tracks inside the excerpt."""
-    if doc["schema_version"] != FACE_HEAD_SCHEMA or doc["movie_id"] != MOVIE:
+    if doc["schema_version"] not in FACE_HEAD_SCHEMAS or doc["movie_id"] != MOVIE:
         raise ValueError("Expected Stage07 face/head evidence for this movie")
     refs = []
     for t in doc["tracks"]:
