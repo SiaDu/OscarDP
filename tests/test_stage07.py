@@ -304,10 +304,10 @@ def test_review_sheet_lists_shot_ids(tmp_path):
                                    dict(source_modality="head", description="shake", evidence_ids=["h"])])
     (run / "stage07_prototype.json").write_text(json.dumps(dict(acting_annotations=[annotation],
                                                                 time_range=dict(start=10., end=20.))))
-    (run / "stage07_input.json").write_text(json.dumps(dict(subtitles=[dict(srt_index=7, text="Or you.")])))
+    (run / "stage07_input.json").write_text(json.dumps(dict(subtitles=[dict(srt_index=7, text="Line seven.")])))
     assert write(run, tmp_path / "review_x") == (1, 0)
     (row,) = csv.DictReader((tmp_path / "review_x" / "review.csv").open(encoding="utf-8-sig"))
-    assert row["shot_ids"] == "shot_000001 shot_000002" and row["dialogue"] == "Or you."
+    assert row["shot_ids"] == "shot_000001 shot_000002" and row["dialogue"] == "Line seven."
     assert row["gaze"] == "looks at Don" and row["face_head"] == "shake" and row["human_agree"] == ""
     assert "../pilot_x/review_video_annotated.mp4" in (tmp_path / "review_x" / "README.md").read_text()
 
